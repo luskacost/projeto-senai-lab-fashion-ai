@@ -21,6 +21,8 @@ import io
 import re
 import math
 import hashlib
+import shutil
+import sqlite3
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Union, Tuple, Set
 
@@ -273,6 +275,53 @@ def _obter_colecao_tenant(tenant_id: str):
     client = obter_cliente_chroma(tenant_id)
     nome_colecao = f"docs_{COLLECTION_VERSION}_{tenant_id}"
     return client.get_or_create_collection(name=nome_colecao)
+
+
+def limpar_indices_orfaos(tenant_id: str) -> Dict[str, Any]:
+    """Remove collections não-canônicas e pastas de segmento órfãs do armazenamento do tenant.
+
+    A única collection considerada válida para o tenant é `docs_{COLLECTION_VERSION}_{tenant_id}`.
+    Qualquer outra collection registrada no mesmo armazenamento físico (ex.: leftovers de
+    scripts de benchmark que reutilizaram o cliente ChromaDB do tenant para criar collections
+    com nomes arbitrários) é removida via `client.delete_collection()`. Em seguida, pastas de
+    segmento no disco sem nenhuma linha correspondente em `segments` (resíduo de reindexações
+    ou collections antigas já deletadas) são removidas diretamente.
+
+    Não é chamada automaticamente em nenhum fluxo do app — deve ser executada manualmente,
+    sob supervisão, para higienizar o armazenamento de um tenant específico.
+    """
+    logger = obter_logger(tenant_id)
+    client = obter_cliente_chroma(tenant_id)
+    caminho_tenant = _obter_caminho_chroma(tenant_id)
+    nome_canonico = f"docs_{COLLECTION_VERSION}_{tenant_id}"
+
+    colecoes_removidas: List[str] = []
+    for colecao in client.list_collections():
+        nome = getattr(colecao, "name", colecao)
+        if nome != nome_canonico:
+            client.delete_collection(name=nome)
+            colecoes_removidas.append(nome)
+            logger.info(f"Collection não-canônica removida do tenant '{tenant_id}': {nome}")
+
+    ids_segmentos_ativos: Set[str] = set()
+    caminho_sqlite = os.path.join(caminho_tenant, "chroma.sqlite3")
+    if os.path.exists(caminho_sqlite):
+        conexao = sqlite3.connect(caminho_sqlite)
+        try:
+            ids_segmentos_ativos = {row[0] for row in conexao.execute("SELECT id FROM segments").fetchall()}
+        finally:
+            conexao.close()
+
+    pastas_removidas: List[str] = []
+    if os.path.isdir(caminho_tenant):
+        for nome_pasta in os.listdir(caminho_tenant):
+            caminho_pasta = os.path.join(caminho_tenant, nome_pasta)
+            if os.path.isdir(caminho_pasta) and nome_pasta not in ids_segmentos_ativos:
+                shutil.rmtree(caminho_pasta, ignore_errors=True)
+                pastas_removidas.append(nome_pasta)
+                logger.info(f"Pasta de índice órfã removida do tenant '{tenant_id}': {nome_pasta}")
+
+    return {"colecoes_removidas": colecoes_removidas, "pastas_removidas": pastas_removidas}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
