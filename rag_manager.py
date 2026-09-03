@@ -23,6 +23,7 @@ import math
 import hashlib
 import shutil
 import sqlite3
+import time
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Union, Tuple, Set
 
@@ -1010,9 +1011,23 @@ def _calcular_score_hibrido(query: str, chunk_texto: str, metadata: Dict[str, An
 # ─────────────────────────────────────────────────────────────────────────────
 # BUSCA SEMÂNTICA, HÍBRIDA E RERANKING
 # ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# BUSCA SEMÂNTICA, HÍBRIDA E RERANKING
-# ─────────────────────────────────────────────────────────────────────────────
+def _log_resumo_busca(logger, tenant_id: str, debug_info: Dict[str, Any], tempo_inicio: float) -> None:
+    """Registra uma linha de log estruturada e enxuta com o resultado de uma busca RAG.
+
+    Complementa o bloco de debug verboso (gated por RAG_DEBUG) com uma linha sempre ativa,
+    de baixo custo, para observabilidade mínima em produção: tenant, rota escolhida pelo
+    QueryRouter, se o motor tabular foi acionado, quantidade de chunks retornados ao LLM e
+    tempo total de resposta da busca.
+    """
+    tempo_ms = (time.time() - tempo_inicio) * 1000
+    logger.info(
+        f"rag_query_summary tenant={tenant_id} route={debug_info.get('route', '?')} "
+        f"tabular_attempted={debug_info.get('tabular_engine_attempted', False)} "
+        f"chunks={debug_info.get('final_context', {}).get('quantidade_chunks', 0)} "
+        f"tempo_ms={tempo_ms:.1f}"
+    )
+
+
 def buscar_contexto_relevante(
     tenant_id: str,
     pergunta: str,
@@ -1031,6 +1046,7 @@ def buscar_contexto_relevante(
     global _ULTIMO_RAG_DEBUG
     logger = obter_logger(tenant_id)
     cfg = config or RAG_CONFIG
+    _inicio_busca = time.time()
 
     try:
         collection = _obter_colecao_tenant(tenant_id)
@@ -1101,6 +1117,7 @@ def buscar_contexto_relevante(
                     "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
                     "final_context": {"quantidade_chunks": 1, "caracteres": len(ambiguity_chunk["texto"]), "fontes": [ambiguity_chunk["fonte"]]}
                 }
+                _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
                 return [ambiguity_chunk]
 
         # 0. Verificação e Execução do Tabular Query Engine (Prioridades 3 e 5)
@@ -1167,6 +1184,7 @@ def buscar_contexto_relevante(
                     "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
                     "final_context": {"quantidade_chunks": 1, "caracteres": len(tabular_chunk_dict["texto"]), "fontes": [tabular_chunk_dict["fonte"]]}
                 }
+                _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
                 return [tabular_chunk_dict]
 
             if RAG_DEBUG:
@@ -1198,6 +1216,7 @@ def buscar_contexto_relevante(
                 "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
                 "final_context": {"quantidade_chunks": 0, "caracteres": 0, "fontes": []}
             }
+            _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
             return []
 
         # 1. Query Understanding, Classificação e Expansão/Decomposição
@@ -1328,9 +1347,12 @@ def buscar_contexto_relevante(
         if RAG_DEBUG:
             logger.info(f"\n{formatar_bloco_debug_rag(_ULTIMO_RAG_DEBUG)}")
 
+        _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
         return chunks_formatados
     except Exception as e:
         logger.error(f"Erro ao recuperar contexto relevante no ChromaDB para tenant '{tenant_id}': {e}", exc_info=True)
+        tempo_ms = (time.time() - _inicio_busca) * 1000
+        logger.info(f"rag_query_summary tenant={tenant_id} route=ERROR tabular_attempted=False chunks=0 tempo_ms={tempo_ms:.1f}")
         return []
 
 
