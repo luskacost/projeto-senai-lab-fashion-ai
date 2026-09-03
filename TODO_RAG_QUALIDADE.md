@@ -5,7 +5,7 @@ Checklist operacional extraído de `RAG_P5_1_FAILURE_ANALYSIS.md` (220 cenários
 ciclo de melhoria pontual): reproduzir com `tests/rag/test_retrieval_quality.py`/`test_cases.json` ou
 um caso equivalente, ajustar 1 hiperparâmetro/regra, revalidar. Não recriar a análise — só executar.
 
-Status desta lista: itens 1 e 2 tratados. Itens 3-4 seguem pendentes. A ordem reflete o ranking de
+Status desta lista: itens 1, 2 e 3 tratados. Item 4 segue pendente. A ordem reflete o ranking de
 impacto do próprio relatório (Seção 7 do failure analysis).
 
 ## 1. [CONCLUÍDO] Contrato de síntese de resposta / dupla notação (maior impacto: ~91 de 138 casos, 65.9%)
@@ -36,15 +36,15 @@ impacto do próprio relatório (Seção 7 do failure analysis).
   cardinalidade. Teste de regressão permanente:
   `tests/rag/test_tabular_query_engine.py::test_u_group_count_sem_correspondencia_de_coluna`.
 
-## 3. Desambiguação de consultas vagas sem entidade (elimina a última alucinação, 1 caso)
+## 3. [CONCLUÍDO] Desambiguação de consultas vagas sem entidade (elimina a última alucinação, 1 caso)
 
-- **Causa raiz:** perguntas como `"Qual foi a pontuação?"` sem especificar a entidade não são
-  capturadas pelo detector de ambiguidade do `QueryRouter`, podendo levar a uma resposta inventada.
-- **Onde mexer:** `query_router.py` (já tem lógica de detecção de ambiguidade — grep por "pontuação"
-  mostra que o termo já aparece no arquivo; **verificar se a variante sem entidade explícita está
-  coberta** ou se falta adicionar esse padrão específico ao detector).
-- **Como validar:** reproduzir o caso `BAT_P_141` (ou equivalente) e confirmar que o sistema pede
-  esclarecimento em vez de responder.
+- **Descoberta:** já estava implementado em `query_router.py` (linhas 475-476, conjunto
+  `perguntas_vagas` inclui `"qual foi a pontuacao"`/`"qual foi a pontuação"`) — não era um gap real,
+  só faltava cobertura de teste. Confirmado por reprodução direta: `route_query("Qual foi a
+  pontuação?")` retorna `AMBIGUOUS`; a mesma pergunta com entidades explícitas
+  (`"...entre Team Spirit e Team Falcons?"`) corretamente NÃO é tratada como ambígua.
+- **Feito:** estendido `tests/rag/test_query_router.py::test_08_ambiguidade_pergunta_incompleta` com
+  o caso exato do benchmark (`BAT_P_141`) e o contraste com entidades explícitas.
 
 ## 4. Reranking corta candidato correto do Top-5 (~13 casos, 9.4%)
 
