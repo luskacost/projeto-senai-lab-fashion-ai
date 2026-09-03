@@ -1,5 +1,10 @@
 """Configurações de Tenants para a aplicação Streamlit Senai LabFashion IA."""
 
+import os
+import json
+
+from logger_config import obter_logger
+
 PERFIS_USUARIO = {
     "dono_responsavel": {
         "nome": "Dono(a) / Responsável",
@@ -250,5 +255,72 @@ Para temas sensíveis (como plus size, diversidade, sustentabilidade e cadeia pr
         }
     }
 }
+
+
+def obter_secret_tenant(tenant_id: str, chave: str, default: str = "") -> str:
+    """Obtém uma credencial/secret por tenant com fallback seguro para variáveis de ambiente.
+
+    1. Se rodando dentro do Streamlit, tenta obter de st.secrets[tenant_id][chave].
+    2. Fallback: tenta obter da variável de ambiente {TENANT_ID}_{CHAVE} em maiúsculas
+       (ex: SENAI_LABFASHION_GROQ_API_KEY) — único caminho disponível fora do Streamlit (ex: API).
+    3. Retorna 'default' se não encontrada em nenhuma fonte.
+    """
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and st.secrets is not None:
+            tenant_sec = st.secrets.get(tenant_id, {})
+            val = ""
+            if isinstance(tenant_sec, dict):
+                val = tenant_sec.get(chave, "")
+            else:
+                val = getattr(tenant_sec, chave, "")
+            if val:
+                return str(val)
+    except Exception:
+        pass
+
+    env_var_name = f"{tenant_id}_{chave}".upper()
+    env_val = os.environ.get(env_var_name, "")
+    if env_val:
+        return str(env_val)
+
+    return default
+
+
+def carregar_config_tenant(tenant_id: str, config_default: dict) -> dict:
+    """Carrega as configurações do tenant, fazendo merge com o arquivo local em tenant_data/{tenant_id}.json se existir."""
+    config_final = dict(config_default)
+    config_final["modos"] = dict(config_default.get("modos", {}))
+    config_final["descricoes_modos"] = dict(config_default.get("descricoes_modos", {}))
+    config_final["descricoes_detalhadas"] = dict(config_default.get("descricoes_detalhadas", {}))
+    config_final["perguntas_rapidas"] = dict(config_default.get("perguntas_rapidas", {}))
+    config_final["modo_padrao_por_perfil"] = dict(config_default.get("modo_padrao_por_perfil", {}))
+    config_final["perguntas_por_perfil"] = dict(config_default.get("perguntas_por_perfil", {}))
+
+    arquivo_custom = os.path.join("tenant_data", f"{tenant_id}.json")
+    if os.path.exists(arquivo_custom):
+        try:
+            with open(arquivo_custom, "r", encoding="utf-8") as f:
+                custom_data = json.load(f)
+                if isinstance(custom_data, dict):
+                    for campo in [
+                        "nome", "cor_primaria", "cor_secundaria", "logo_url",
+                        "tema", "fonte", "favicon_url", "mensagem_boas_vindas"
+                    ]:
+                        if campo in custom_data:
+                            config_final[campo] = custom_data[campo]
+        except Exception as e:
+            logger = obter_logger(tenant_id)
+            logger.error(f"Erro ao carregar dados customizados do tenant {tenant_id}: {e}", exc_info=True)
+
+    return config_final
+
+
+def salvar_config_tenant(tenant_id: str, dados_custom: dict) -> None:
+    """Salva os dados de customização do tenant no arquivo JSON correspondente."""
+    os.makedirs("tenant_data", exist_ok=True)
+    arquivo_custom = os.path.join("tenant_data", f"{tenant_id}.json")
+    with open(arquivo_custom, "w", encoding="utf-8") as f:
+        json.dump(dados_custom, f, ensure_ascii=False, indent=2)
 
 
