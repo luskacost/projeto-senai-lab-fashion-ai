@@ -8,6 +8,11 @@ reranking, diversidade e observabilidade.
 import os
 from typing import Dict, Any
 
+# Modelo Groq usado em todas as chamadas de geração (chat, croqui, análise de dados).
+# Centralizado aqui para evitar divergência entre os pontos de chamada em app.py.
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+
+
 def validar_chunking_config(chunk_size_raw: Any, chunk_overlap_raw: Any) -> tuple[int, int]:
     """Valida e normaliza chunk_size e chunk_overlap garantindo:
 

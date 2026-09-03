@@ -28,6 +28,7 @@ from rag_manager import (
     obter_ultimo_rag_debug,
     RAG_DEBUG
 )
+from rag_config import GROQ_MODEL
 
 # Tenta carregar variáveis do arquivo .env na raiz do projeto (desenvolvimento local)
 try:
@@ -720,7 +721,7 @@ def chamar_agente(client, agente_config: dict, messages_for_api: list) -> tuple:
         if tools is not None:
             primeira_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model="openai/gpt-oss-20b",
+                model=GROQ_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
                 tools=tools,
@@ -729,7 +730,7 @@ def chamar_agente(client, agente_config: dict, messages_for_api: list) -> tuple:
         else:
             primeira_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model="openai/gpt-oss-20b",
+                model=GROQ_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
             )
@@ -738,7 +739,7 @@ def chamar_agente(client, agente_config: dict, messages_for_api: list) -> tuple:
         if tools is not None and any(kw in err_str for kw in ["tool", "search", "not supported", "invalid"]):
             primeira_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model="openai/gpt-oss-20b",
+                model=GROQ_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
             )
@@ -824,7 +825,7 @@ def chamar_agente(client, agente_config: dict, messages_for_api: list) -> tuple:
 
         segunda_resposta = client.chat.completions.create(
             messages=messages_for_api,
-            model="openai/gpt-oss-20b",
+            model=GROQ_MODEL,
             temperature=0.7,
             max_tokens=2048,
         )
@@ -1379,7 +1380,7 @@ with tab_assistente:
 
                         segunda_resposta = client.chat.completions.create(
                           messages=msgs_api,
-                          model="openai/gpt-oss-20b",
+                          model=GROQ_MODEL,
                           temperature=0.7,
                           max_tokens=2048,
                         )
@@ -1607,7 +1608,7 @@ with tab_assistente:
                 try:
                   resposta_rag_obj = client.chat.completions.create(
                     messages=messages_for_api,
-                    model="openai/gpt-oss-20b",
+                    model=GROQ_MODEL,
                     temperature=0.1,
                     max_tokens=2048,
                   )
