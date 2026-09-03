@@ -1534,7 +1534,12 @@ with tab_assistente:
           elif modo_selecionado == "Base de Conhecimento":
             with st.chat_message('assistant'):
               with st.spinner('Pesquisando na base de documentos...'):
-                chunks_relevantes = buscar_contexto_relevante(tenant_id, prompt, top_k=10)
+                chunks_relevantes = buscar_contexto_relevante(
+                  tenant_id,
+                  prompt,
+                  top_k=10,
+                  conversation_id=st.session_state.conversa_atual_id
+                )
 
                 if not chunks_relevantes:
                   docs_cadastrados = listar_documentos_indexados(tenant_id)
