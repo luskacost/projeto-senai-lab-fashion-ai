@@ -419,18 +419,6 @@ def extrair_documento_csv(stream: io.BytesIO, nome_arquivo: str) -> List[Dict[st
     return unidades, {"Tabela": TabularSheet(nome_aba="Tabela", schema=cabecalho, linhas=linhas_tabulares)}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# EXTRATOR: EXCEL (.xlsx e .xls)
-# ─────────────────────────────────────────────────────────────────────────────
-def extrair_documento_excel(
-    stream: io.BytesIO,
-    nome_arquivo: str,
-    extensao: str
-) -> List[Dict[str, Any]]:
-    """Extrai dados de planilhas Excel (.xlsx ou .xls) por aba e linha estruturada."""
-    logger = obter_logger()
-    stream.seek(0)
-
 def _processar_linhas_planilha_estruturada(
     linhas_com_indice: List[Tuple[int, List[str]]],
     sheet_name: str,
@@ -598,6 +586,9 @@ def _processar_linhas_planilha_estruturada(
     return unidades, pagina_atual, sheet_obj
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# EXTRATOR: EXCEL (.xlsx e .xls)
+# ─────────────────────────────────────────────────────────────────────────────
 def extrair_documento_excel(
     stream: io.BytesIO,
     nome_arquivo: str,
