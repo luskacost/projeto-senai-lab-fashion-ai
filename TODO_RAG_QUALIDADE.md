@@ -5,8 +5,10 @@ Checklist operacional extraído de `RAG_P5_1_FAILURE_ANALYSIS.md` (220 cenários
 ciclo de melhoria pontual): reproduzir com `tests/rag/test_retrieval_quality.py`/`test_cases.json` ou
 um caso equivalente, ajustar 1 hiperparâmetro/regra, revalidar. Não recriar a análise — só executar.
 
-Status desta lista: itens 1, 2 e 3 tratados. Item 4 segue pendente. A ordem reflete o ranking de
-impacto do próprio relatório (Seção 7 do failure analysis).
+Status desta lista: itens 1, 2 e 3 tratados. Item 4 investigado e **rediagnosticado** (ver abaixo) —
+o diagnóstico original do relatório era impreciso; a causa raiz real é maior em escopo e fica para
+uma sessão dedicada futura. A ordem reflete o ranking de impacto do próprio relatório (Seção 7 do
+failure analysis).
 
 ## 1. [CONCLUÍDO] Contrato de síntese de resposta / dupla notação (maior impacto: ~91 de 138 casos, 65.9%)
 
@@ -46,15 +48,33 @@ impacto do próprio relatório (Seção 7 do failure analysis).
 - **Feito:** estendido `tests/rag/test_query_router.py::test_08_ambiguidade_pergunta_incompleta` com
   o caso exato do benchmark (`BAT_P_141`) e o contraste com entidades explícitas.
 
-## 4. Reranking corta candidato correto do Top-5 (~13 casos, 9.4%)
+## 4. [REDIAGNOSTICADO — pendente, escopo maior que o previsto] "Reranking corta candidato correto do Top-5" (~13 casos, 9.4%)
 
-- **Causa raiz:** o chunk correto está no pool de 30 candidatos do ChromaDB, mas é eliminado antes do
-  corte final de 5 pelo reranker (`reranker.py` — `HeuristicReranker` / `selecionar_com_cobertura_e_diversidade`).
-- **Onde mexer:** `reranker.py` e pesos em `RAG_CONFIG["weights"]`/`RAG_CONFIG["diversity"]`
-  (`rag_config.py`). Candidato a ajuste: aumentar `final_context_top_k` experimentalmente ou revisar
-  peso de diversidade vs. relevância pura para esses casos específicos.
-- **Como validar:** `tests/rag/test_retrieval_quality.py` (já cobre corte prematuro de Top-K — ver
-  `test_b_chunk_relevante_nao_perdido_por_corte_prematuro`).
+- **Diagnóstico original do relatório (impreciso):** sugeria ajustar pesos/threshold do reranker em
+  `reranker.py`/`RAG_CONFIG`.
+- **Investigação feita nesta sessão:** os dados brutos ainda existem em
+  `scratch/benchmark_p5_1_diagnostics.json` (`fails_analise_77`, filtrando por
+  `failure_stage == "F_RERANKING"`). Inspecionados os 13 casos: **100% têm
+  `tabular_engine_attempted: False`** — nenhum chegou a acionar o motor tabular. Todas são perguntas
+  de filtro/limiar numérico (`"Quais organizações possuem mais de 4.000 pontos?"`) ou relacionais
+  encadeadas (`"Qual país possui mais medalhas... e quais jogadores confirmados no roster são desse
+  país?"`) que foram roteadas como `VECTOR_SEMANTIC` puro pelo `QueryRouter`. Também testei a
+  hipótese de redundância por similaridade de Jaccard entre linhas de uma mesma planilha
+  (`_calcular_similaridade_jaccard`) — descartada, a similaridade medida (~0.38) fica bem abaixo do
+  limiar de descarte (0.85), não é a causa.
+- **Causa raiz real:** gap de **roteamento**, não de reranking. `query_router.py` não tem padrões de
+  detecção para (a) filtros com limiar numérico em linguagem natural ("mais de X pontos/reais/USD")
+  e (b) perguntas relacionais encadeadas de duas partes ("qual X e quais Y desse X"). Uma busca
+  vetorial pura estruturalmente não consegue recuperar de forma confiável *todas* as linhas de uma
+  tabela que satisfazem um filtro — não há ajuste de reranker que resolva isso.
+- **Por que não foi implementado nesta sessão:** requer adicionar múltiplos padrões novos de
+  detecção de intent (`FILTER` com limiar numérico, `RELATIONAL` encadeado) em `query_router.py`,
+  com risco maior de efeitos colaterais em outras rotas já ajustadas, e sem o benchmark completo de
+  220 cenários para validar o impacto agregado (só os relatórios resumidos e os 77 casos de FAIL
+  detalhados sobrevivem em `scratch/`). Fica para uma sessão dedicada.
+- **Onde mexer (próxima sessão):** `query_router.py`, seção de detecção de intent (buscar pelos
+  blocos de padrões `RouteType.TABULAR_FILTER`/`TABULAR_RELATIONAL`); usar os 13 casos listados em
+  `scratch/benchmark_p5_1_diagnostics.json` como casos de teste dirigidos.
 
 ## Fora de escopo desta lista (não ignorar, mas não é prioridade imediata)
 
