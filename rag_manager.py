@@ -1357,6 +1357,61 @@ def buscar_contexto_relevante(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# MONTAGEM DO PROMPT FINAL PARA O LLM
+# ─────────────────────────────────────────────────────────────────────────────
+def montar_prompt_final(chunks_relevantes: List[Dict[str, Any]], pergunta: str) -> Tuple[str, Set[str]]:
+    """Monta o prompt final enviado ao LLM a partir dos chunks recuperados pelo RAG.
+
+    Formata cada chunk em um bloco "--- TRECHO N ---" com metadados de origem (documento,
+    localização, seção/produto/variante), acrescenta a instrução de resposta exclusiva ao
+    contexto fornecido e o contrato de dupla notação (numérica + por extenso), e retorna
+    também o conjunto de fontes citadas para exibição na UI ("Fontes consultadas").
+    """
+    trechos_formatados: List[str] = []
+    fontes_consultadas: Set[str] = set()
+
+    for i, chk in enumerate(chunks_relevantes, 1):
+        fonte = chk.get("fonte", "Documento desconhecido")
+        rotulo = chk.get("rotulo_unidade")
+        if not rotulo:
+            pag = chk.get("pagina", 1)
+            rotulo = f"Página {pag}"
+        fontes_consultadas.add(f"{fonte} ({rotulo})")
+
+        meta_info = []
+        if chk.get("secao") or chk.get("secao_origem"):
+            sec_val = chk.get("secao") or chk.get("secao_origem")
+            meta_info.append(f"SEÇÃO: {sec_val}")
+        if chk.get("produto") or chk.get("variante"):
+            prod_var = f"{chk.get('produto', '')} {chk.get('variante', '')}".strip()
+            meta_info.append(f"PRODUTO/VARIANTE: {prod_var}")
+        if chk.get("aba"):
+            meta_info.append(f"ABA: {chk['aba']}")
+        meta_header = " | ".join(meta_info) if meta_info else "Especificação Técnica"
+
+        trechos_formatados.append(
+            f"--- TRECHO {i} ---\n"
+            f"DOCUMENTO: {fonte}\n"
+            f"LOCALIZAÇÃO: {rotulo}\n"
+            f"CONTEXTO: {meta_header}\n"
+            f"CONTEÚDO:\n{chk.get('texto', '')}\n"
+        )
+
+    contexto_rag = "\n".join(trechos_formatados)
+    prompt_com_contexto = (
+        "INSTRUÇÃO IMPORTANTE: Responda à pergunta a seguir utilizando EXCLUSIVAMENTE os seguintes trechos de documentos fornecidos. "
+        "Siga rigorosamente as regras de preservação de números, medidas, códigos e isolamento de variantes.\n\n"
+        "CONTRATO DE EXATIDÃO: sempre que a resposta envolver um número, data, valor monetário ou medida, "
+        "inclua tanto a notação direta quanto a forma normalizada/por extenso na mesma frase "
+        "(ex.: '5.300 (5300)', '28 de abril de 2006 (2006-04-28)', 'US$ 7.000.000 (7 milhões)'). "
+        "Nunca escolha apenas um formato quando o dado permitir ambos.\n\n"
+        f"--- TRECHOS DOS DOCUMENTOS DISPONÍVEIS ---\n{contexto_rag}\n--- FIM DOS TRECHOS ---\n\n"
+        f"PERGUNTA DO USUÁRIO:\n{pergunta}"
+    )
+    return prompt_com_contexto, fontes_consultadas
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GESTÃO DE DOCUMENTOS INDEXADOS
 # ─────────────────────────────────────────────────────────────────────────────
 def listar_documentos_indexados(tenant_id: str) -> List[str]:
