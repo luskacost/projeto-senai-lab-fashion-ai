@@ -408,6 +408,44 @@ class TestTabularQueryEngine(unittest.TestCase):
         textos = [c["texto"] for c in res]
         self.assertTrue(any("-150" in t or "[VALOR_NEGATIVO]" in t for t in textos))
 
+    def test_u_group_count_sem_correspondencia_de_coluna(self):
+        """TESTE U: GROUP_COUNT sobrevive e agrupa corretamente quando o termo da pergunta
+
+        (em português, sem alias configurado) não corresponde a nenhum nome de coluna real
+        (em inglês). Regressão de bug: com único documento tabular no tenant, o intent
+        GROUP_COUNT era descartado por score de seleção de documento baixo e a consulta caía
+        para uma classificação genérica do QueryRouter que ignorava o agrupamento; e quando o
+        agrupamento chegava a ser executado, caía para a primeira coluna do schema (um
+        identificador único) em vez de uma coluna categórica de baixa cardinalidade.
+        """
+        csv_eventos = (
+            "Event,Category\n"
+            "EWC Open,Tactical FPS\n"
+            "EWC Cup,Fighting\n"
+            "EWC Masters,Tactical FPS\n"
+            "EWC Series,MOBA\n"
+            "EWC Finals,Fighting\n"
+        )
+        unidades, sheets = document_extractors.extrair_documento_com_dados_tabulares(
+            io.BytesIO(csv_eventos.encode("utf-8")), "eventos_teste_u.csv"
+        )
+        rag_manager.indexar_documento(self.TENANT_TESTE, "eventos_teste_u.csv", unidades, dados_tabulares=sheets)
+        try:
+            plano = detectar_e_planejar_consulta_tabular(
+                "Quantos eventos existem por tipo de jogo (Game Genre)?", self.TENANT_TESTE
+            )
+            self.assertIsNotNone(plano)
+            self.assertEqual(plano.intent, TabularIntent.GROUP_COUNT)
+
+            res = executar_consulta_tabular(plano, self.TENANT_TESTE)
+            self.assertTrue(res.success)
+            grupos_por_nome = {g["grupo"]: g["contagem"] for g in res.groups}
+            self.assertEqual(grupos_por_nome.get("Tactical FPS"), 2)
+            self.assertEqual(grupos_por_nome.get("Fighting"), 2)
+            self.assertEqual(grupos_por_nome.get("MOBA"), 1)
+        finally:
+            rag_manager.remover_documento(self.TENANT_TESTE, "eventos_teste_u.csv")
+
 
 if __name__ == "__main__":
     unittest.main()

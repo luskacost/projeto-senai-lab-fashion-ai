@@ -195,6 +195,35 @@ class TabularQueryResult:
         }
 
 
+def _escolher_coluna_categoria_provavel(sheet: "TabularSheet", colunas_excluidas: Optional[List[str]] = None) -> Optional[str]:
+    """Estima qual coluna do schema é a mais provável de representar uma categoria/agrupamento.
+
+    Usada como fallback quando o termo de agrupamento extraído da pergunta não resolve para
+    nenhuma coluna real (ex.: vocabulário em português sem alias configurado para uma coluna em
+    inglês). Prefere a coluna com menor cardinalidade de valores distintos (> 1 e < total de
+    linhas), pois colunas de identificador único (nomes, IDs) tendem a ter cardinalidade igual ao
+    número de linhas e não servem como agrupamento útil.
+    """
+    excluidas = set(colunas_excluidas or [])
+    candidatas = [c for c in sheet.schema if c not in excluidas]
+    if not candidatas:
+        return None
+
+    total_linhas = len(sheet.linhas)
+    melhor_col: Optional[str] = None
+    melhor_cardinalidade = None
+    for col in candidatas:
+        valores = {str(r.dados.get(col)).strip() for r in sheet.linhas if not _eh_valor_vazio(r.dados.get(col))}
+        cardinalidade = len(valores)
+        if cardinalidade <= 1 or cardinalidade >= total_linhas:
+            continue
+        if melhor_cardinalidade is None or cardinalidade < melhor_cardinalidade:
+            melhor_cardinalidade = cardinalidade
+            melhor_col = col
+
+    return melhor_col or candidatas[0]
+
+
 def resolver_coluna(termo_busca: str, colunas_disponiveis: List[str]) -> Optional[str]:
     """Resolve um termo ou conceito de busca em um nome de coluna real da tabela."""
     if not termo_busca or not colunas_disponiveis:
@@ -488,7 +517,14 @@ def detectar_e_planejar_consulta_tabular(
 
     if intent:
         doc_sel, aba_sel, score_sel, razao_sel = _selecionar_documento_e_aba(q_norm, termos_colunas_detectados, documentos)
-        if doc_sel and aba_sel and score_sel >= 0.20:
+        # Com um único documento tabular no tenant não há ambiguidade de seleção a resolver:
+        # o termo de agrupamento pode não casar com nenhum nome de coluna real (ex.: vocabulário
+        # em português na pergunta vs. coluna em inglês sem alias configurado), mesmo que o intent
+        # já tenha sido corretamente identificado por um padrão local forte (ex.: GROUP_COUNT).
+        # Sem essa exceção, o score cai abaixo do limiar e o plano correto é descartado, caindo para
+        # uma classificação mais genérica do QueryRouter que ignora a cláusula de agrupamento.
+        sem_ambiguidade_de_documento = len(documentos) == 1
+        if doc_sel and aba_sel and (score_sel >= 0.20 or sem_ambiguidade_de_documento):
             sheet_obj = doc_sel.sheets[aba_sel]
             colunas_reais = sheet_obj.schema
 
@@ -890,7 +926,7 @@ def executar_consulta_tabular(
             valor_calculado = [r.dados for _, r in linhas_com_num]
         else:
             # Fallback para GROUP_COUNT ranking
-            col_grupo = plano.group_by_columns[0] if plano.group_by_columns else sheet.schema[0]
+            col_grupo = plano.group_by_columns[0] if plano.group_by_columns else _escolher_coluna_categoria_provavel(sheet)
             col_contagem = plano.target_columns[0] if plano.target_columns and plano.target_columns[0] != col_grupo else None
 
             grupos_map: Dict[str, Set[str]] = {}
@@ -926,7 +962,7 @@ def executar_consulta_tabular(
                 linhas_texto_resultado.append(f"- {item['grupo']}: {item['contagem']}")
 
     elif intent == TabularIntent.GROUP_COUNT:
-        col_grupo = plano.group_by_columns[0] if plano.group_by_columns else sheet.schema[0]
+        col_grupo = plano.group_by_columns[0] if plano.group_by_columns else _escolher_coluna_categoria_provavel(sheet)
         col_contagem = plano.target_columns[0] if plano.target_columns and plano.target_columns[0] != col_grupo else None
 
         grupos_map = {}
