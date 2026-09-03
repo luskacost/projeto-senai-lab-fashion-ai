@@ -5,9 +5,8 @@ Checklist operacional extraído de `RAG_P5_1_FAILURE_ANALYSIS.md` (220 cenários
 ciclo de melhoria pontual): reproduzir com `tests/rag/test_retrieval_quality.py`/`test_cases.json` ou
 um caso equivalente, ajustar 1 hiperparâmetro/regra, revalidar. Não recriar a análise — só executar.
 
-Status desta lista: item 1 tratado (ver commit "feat: adiciona contrato de dupla notacao ao prompt
-do RAG"). Itens 2-4 seguem pendentes. A ordem reflete o ranking de impacto do próprio relatório
-(Seção 7 do failure analysis).
+Status desta lista: itens 1 e 2 tratados. Itens 3-4 seguem pendentes. A ordem reflete o ranking de
+impacto do próprio relatório (Seção 7 do failure analysis).
 
 ## 1. [CONCLUÍDO] Contrato de síntese de resposta / dupla notação (maior impacto: ~91 de 138 casos, 65.9%)
 
@@ -22,16 +21,20 @@ do RAG"). Itens 2-4 seguem pendentes. A ordem reflete o ranking de impacto do pr
 - **Como validar:** casos de `tests/rag/test_cases.json` com datas/valores numéricos; comparar
   resposta antes/depois da instrução.
 
-## 2. Preservação de agrupamentos globais (`GROUP_COUNT`) no motor tabular (~20 casos, 14.5%)
+## 2. [CONCLUÍDO] Preservação de agrupamentos globais (`GROUP_COUNT`) no motor tabular (~20 casos, 14.5%)
 
-- **Causa raiz:** consultas de agregação global (`"Quantos eventos existem por tipo de jogo?"`) não
-  retornam a lista completa de entidades com suas contagens no bloco `[TABULAR_RESULT]`, levando o
-  LLM a responder "não encontrei".
-- **Onde mexer:** `tabular_query_engine.py` já tem `TabularIntent.GROUP_COUNT` implementado (linha
-  ~45, lógica de execução ~928) — **verificar antes de assumir que falta implementar**: o gap pode
-  estar na formatação da saída (lista incompleta) e não na detecção do intent. Rodar
-  `tests/rag/test_tabular_query_engine.py` com um caso de agrupamento global multi-entidade para
-  confirmar se a saída atual já lista todas as entidades ou trunca.
+- **Causa raiz real (confirmada por reprodução empírica, diferente da hipótese original):** a
+  formatação da saída do `GROUP_COUNT` já estava correta e completa (não truncava). O bug real tinha
+  2 partes em `tabular_query_engine.py`: (1) quando o termo de agrupamento da pergunta (em português,
+  sem alias configurado) não resolvia para nenhuma coluna real, o score de seleção de documento caía
+  abaixo do limiar e o intent `GROUP_COUNT` corretamente identificado era descartado, caindo para uma
+  classificação genérica do `QueryRouter` que ignorava o agrupamento; (2) quando a execução chegava a
+  rodar sem coluna de agrupamento resolvida, usava cegamente `sheet.schema[0]` (tipicamente um
+  identificador único) em vez de uma coluna categórica.
+- **Corrigido:** limiar de score dispensado quando há um único documento tabular no tenant (sem
+  ambiguidade de seleção); adicionada `_escolher_coluna_categoria_provavel()` como fallback por
+  cardinalidade. Teste de regressão permanente:
+  `tests/rag/test_tabular_query_engine.py::test_u_group_count_sem_correspondencia_de_coluna`.
 
 ## 3. Desambiguação de consultas vagas sem entidade (elimina a última alucinação, 1 caso)
 
