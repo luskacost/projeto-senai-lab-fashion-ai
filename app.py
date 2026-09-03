@@ -1596,6 +1596,10 @@ with tab_assistente:
                 prompt_com_contexto = (
                   "INSTRUÇÃO IMPORTANTE: Responda à pergunta a seguir utilizando EXCLUSIVAMENTE os seguintes trechos de documentos fornecidos. "
                   "Siga rigorosamente as regras de preservação de números, medidas, códigos e isolamento de variantes.\n\n"
+                  "CONTRATO DE EXATIDÃO: sempre que a resposta envolver um número, data, valor monetário ou medida, "
+                  "inclua tanto a notação direta quanto a forma normalizada/por extenso na mesma frase "
+                  "(ex.: '5.300 (5300)', '28 de abril de 2006 (2006-04-28)', 'US$ 7.000.000 (7 milhões)'). "
+                  "Nunca escolha apenas um formato quando o dado permitir ambos.\n\n"
                   f"--- TRECHOS DOS DOCUMENTOS DISPONÍVEIS ---\n{contexto_rag}\n--- FIM DOS TRECHOS ---\n\n"
                   f"PERGUNTA DO USUÁRIO:\n{prompt}"
                 )
