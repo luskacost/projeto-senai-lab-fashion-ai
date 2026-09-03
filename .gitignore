@@ -1,0 +1,13 @@
+.env
+tenant_data/
+tenant_data/conversas/
+tenant_data/chroma/
+tenant_data/*_usage.json
+tenant_data/*_cache.json
+logs/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+.venv/
+SenaiLabFashionAssitant/
+scratch/

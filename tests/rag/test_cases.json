@@ -1,0 +1,74 @@
+[
+  {
+    "id": "context_ambiguity_001",
+    "question": "Por que o contexto é importante para interpretar uma palavra como banco?",
+    "category": "conceptual",
+    "expected_terms": ["contexto", "banco", "ambiguidade", "instituição financeira", "assento"],
+    "expected_entities": ["palavra banco", "contexto"],
+    "expected_pages": [1],
+    "should_answer": true
+  },
+  {
+    "id": "context_ambiguity_002",
+    "question": "Como um sistema de IA poderia usar o conceito de contexto para reduzir ambiguidades?",
+    "category": "conceptual",
+    "expected_terms": ["contexto", "ambiguidade", "desambiguação", "palavras"],
+    "expected_entities": ["sistema de IA", "contexto"],
+    "expected_pages": [1],
+    "should_answer": true
+  },
+  {
+    "id": "kfold_multiconcept_001",
+    "question": "Como o K-Fold Cross-Validation ajuda a proteger contra overfitting, concept drift e data leakage?",
+    "category": "multi_concept",
+    "expected_terms": ["k-fold", "overfitting", "concept drift", "data leakage", "validação cruzada"],
+    "expected_entities": ["k-fold cross-validation"],
+    "expected_pages": [2],
+    "should_answer": true
+  },
+  {
+    "id": "comparative_llm_slm_001",
+    "question": "Compare LLMs e SLMs em relação a parâmetros, hardware, execução e casos de uso.",
+    "category": "comparative",
+    "expected_terms": ["llm", "slm", "parâmetros", "hardware", "execução"],
+    "expected_entities": ["llm", "slm"],
+    "expected_pages": [3],
+    "should_answer": true
+  },
+  {
+    "id": "numeric_direct_001",
+    "question": "Qual é a gramatura do tecido M518?",
+    "category": "numeric_direct",
+    "expected_terms": ["128 g/m²", "m518"],
+    "expected_entities": ["m518"],
+    "expected_pages": [4],
+    "should_answer": true
+  },
+  {
+    "id": "numeric_direct_002",
+    "question": "Qual é a largura do tecido da camisa jeans?",
+    "category": "numeric_direct",
+    "expected_terms": ["172 cm", "millie denim"],
+    "expected_entities": ["camisa jeans", "millie denim maskskin"],
+    "expected_pages": [4],
+    "should_answer": true
+  },
+  {
+    "id": "unknown_info_001",
+    "question": "Qual é o preço de produção de uma camisa masculina?",
+    "category": "hallucination_test",
+    "expected_terms": [],
+    "expected_entities": [],
+    "expected_pages": [],
+    "should_answer": false
+  },
+  {
+    "id": "unknown_info_002",
+    "question": "Qual empresa fornece o tecido M518?",
+    "category": "hallucination_test",
+    "expected_terms": [],
+    "expected_entities": [],
+    "expected_pages": [],
+    "should_answer": false
+  }
+]

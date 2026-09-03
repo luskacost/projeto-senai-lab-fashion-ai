@@ -1,0 +1,2 @@
+python -m streamlit run c:/Users/lucascosta.est/Downloads/SenaiLabFashionAssistant/app.py
+.venv\Scripts\Activate

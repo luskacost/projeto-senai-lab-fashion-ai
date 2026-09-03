@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./tenant_data:/app/tenant_data
+      - ./logs:/app/logs
+      # Alternativa ao uso do arquivo .env via env_file:
+      # - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
+    env_file:
+      - .env
+    restart: unless-stopped
