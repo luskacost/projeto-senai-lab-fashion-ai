@@ -204,6 +204,19 @@ class TestQueryRouter(unittest.TestCase):
         self.assertTrue(r_ambi2.is_ambiguous)
         self.assertEqual(r_ambi2.route, RouteType.AMBIGUOUS)
 
+        # Caso BAT_P_141 (RAG_P5_1_FAILURE_ANALYSIS.md): "Qual foi a pontuação?" sem entidade
+        # especificada é a última fonte de alucinação residual (1/220) reportada no benchmark.
+        r_ambi3 = self.router.route_query("Qual foi a pontuação?")
+        self.assertTrue(r_ambi3.is_ambiguous)
+        self.assertEqual(r_ambi3.route, RouteType.AMBIGUOUS)
+        self.assertIsNotNone(r_ambi3.ambiguity_prompt)
+
+        # Com entidades explícitas na mesma pergunta, não deve ser tratada como ambígua
+        r_nao_ambi = self.router.route_query(
+            "Qual a pontuação do jogo entre Team Spirit e Team Falcons?"
+        )
+        self.assertFalse(r_nao_ambi.is_ambiguous)
+
     # 9. Joins relacionais entre tabelas
     def test_09_joins_relacionais_roster_summary(self):
         r_join = self.router.route_query("Quem venceu o torneio de VALORANT e quais são os jogadores da equipe?")
