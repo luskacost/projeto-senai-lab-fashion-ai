@@ -5,10 +5,11 @@ Checklist operacional extraído de `RAG_P5_1_FAILURE_ANALYSIS.md` (220 cenários
 ciclo de melhoria pontual): reproduzir com `tests/rag/test_retrieval_quality.py`/`test_cases.json` ou
 um caso equivalente, ajustar 1 hiperparâmetro/regra, revalidar. Não recriar a análise — só executar.
 
-Status desta lista: nenhum item foi tratado ainda nesta consolidação (Fase 1). A ordem já reflete o
-ranking de impacto do próprio relatório (Seção 7 do failure analysis).
+Status desta lista: item 1 tratado (ver commit "feat: adiciona contrato de dupla notacao ao prompt
+do RAG"). Itens 2-4 seguem pendentes. A ordem reflete o ranking de impacto do próprio relatório
+(Seção 7 do failure analysis).
 
-## 1. Contrato de síntese de resposta / dupla notação (maior impacto: ~91 de 138 casos, 65.9%)
+## 1. [CONCLUÍDO] Contrato de síntese de resposta / dupla notação (maior impacto: ~91 de 138 casos, 65.9%)
 
 - **Causa raiz:** o dado correto já está no contexto enviado ao LLM em 65.9% dos casos avaliados, mas
   a resposta final é marcada como FAIL/PARTIAL porque falta uma segunda forma de notação exigida pelo
