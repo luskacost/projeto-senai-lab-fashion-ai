@@ -1,3 +1,6 @@
+# Script manual de preview visual do layout de chat -- rode com `streamlit run preview_chat_layout.py`.
+# Nao faz parte da suite automatizada de testes (tests/); renomeado de test_chat_layout.py
+# para nao ser confundido com um teste unittest nem coletado pelo unittest discover.
 import streamlit as st
 
 st.set_page_config(page_title="Test Chat Layout", layout="wide")
