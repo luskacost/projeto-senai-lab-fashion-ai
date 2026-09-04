@@ -19,6 +19,8 @@ import {
 } from "@/lib/api";
 import { obterUsuarioId } from "@/lib/usuario";
 import ConversasSidebar from "@/components/ConversasSidebar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Bot } from "lucide-react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
@@ -307,13 +309,21 @@ export default function ChatPage() {
           )}
 
           {mensagens.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              {m.role === "assistant" && (
+                <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+                  <AvatarFallback className="bg-secondary text-secondary-foreground">
+                    <Bot className="h-4 w-4" />
+                  </AvatarFallback>
+                </Avatar>
+              )}
               <div
-                className={`max-w-[80%] min-w-0 rounded-2xl px-4 py-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
+                className={`max-w-[80%] min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                   m.role === "user"
-                    ? "bg-blue-600 text-white rounded-br-sm"
-                    : "bg-white text-gray-900 border border-gray-200 rounded-bl-sm"
+                    ? "rounded-2xl rounded-br-sm px-4 py-2 text-white"
+                    : "text-foreground"
                 }`}
+                style={m.role === "user" ? { backgroundColor: corPrimaria } : undefined}
               >
                 {m.content}
 
@@ -332,7 +342,7 @@ export default function ChatPage() {
                 )}
 
                 {m.fontes_consultadas && m.fontes_consultadas.length > 0 && (
-                  <details className="mt-2 text-xs opacity-75">
+                  <details className="mt-2 text-xs text-muted-foreground">
                     <summary className="cursor-pointer">Fontes consultadas</summary>
                     <ul className="list-disc list-inside mt-1">
                       {m.fontes_consultadas.map((f, fi) => (
