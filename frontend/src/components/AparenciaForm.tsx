@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { AparenciaTenant, ApiError, TenantConfig, atualizarConfigTenant } from "@/lib/api";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Loader2 } from "lucide-react";
 
 const OPCOES_FONTE = ["Inter", "Roboto", "Poppins"];
 
@@ -57,125 +65,116 @@ export default function AparenciaForm({ tenantId, config, corPrimaria, onSalvo }
   }
 
   return (
-    <form onSubmit={salvar} className="bg-white rounded-2xl border border-gray-200 p-4 space-y-4">
-      <h2 className="font-medium text-gray-800">Aparência</h2>
-      <p className="text-xs text-gray-500">
-        Personaliza nome, cores, tema, fonte, logo e mensagem de boas-vindas exibidos no chat.
-      </p>
-
-      <div>
-        <label className="block text-sm text-gray-600 mb-1">Nome da aplicação</label>
-        <input
-          value={form.nome}
-          onChange={(e) => atualizarCampo("nome", e.target.value)}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Cor primária</label>
-          <input
-            type="color"
-            value={form.cor_primaria}
-            onChange={(e) => atualizarCampo("cor_primaria", e.target.value)}
-            className="w-full h-10 rounded-lg border border-gray-300 cursor-pointer"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Cor secundária</label>
-          <input
-            type="color"
-            value={form.cor_secundaria}
-            onChange={(e) => atualizarCampo("cor_secundaria", e.target.value)}
-            className="w-full h-10 rounded-lg border border-gray-300 cursor-pointer"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Tema</label>
-          <div className="flex gap-3 text-sm">
-            <label className="flex items-center gap-1">
-              <input
-                type="radio"
-                checked={form.tema === "claro"}
-                onChange={() => atualizarCampo("tema", "claro")}
-              />
-              ☀️ Claro
-            </label>
-            <label className="flex items-center gap-1">
-              <input
-                type="radio"
-                checked={form.tema === "escuro"}
-                onChange={() => atualizarCampo("tema", "escuro")}
-              />
-              🌙 Escuro
-            </label>
+    <Card>
+      <CardHeader>
+        <CardTitle>Aparência</CardTitle>
+        <CardDescription>
+          Personaliza nome, cores, tema, fonte, logo e mensagem de boas-vindas exibidos no chat.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={salvar} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="nome">Nome da aplicação</Label>
+            <Input id="nome" value={form.nome} onChange={(e) => atualizarCampo("nome", e.target.value)} />
           </div>
-        </div>
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Tipografia</label>
-          <select
-            value={form.fonte}
-            onChange={(e) => atualizarCampo("fonte", e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-          >
-            {OPCOES_FONTE.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
 
-      <div>
-        <label className="block text-sm text-gray-600 mb-1">URL do logo (opcional)</label>
-        <input
-          value={form.logo_url}
-          onChange={(e) => atualizarCampo("logo_url", e.target.value)}
-          placeholder="Deixe em branco para usar o logo padrão"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="cor_primaria">Cor primária</Label>
+              <input
+                id="cor_primaria"
+                type="color"
+                value={form.cor_primaria}
+                onChange={(e) => atualizarCampo("cor_primaria", e.target.value)}
+                className="h-9 w-full cursor-pointer rounded-lg border border-input bg-transparent"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cor_secundaria">Cor secundária</Label>
+              <input
+                id="cor_secundaria"
+                type="color"
+                value={form.cor_secundaria}
+                onChange={(e) => atualizarCampo("cor_secundaria", e.target.value)}
+                className="h-9 w-full cursor-pointer rounded-lg border border-input bg-transparent"
+              />
+            </div>
+          </div>
 
-      <div>
-        <label className="block text-sm text-gray-600 mb-1">URL do favicon (opcional)</label>
-        <input
-          value={form.favicon_url}
-          onChange={(e) => atualizarCampo("favicon_url", e.target.value)}
-          placeholder="Deixe em branco para usar o emoji padrão"
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Tema</Label>
+              <ToggleGroup
+                value={[form.tema]}
+                onValueChange={(valores) => valores.length > 0 && atualizarCampo("tema", valores[0] as "claro" | "escuro")}
+                variant="outline"
+                size="sm"
+              >
+                <ToggleGroupItem value="claro">☀️ Claro</ToggleGroupItem>
+                <ToggleGroupItem value="escuro">🌙 Escuro</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipografia</Label>
+              <Select value={form.fonte} onValueChange={(valor) => atualizarCampo("fonte", valor as string)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OPCOES_FONTE.map((f) => (
+                    <SelectItem key={f} value={f}>
+                      {f}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-      <div>
-        <label className="block text-sm text-gray-600 mb-1">Mensagem de boas-vindas</label>
-        <textarea
-          value={form.mensagem_boas_vindas}
-          onChange={(e) => atualizarCampo("mensagem_boas_vindas", e.target.value)}
-          rows={3}
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="logo_url">URL do logo (opcional)</Label>
+            <Input
+              id="logo_url"
+              value={form.logo_url}
+              onChange={(e) => atualizarCampo("logo_url", e.target.value)}
+              placeholder="Deixe em branco para usar o logo padrão"
+            />
+          </div>
 
-      {sucesso && (
-        <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-          Configurações salvas com sucesso!
-        </p>
-      )}
-      {erro && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>}
+          <div className="space-y-1.5">
+            <Label htmlFor="favicon_url">URL do favicon (opcional)</Label>
+            <Input
+              id="favicon_url"
+              value={form.favicon_url}
+              onChange={(e) => atualizarCampo("favicon_url", e.target.value)}
+              placeholder="Deixe em branco para usar o emoji padrão"
+            />
+          </div>
 
-      <button
-        type="submit"
-        disabled={salvando}
-        className="rounded-lg px-4 py-2 text-white text-sm font-medium disabled:opacity-40"
-        style={{ backgroundColor: corPrimaria }}
-      >
-        {salvando ? "Salvando..." : "Salvar alterações"}
-      </button>
-    </form>
+          <div className="space-y-1.5">
+            <Label htmlFor="mensagem_boas_vindas">Mensagem de boas-vindas</Label>
+            <Textarea
+              id="mensagem_boas_vindas"
+              value={form.mensagem_boas_vindas}
+              onChange={(e) => atualizarCampo("mensagem_boas_vindas", e.target.value)}
+              rows={3}
+            />
+          </div>
+
+          {sucesso && (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              Configurações salvas com sucesso!
+            </p>
+          )}
+          {erro && <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erro}</p>}
+
+          <Button type="submit" disabled={salvando} className="text-white" style={{ backgroundColor: corPrimaria }}>
+            {salvando && <Loader2 className="animate-spin" />}
+            {salvando ? "Salvando..." : "Salvar alterações"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

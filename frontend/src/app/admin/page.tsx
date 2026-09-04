@@ -12,6 +12,10 @@ import {
   uploadDocumento,
 } from "@/lib/api";
 import AparenciaForm from "@/components/AparenciaForm";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { FileText, Loader2, Trash2, Upload } from "lucide-react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const CHAVE_SESSAO_ADMIN = "labfashion_admin_ok";
@@ -118,90 +122,108 @@ export default function AdminPage() {
 
   if (!autorizado) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <form
-          onSubmit={fazerLogin}
-          className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 w-full max-w-sm space-y-4"
-        >
-          <h1 className="text-lg font-semibold text-gray-900">Acesso administrativo</h1>
-          <p className="text-sm text-gray-500">Informe a senha de administrador para gerenciar a Base de Conhecimento.</p>
-          <input
-            type="password"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            placeholder="Senha"
-            autoFocus
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          {erroLogin && <p className="text-sm text-red-600">{erroLogin}</p>}
-          <button
-            type="submit"
-            disabled={validandoLogin || !senha}
-            className="w-full rounded-lg text-white font-medium py-2 disabled:opacity-40"
-            style={{ backgroundColor: corPrimaria }}
-          >
-            {validandoLogin ? "Validando..." : "Entrar"}
-          </button>
-          <Link href="/" className="block text-center text-sm text-gray-400 hover:text-gray-600">
-            ← Voltar ao chat
-          </Link>
+      <div className="flex h-screen items-center justify-center bg-background">
+        <form onSubmit={fazerLogin} className="w-full max-w-sm">
+          <Card>
+            <CardHeader>
+              <CardTitle>Acesso administrativo</CardTitle>
+              <CardDescription>Informe a senha de administrador para gerenciar a Base de Conhecimento.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Input
+                type="password"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                placeholder="Senha"
+                autoFocus
+              />
+              {erroLogin && <p className="text-sm text-destructive">{erroLogin}</p>}
+              <Button
+                type="submit"
+                disabled={validandoLogin || !senha}
+                className="w-full text-white"
+                style={{ backgroundColor: corPrimaria }}
+              >
+                {validandoLogin && <Loader2 className="animate-spin" />}
+                {validandoLogin ? "Validando..." : "Entrar"}
+              </Button>
+              <Link href="/" className="block text-center text-sm text-muted-foreground hover:text-foreground">
+                ← Voltar ao chat
+              </Link>
+            </CardContent>
+          </Card>
         </form>
       </div>
     );
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
+    <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Base de Conhecimento — {config?.nome ?? TENANT_ID}</h1>
-        <Link href="/" className="text-sm text-gray-500 hover:text-gray-800">
+        <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento — {config?.nome ?? TENANT_ID}</h1>
+        <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
           ← Voltar ao chat
         </Link>
       </div>
 
       <AparenciaForm tenantId={TENANT_ID} config={config} corPrimaria={corPrimaria} onSalvo={recarregarConfig} />
 
-      <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
-        <h2 className="font-medium text-gray-800">Indexar novo documento</h2>
-        <p className="text-xs text-gray-500">Formatos aceitos: PDF, Word, TXT, Markdown, CSV, Excel, PowerPoint.</p>
-        <div className="flex gap-2">
-          <input ref={inputArquivoRef} type="file" className="flex-1 text-sm" />
-          <button
-            onClick={enviarArquivo}
-            disabled={enviando}
-            className="rounded-lg px-4 py-2 text-white text-sm font-medium disabled:opacity-40"
-            style={{ backgroundColor: corPrimaria }}
-          >
-            {enviando ? "Enviando..." : "📥 Indexar"}
-          </button>
-        </div>
-        {mensagemSucesso && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">{mensagemSucesso}</p>}
-        {erro && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{erro}</p>}
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Indexar novo documento</CardTitle>
+          <CardDescription>Formatos aceitos: PDF, Word, TXT, Markdown, CSV, Excel, PowerPoint.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              ref={inputArquivoRef}
+              type="file"
+              className="flex-1 text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+            />
+            <Button onClick={enviarArquivo} disabled={enviando} className="text-white shrink-0" style={{ backgroundColor: corPrimaria }}>
+              {enviando ? <Loader2 className="animate-spin" /> : <Upload />}
+              {enviando ? "Enviando..." : "Indexar"}
+            </Button>
+          </div>
+          {mensagemSucesso && (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensagemSucesso}</p>
+          )}
+          {erro && <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erro}</p>}
+        </CardContent>
+      </Card>
 
-      <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-2">
-        <h2 className="font-medium text-gray-800">Documentos indexados ({documentos.length})</h2>
-        {carregandoDocs ? (
-          <p className="text-sm text-gray-400">Carregando...</p>
-        ) : documentos.length === 0 ? (
-          <p className="text-sm text-gray-400">Nenhum documento indexado ainda.</p>
-        ) : (
-          <ul className="divide-y divide-gray-100">
-            {documentos.map((doc) => (
-              <li key={doc} className="flex items-center justify-between py-2 text-sm">
-                <span className="text-gray-700 truncate">📄 {doc}</span>
-                <button
-                  onClick={() => excluirDocumento(doc)}
-                  className="text-gray-400 hover:text-red-600 shrink-0 ml-2"
-                  title="Remover"
-                >
-                  🗑️
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <Card>
+        <CardHeader>
+          <CardTitle>Documentos indexados ({documentos.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {carregandoDocs ? (
+            <p className="text-sm text-muted-foreground">Carregando...</p>
+          ) : documentos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum documento indexado ainda.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {documentos.map((doc) => (
+                <li key={doc} className="flex items-center justify-between gap-2 py-2 text-sm">
+                  <span className="flex items-center gap-2 min-w-0 truncate text-foreground">
+                    <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    {doc}
+                  </span>
+                  <Button
+                    onClick={() => excluirDocumento(doc)}
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                    aria-label="Remover"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
