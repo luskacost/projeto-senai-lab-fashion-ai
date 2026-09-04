@@ -32,6 +32,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { toast } from "sonner";
+import { AnimatePresence, motion } from "motion/react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
@@ -321,33 +322,47 @@ export default function ChatPage() {
 
         <main className="flex-1 overflow-y-auto px-4 py-4 bg-background">
           <div className="max-w-3xl mx-auto space-y-4">
-          {mensagens.length === 0 && !carregando && (
-            <div className="mt-12 flex flex-col items-center text-center gap-4">
-              <Avatar className="h-12 w-12">
-                <AvatarFallback className="bg-secondary text-secondary-foreground">
-                  <Bot className="h-6 w-6" />
-                </AvatarFallback>
-              </Avatar>
-              <p className="text-muted-foreground max-w-md">
-                {config?.mensagem_boas_vindas ?? "Faça uma pergunta sobre a base de conhecimento."}
-              </p>
-              <div className="flex flex-col gap-2 w-full max-w-md">
-                {(SUGESTOES_POR_MODO[modo] ?? []).map((sugestao) => (
-                  <Button
-                    key={sugestao}
-                    variant="outline"
-                    className="h-auto justify-start whitespace-normal text-left py-2.5 px-3.5 font-normal text-foreground"
-                    onClick={() => setEntrada(sugestao)}
-                  >
-                    {sugestao}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
+          <AnimatePresence mode="wait">
+            {mensagens.length === 0 && !carregando && (
+              <motion.div
+                key={modo}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="mt-12 flex flex-col items-center text-center gap-4"
+              >
+                <Avatar className="h-12 w-12">
+                  <AvatarFallback className="bg-secondary text-secondary-foreground">
+                    <Bot className="h-6 w-6" />
+                  </AvatarFallback>
+                </Avatar>
+                <p className="text-muted-foreground max-w-md">
+                  {config?.mensagem_boas_vindas ?? "Faça uma pergunta sobre a base de conhecimento."}
+                </p>
+                <div className="flex flex-col gap-2 w-full max-w-md">
+                  {(SUGESTOES_POR_MODO[modo] ?? []).map((sugestao) => (
+                    <Button
+                      key={sugestao}
+                      variant="outline"
+                      className="h-auto justify-start whitespace-normal text-left py-2.5 px-3.5 font-normal text-foreground"
+                      onClick={() => setEntrada(sugestao)}
+                    >
+                      {sugestao}
+                    </Button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {mensagens.map((m, i) => (
-            <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+            <motion.div
+              key={i}
+              initial={i === mensagens.length - 1 ? { opacity: 0, y: 6 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               {m.role === "assistant" && (
                 <Avatar className="h-7 w-7 shrink-0 mt-0.5">
                   <AvatarFallback className="bg-secondary text-secondary-foreground">
@@ -416,11 +431,16 @@ export default function ChatPage() {
                   </div>
                 )}
               </div>
-            </div>
+            </motion.div>
           ))}
 
           {pendenteConfirmacao && (
-            <div className="flex gap-3 justify-start">
+            <motion.div
+              initial={{ opacity: 0, y: 6, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              className="flex gap-3 justify-start"
+            >
               <Avatar className="h-7 w-7 shrink-0 mt-0.5">
                 <AvatarFallback className="bg-secondary text-secondary-foreground">
                   <Bot className="h-4 w-4" />
@@ -453,7 +473,7 @@ export default function ChatPage() {
                   </div>
                 </CardContent>
               </Card>
-            </div>
+            </motion.div>
           )}
 
           {carregando && (
