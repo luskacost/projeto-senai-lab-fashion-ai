@@ -130,6 +130,7 @@ export interface MensagemConversa {
   mode?: string;
   tenant_id?: string;
   fontes_consultadas?: string[];
+  trechos_consultados?: ChunkConsultado[];
   imagem_url?: string | null;
   imagem_url_costas?: string | null;
 }

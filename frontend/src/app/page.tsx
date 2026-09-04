@@ -25,7 +25,12 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { badgeVariants } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Bot, Loader2, Send } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
@@ -201,6 +206,7 @@ export default function ChatPage() {
           mode: modo,
           tenant_id: TENANT_ID,
           fontes_consultadas: resposta.fontes_consultadas,
+          trechos_consultados: resposta.trechos_consultados,
           imagem_url: resposta.imagem_url ?? null,
         },
       ];
@@ -361,7 +367,13 @@ export default function ChatPage() {
                 }`}
                 style={m.role === "user" ? { backgroundColor: corPrimaria } : undefined}
               >
-                {m.content}
+                {m.role === "assistant" ? (
+                  <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:mt-3 prose-headings:mb-1.5">
+                    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{m.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  m.content
+                )}
 
                 {m.imagem_url && m.imagem_url_costas ? (
                   <div className="mt-2 grid grid-cols-2 gap-2 max-w-xs">
@@ -383,14 +395,29 @@ export default function ChatPage() {
                 )}
 
                 {m.fontes_consultadas && m.fontes_consultadas.length > 0 && (
-                  <details className="mt-2 text-xs text-muted-foreground">
-                    <summary className="cursor-pointer">Fontes consultadas</summary>
-                    <ul className="list-disc list-inside mt-1">
-                      {m.fontes_consultadas.map((f, fi) => (
-                        <li key={fi}>{f}</li>
-                      ))}
-                    </ul>
-                  </details>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.fontes_consultadas.map((f, fi) => {
+                      const trecho = m.trechos_consultados?.[fi];
+                      return (
+                        <Popover key={fi}>
+                          <PopoverTrigger
+                            className={badgeVariants({
+                              variant: "outline",
+                              className: "cursor-pointer font-normal",
+                            })}
+                          >
+                            {fi + 1}. {f}
+                          </PopoverTrigger>
+                          <PopoverContent className="text-xs">
+                            <p className="font-medium text-foreground">{f}</p>
+                            <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                              {trecho?.texto ?? "Trecho não disponível para esta fonte."}
+                            </p>
+                          </PopoverContent>
+                        </Popover>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             </div>
