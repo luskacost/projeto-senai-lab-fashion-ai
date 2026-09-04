@@ -42,10 +42,16 @@ export interface ChunkConsultado {
   score?: number;
 }
 
+// Passada de volta inalterada pelo front-end em POST /chat/croqui/confirmar -- o conteúdo
+// é opaco para o cliente, só precisa ser guardado em memória entre as duas chamadas.
+export type PendenteConfirmacao = Record<string, unknown> & { resumo_confirmacao?: string };
+
 export interface ChatResponse {
-  resposta: string;
+  resposta: string | null;
   fontes_consultadas: string[];
   trechos_consultados: ChunkConsultado[];
+  imagem_url?: string | null;
+  pendente_confirmacao?: PendenteConfirmacao | null;
 }
 
 export async function enviarMensagemChat(params: {
@@ -54,6 +60,8 @@ export async function enviarMensagemChat(params: {
   modo: string;
   conversationId?: string | null;
   perfilUsuario?: string | null;
+  historico?: { role: string; content: string }[];
+  estiloCroqui?: string;
 }): Promise<ChatResponse> {
   return request<ChatResponse>("/chat", {
     method: "POST",
@@ -63,7 +71,26 @@ export async function enviarMensagemChat(params: {
       modo: params.modo,
       conversation_id: params.conversationId ?? null,
       perfil_usuario: params.perfilUsuario ?? null,
+      historico: params.historico ?? null,
+      estilo_croqui: params.estiloCroqui ?? null,
     }),
+  });
+}
+
+export interface ConfirmarCroquiResponse {
+  resposta: string;
+  imagem_url: string | null;
+  imagem_url_costas: string | null;
+}
+
+export async function confirmarCroqui(
+  tenantId: string,
+  confirmado: boolean,
+  pendente: PendenteConfirmacao
+): Promise<ConfirmarCroquiResponse> {
+  return request<ConfirmarCroquiResponse>("/chat/croqui/confirmar", {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, confirmado, pendente }),
   });
 }
 
@@ -103,6 +130,8 @@ export interface MensagemConversa {
   mode?: string;
   tenant_id?: string;
   fontes_consultadas?: string[];
+  imagem_url?: string | null;
+  imagem_url_costas?: string | null;
 }
 
 export interface Conversa {

@@ -6,8 +6,10 @@ import {
   ApiError,
   Conversa,
   MensagemConversa,
+  PendenteConfirmacao,
   atualizarConversa,
   baixarExportacaoConversa,
+  confirmarCroqui,
   criarConversa,
   deletarConversa,
   enviarMensagemChat,
@@ -19,7 +21,9 @@ import { obterUsuarioId } from "@/lib/usuario";
 import ConversasSidebar from "@/components/ConversasSidebar";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
-const MODO = "Base de Conhecimento";
+const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
+const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
+const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";
 
 export default function ChatPage() {
   const [config, setConfig] = useState<TenantConfig | null>(null);
@@ -30,9 +34,11 @@ export default function ChatPage() {
   const [entrada, setEntrada] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [modo, setModo] = useState(MODOS_DISPONIVEIS[0]);
+  const [estiloCroqui, setEstiloCroqui] = useState(ESTILO_ILUSTRACAO);
+  const [pendenteConfirmacao, setPendenteConfirmacao] = useState<PendenteConfirmacao | null>(null);
   const fimDaListaRef = useRef<HTMLDivElement>(null);
 
-  // Carrega config do tenant e identidade/conversas do usuário.
   useEffect(() => {
     obterConfigTenant(TENANT_ID)
       .then(setConfig)
@@ -62,19 +68,20 @@ export default function ChatPage() {
 
   useEffect(() => {
     fimDaListaRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [mensagens, carregando]);
+  }, [mensagens, carregando, pendenteConfirmacao]);
+
+  function mensagemDeErro(e: unknown, contexto: string): string {
+    if (e instanceof ApiError) return e.message;
+    return `Falha ao conectar com a API (${contexto}). Verifique se o servidor está rodando e tente novamente.`;
+  }
 
   function selecionarConversa(id: string) {
     const conv = conversas.find((c) => c.id === id);
     if (!conv) return;
     setConversaAtualId(id);
     setMensagens(conv.mensagens);
+    setPendenteConfirmacao(null);
     setErro(null);
-  }
-
-  function mensagemDeErro(e: unknown, contexto: string): string {
-    if (e instanceof ApiError) return e.message;
-    return `Falha ao conectar com a API (${contexto}). Verifique se o servidor está rodando e tente novamente.`;
   }
 
   async function novaConversa() {
@@ -84,6 +91,7 @@ export default function ChatPage() {
       setConversas((atual) => [...atual, nova]);
       setConversaAtualId(nova.id);
       setMensagens([]);
+      setPendenteConfirmacao(null);
       setErro(null);
     } catch (e) {
       setErro(mensagemDeErro(e, "criar conversa"));
@@ -128,9 +136,15 @@ export default function ChatPage() {
     }
   }
 
+  async function persistirMensagens(lista: MensagemConversa[]) {
+    if (!usuarioId || !conversaAtualId) return;
+    const conversaAtualizada = await atualizarConversa(TENANT_ID, usuarioId, conversaAtualId, { mensagens: lista });
+    setConversas((atual) => atual.map((c) => (c.id === conversaAtualId ? conversaAtualizada : c)));
+  }
+
   async function enviar() {
     const texto = entrada.trim();
-    if (!texto || carregando || !usuarioId || !conversaAtualId) return;
+    if (!texto || carregando || pendenteConfirmacao || !usuarioId || !conversaAtualId) return;
 
     const mensagensComUsuario: MensagemConversa[] = [
       ...mensagens,
@@ -145,29 +159,63 @@ export default function ChatPage() {
       const resposta = await enviarMensagemChat({
         tenantId: TENANT_ID,
         mensagem: texto,
-        modo: MODO,
+        modo,
         conversationId: conversaAtualId,
+        historico:
+          modo === "Gerador de Croqui"
+            ? mensagensComUsuario.map((m) => ({ role: m.role, content: m.content }))
+            : undefined,
+        estiloCroqui: modo === "Gerador de Croqui" ? estiloCroqui : undefined,
       });
+
+      if (resposta.pendente_confirmacao) {
+        setPendenteConfirmacao(resposta.pendente_confirmacao);
+        await persistirMensagens(mensagensComUsuario);
+        return;
+      }
 
       const mensagensFinais: MensagemConversa[] = [
         ...mensagensComUsuario,
         {
           role: "assistant",
-          content: resposta.resposta,
-          mode: MODO,
+          content: resposta.resposta ?? "",
+          mode: modo,
           tenant_id: TENANT_ID,
           fontes_consultadas: resposta.fontes_consultadas,
+          imagem_url: resposta.imagem_url ?? null,
         },
       ];
       setMensagens(mensagensFinais);
-
-      const conversaAtualizada = await atualizarConversa(TENANT_ID, usuarioId, conversaAtualId, {
-        mensagens: mensagensFinais,
-      });
-      setConversas((atual) => atual.map((c) => (c.id === conversaAtualId ? conversaAtualizada : c)));
+      await persistirMensagens(mensagensFinais);
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Falha ao conectar com a API.";
-      setErro(msg);
+      setErro(mensagemDeErro(e, "enviar mensagem"));
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function resolverConfirmacao(confirmado: boolean) {
+    if (!pendenteConfirmacao) return;
+    setCarregando(true);
+    setErro(null);
+    try {
+      const resultado = await confirmarCroqui(TENANT_ID, confirmado, pendenteConfirmacao);
+      const mensagensFinais: MensagemConversa[] = [
+        ...mensagens,
+        {
+          role: "assistant",
+          content: resultado.resposta,
+          mode: "Gerador de Croqui",
+          tenant_id: TENANT_ID,
+          imagem_url: resultado.imagem_url,
+          imagem_url_costas: resultado.imagem_url_costas,
+        },
+      ];
+      setMensagens(mensagensFinais);
+      setPendenteConfirmacao(null);
+      await persistirMensagens(mensagensFinais);
+    } catch (e) {
+      setErro(mensagemDeErro(e, "confirmar geração de imagem"));
     } finally {
       setCarregando(false);
     }
@@ -195,12 +243,39 @@ export default function ChatPage() {
       />
 
       <div className="flex flex-col flex-1 min-w-0">
-        <header className="px-4 py-3 text-white font-semibold text-lg shadow-sm flex items-center justify-between" style={{ backgroundColor: corPrimaria }}>
-          <div>
-            {config?.nome ?? "SenaiLabFashion IA"}
-            <span className="ml-2 text-sm font-normal opacity-80">{MODO}</span>
+        <header className="px-4 py-3 text-white shadow-sm flex items-center justify-between gap-3" style={{ backgroundColor: corPrimaria }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="font-semibold text-lg truncate">{config?.nome ?? "SenaiLabFashion IA"}</span>
+            <select
+              value={modo}
+              onChange={(e) => {
+                setModo(e.target.value);
+                setPendenteConfirmacao(null);
+              }}
+              className="text-sm rounded-lg bg-white/20 text-white px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-white/50"
+            >
+              {MODOS_DISPONIVEIS.map((m) => (
+                <option key={m} value={m} className="text-gray-900">
+                  {m}
+                </option>
+              ))}
+            </select>
+            {modo === "Gerador de Croqui" && (
+              <select
+                value={estiloCroqui}
+                onChange={(e) => setEstiloCroqui(e.target.value)}
+                className="text-sm rounded-lg bg-white/20 text-white px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-white/50"
+              >
+                <option value={ESTILO_ILUSTRACAO} className="text-gray-900">
+                  {ESTILO_ILUSTRACAO}
+                </option>
+                <option value={ESTILO_TECNICO} className="text-gray-900">
+                  {ESTILO_TECNICO}
+                </option>
+              </select>
+            )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             {mensagens.length > 0 && (
               <div className="flex gap-1 text-sm font-normal">
                 <button
@@ -242,6 +317,21 @@ export default function ChatPage() {
                 }`}
               >
                 {m.content}
+
+                {m.imagem_url && m.imagem_url_costas ? (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={m.imagem_url} alt="Vista frontal (desenho técnico)" className="rounded-lg w-full" />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={m.imagem_url_costas} alt="Vista traseira (desenho técnico)" className="rounded-lg w-full" />
+                  </div>
+                ) : (
+                  m.imagem_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.imagem_url} alt="Croqui gerado pela IA" className="mt-2 rounded-lg max-w-full" />
+                  )
+                )}
+
                 {m.fontes_consultadas && m.fontes_consultadas.length > 0 && (
                   <details className="mt-2 text-xs opacity-75">
                     <summary className="cursor-pointer">Fontes consultadas</summary>
@@ -256,10 +346,41 @@ export default function ChatPage() {
             </div>
           ))}
 
+          {pendenteConfirmacao && (
+            <div className="flex justify-start">
+              <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-white border border-gray-200 rounded-bl-sm space-y-2">
+                <p className="text-sm text-gray-700">
+                  <strong>Entendi que você quer:</strong>{" "}
+                  {typeof pendenteConfirmacao.resumo_confirmacao === "string"
+                    ? pendenteConfirmacao.resumo_confirmacao
+                    : ""}
+                </p>
+                <p className="text-xs text-gray-500">Por favor, confirme antes de gerar a imagem:</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => resolverConfirmacao(true)}
+                    disabled={carregando}
+                    className="rounded-lg px-3 py-1.5 text-sm text-white font-medium disabled:opacity-40"
+                    style={{ backgroundColor: corPrimaria }}
+                  >
+                    ✅ Confirmar e gerar imagem
+                  </button>
+                  <button
+                    onClick={() => resolverConfirmacao(false)}
+                    disabled={carregando}
+                    className="rounded-lg px-3 py-1.5 text-sm border border-gray-300 text-gray-700 disabled:opacity-40"
+                  >
+                    ✏️ Não é isso
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {carregando && (
             <div className="flex justify-start">
               <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2 text-gray-400">
-                Pesquisando na base de documentos...
+                {modo === "Gerador de Croqui" ? "Pensando no seu croqui..." : "Pesquisando na base de documentos..."}
               </div>
             </div>
           )}
@@ -279,13 +400,14 @@ export default function ChatPage() {
               value={entrada}
               onChange={(e) => setEntrada(e.target.value)}
               onKeyDown={aoPressionarTecla}
-              placeholder="Digite sua pergunta..."
+              disabled={!!pendenteConfirmacao}
+              placeholder={pendenteConfirmacao ? "Responda a confirmação acima antes de continuar..." : "Digite sua pergunta..."}
               rows={1}
-              className="flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             />
             <button
               onClick={enviar}
-              disabled={carregando || !entrada.trim()}
+              disabled={carregando || !entrada.trim() || !!pendenteConfirmacao}
               className="rounded-xl px-4 py-2 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ backgroundColor: corPrimaria }}
             >
