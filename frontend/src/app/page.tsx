@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ApiError,
   Conversa,
@@ -70,33 +71,50 @@ export default function ChatPage() {
     setErro(null);
   }
 
+  function mensagemDeErro(e: unknown, contexto: string): string {
+    if (e instanceof ApiError) return e.message;
+    return `Falha ao conectar com a API (${contexto}). Verifique se o servidor está rodando e tente novamente.`;
+  }
+
   async function novaConversa() {
     if (!usuarioId) return;
-    const nova = await criarConversa(TENANT_ID, usuarioId);
-    setConversas((atual) => [...atual, nova]);
-    setConversaAtualId(nova.id);
-    setMensagens([]);
-    setErro(null);
+    try {
+      const nova = await criarConversa(TENANT_ID, usuarioId);
+      setConversas((atual) => [...atual, nova]);
+      setConversaAtualId(nova.id);
+      setMensagens([]);
+      setErro(null);
+    } catch (e) {
+      setErro(mensagemDeErro(e, "criar conversa"));
+    }
   }
 
   async function renomearConversaAtual(id: string, novoTitulo: string) {
     if (!usuarioId) return;
-    const atualizada = await atualizarConversa(TENANT_ID, usuarioId, id, { novoTitulo });
-    setConversas((atual) => atual.map((c) => (c.id === id ? atualizada : c)));
+    try {
+      const atualizada = await atualizarConversa(TENANT_ID, usuarioId, id, { novoTitulo });
+      setConversas((atual) => atual.map((c) => (c.id === id ? atualizada : c)));
+    } catch (e) {
+      setErro(mensagemDeErro(e, "renomear conversa"));
+    }
   }
 
   async function excluirConversa(id: string) {
     if (!usuarioId) return;
-    await deletarConversa(TENANT_ID, usuarioId, id);
-    const restantes = conversas.filter((c) => c.id !== id);
-    setConversas(restantes);
+    try {
+      await deletarConversa(TENANT_ID, usuarioId, id);
+      const restantes = conversas.filter((c) => c.id !== id);
+      setConversas(restantes);
 
-    if (conversaAtualId === id) {
-      if (restantes.length > 0) {
-        selecionarConversa(restantes[0].id);
-      } else {
-        await novaConversa();
+      if (conversaAtualId === id) {
+        if (restantes.length > 0) {
+          selecionarConversa(restantes[0].id);
+        } else {
+          await novaConversa();
+        }
       }
+    } catch (e) {
+      setErro(mensagemDeErro(e, "excluir conversa"));
     }
   }
 
@@ -167,9 +185,14 @@ export default function ChatPage() {
       />
 
       <div className="flex flex-col flex-1 min-w-0">
-        <header className="px-4 py-3 text-white font-semibold text-lg shadow-sm" style={{ backgroundColor: corPrimaria }}>
-          {config?.nome ?? "SenaiLabFashion IA"}
-          <span className="ml-2 text-sm font-normal opacity-80">{MODO}</span>
+        <header className="px-4 py-3 text-white font-semibold text-lg shadow-sm flex items-center justify-between" style={{ backgroundColor: corPrimaria }}>
+          <div>
+            {config?.nome ?? "SenaiLabFashion IA"}
+            <span className="ml-2 text-sm font-normal opacity-80">{MODO}</span>
+          </div>
+          <Link href="/admin" className="text-sm font-normal opacity-80 hover:opacity-100">
+            ⚙️ Configurações
+          </Link>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-gray-50">

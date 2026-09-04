@@ -131,3 +131,50 @@ export async function deletarConversa(tenantId: string, usuarioId: string, conve
     { method: "DELETE" }
   );
 }
+
+export async function adminLogin(tenantId: string, senha: string): Promise<boolean> {
+  const resultado = await request<{ autorizado: boolean }>("/admin/login", {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, senha }),
+  });
+  return resultado.autorizado;
+}
+
+export async function listarDocumentos(tenantId: string): Promise<string[]> {
+  return request<string[]>(`/documentos?tenant_id=${encodeURIComponent(tenantId)}`);
+}
+
+export interface UploadDocumentoResponse {
+  nome_arquivo: string;
+  chunks_indexados: number;
+}
+
+export async function uploadDocumento(tenantId: string, arquivo: File): Promise<UploadDocumentoResponse> {
+  const formData = new FormData();
+  formData.append("arquivo", arquivo);
+
+  const res = await fetch(`${API_URL}/documentos/upload?tenant_id=${encodeURIComponent(tenantId)}`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // corpo nao era JSON valido, mantem statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  return res.json() as Promise<UploadDocumentoResponse>;
+}
+
+export async function deletarDocumento(tenantId: string, nomeArquivo: string): Promise<void> {
+  await request<{ status: string }>(
+    `/documentos/${encodeURIComponent(nomeArquivo)}?tenant_id=${encodeURIComponent(tenantId)}`,
+    { method: "DELETE" }
+  );
+}
