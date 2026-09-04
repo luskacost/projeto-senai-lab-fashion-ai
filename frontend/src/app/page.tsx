@@ -19,6 +19,7 @@ import {
 } from "@/lib/api";
 import { obterUsuarioId } from "@/lib/usuario";
 import ConversasSidebar from "@/components/ConversasSidebar";
+import ImagemGerada from "@/components/ImagemGerada";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Textarea } from "@/components/ui/textarea";
@@ -365,16 +366,21 @@ export default function ChatPage() {
                 {m.content}
 
                 {m.imagem_url && m.imagem_url_costas ? (
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={m.imagem_url} alt="Vista frontal (desenho técnico)" className="rounded-lg w-full" />
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={m.imagem_url_costas} alt="Vista traseira (desenho técnico)" className="rounded-lg w-full" />
+                  <div className="mt-2 grid grid-cols-2 gap-2 max-w-xs">
+                    <div className="space-y-1">
+                      <ImagemGerada src={m.imagem_url} alt="Vista frontal (desenho técnico)" />
+                      <p className="text-center text-xs text-muted-foreground">Frente</p>
+                    </div>
+                    <div className="space-y-1">
+                      <ImagemGerada src={m.imagem_url_costas} alt="Vista traseira (desenho técnico)" />
+                      <p className="text-center text-xs text-muted-foreground">Costas</p>
+                    </div>
                   </div>
                 ) : (
                   m.imagem_url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.imagem_url} alt="Croqui gerado pela IA" className="mt-2 rounded-lg max-w-full" />
+                    <div className="mt-2 w-48">
+                      <ImagemGerada src={m.imagem_url} alt="Croqui gerado pela IA" />
+                    </div>
                   )
                 )}
 
