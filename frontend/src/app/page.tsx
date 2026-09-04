@@ -18,7 +18,7 @@ import {
   TenantConfig,
 } from "@/lib/api";
 import { obterUsuarioId } from "@/lib/usuario";
-import ConversasSidebar from "@/components/ConversasSidebar";
+import ConversasHistorico from "@/components/ConversasHistorico";
 import ImagemGerada from "@/components/ImagemGerada";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -250,20 +250,18 @@ export default function ChatPage() {
   const corPrimaria = config?.cor_primaria ?? "#0047AB";
 
   return (
-    <div className="flex h-screen w-full">
-      <ConversasSidebar
-        conversas={conversas}
-        conversaAtualId={conversaAtualId}
-        corPrimaria={corPrimaria}
-        onSelecionar={selecionarConversa}
-        onNovaConversa={novaConversa}
-        onRenomear={renomearConversaAtual}
-        onDeletar={excluirConversa}
-      />
-
-      <div className="flex flex-col flex-1 min-w-0">
-        <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
+    <div className="flex h-screen w-full flex-col">
+      <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
+            <ConversasHistorico
+              conversas={conversas}
+              conversaAtualId={conversaAtualId}
+              corPrimaria={corPrimaria}
+              onSelecionar={selecionarConversa}
+              onNovaConversa={novaConversa}
+              onRenomear={renomearConversaAtual}
+              onDeletar={excluirConversa}
+            />
             <span className="font-medium truncate" style={{ color: corPrimaria }}>
               {config?.nome ?? "SenaiLabFashion IA"}
             </span>
@@ -475,7 +473,6 @@ export default function ChatPage() {
             </Button>
           </div>
         </footer>
-      </div>
     </div>
   );
 }
