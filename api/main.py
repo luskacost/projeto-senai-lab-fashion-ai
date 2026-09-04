@@ -28,7 +28,8 @@ from rag_manager import (
     montar_prompt_final,
     listar_documentos_indexados,
     indexar_documento,
-    remover_documento
+    remover_documento,
+    obter_ultimo_rag_debug
 )
 from document_extractors import extrair_documento
 from rag_config import GROQ_MODEL
@@ -322,5 +323,13 @@ def upload_planilha(tenant_id: str, conversation_id: str):
 # DEBUG/OBSERVABILIDADE (stub, uso interno)
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/debug/rag")
-def debug_rag(tenant_id: str):
-    _endpoint_nao_implementado("GET /debug/rag")
+def debug_rag(tenant_id: str) -> Dict[str, Any]:
+    """Retorna o último relatório de debug do pipeline RAG gerado neste processo.
+
+    Limitação herdada de rag_manager.py: o debug é um estado global do módulo
+    (_ULTIMO_RAG_DEBUG), não segmentado por tenant nem por requisição — em um
+    servidor com múltiplos workers/requisições concorrentes, reflete apenas a
+    última busca executada neste processo, não necessariamente a do `tenant_id`
+    informado. Uso interno/administrativo, não destinado ao front-end React.
+    """
+    return obter_ultimo_rag_debug()
