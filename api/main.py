@@ -52,6 +52,16 @@ from analise_dados import (
     salvar_resumo_estatistico,
     carregar_resumo_estatistico
 )
+from moderacao import validar_prompt_imagem
+from usage_tracker import incrementar_uso, verificar_limite
+from geracao_imagem import (
+    ESTILO_ILUSTRACAO,
+    ESTILO_TECNICO,
+    SUFIXO_TECNICO,
+    chamar_api_geracao_imagem,
+    executar_ferramenta_local,
+    chamar_agente
+)
 
 try:
     # pyrefly: ignore [missing-import]
@@ -132,26 +142,44 @@ def admin_login(payload: AdminLoginRequest) -> Dict[str, bool]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAT (implementados: "Base de Conhecimento" e "Análise de Dados".
-# "Gerador de Croqui" e modos custom ficam para uma sessão futura.)
+# CHAT (implementados: "Base de Conhecimento", "Análise de Dados" e "Gerador de
+# Croqui". Modos custom adicionais ficam para uma sessão futura.)
 # ─────────────────────────────────────────────────────────────────────────────
+class MensagemHistorico(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     tenant_id: str
     conversation_id: Optional[str] = None
     modo: str
     perfil_usuario: Optional[str] = None
     mensagem: str
+    historico: Optional[List[MensagemHistorico]] = None
+    estilo_croqui: Optional[str] = None
 
 
-def _montar_custom_prompt(config: Dict[str, Any], modo_selecionado: str, perfil_usuario: Optional[str]) -> str:
+def _montar_custom_prompt(
+    config: Dict[str, Any],
+    modo_selecionado: str,
+    perfil_usuario: Optional[str],
+    estilo_croqui: Optional[str] = None
+) -> str:
     """Monta o prompt de sistema (base_prompt + prompt do modo + contexto de perfil).
 
-    Espelha a montagem de CUSTOM_PROMPT em app.py, exceto pela seleção de estilo do
-    "Gerador de Croqui" (prompt_tecnico/prompt_ilustracao) — não relevante para o modo
-    "Base de Conhecimento" implementado aqui.
+    Para o modo "Gerador de Croqui", seleciona prompt_tecnico ou prompt_ilustracao
+    conforme estilo_croqui, espelhando app.py.
     """
     modo_cfg = config["modos"][modo_selecionado]
     prompt_modo = modo_cfg["prompt"]
+
+    if modo_selecionado == "Gerador de Croqui":
+        estilo = estilo_croqui or ESTILO_ILUSTRACAO
+        if estilo == ESTILO_TECNICO:
+            prompt_modo = modo_cfg.get("prompt_tecnico", prompt_modo)
+        else:
+            prompt_modo = modo_cfg.get("prompt_ilustracao", prompt_modo)
 
     contexto_perfil = ""
     if perfil_usuario:
@@ -198,6 +226,53 @@ def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[
     return {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
 
 
+def _chat_gerador_croqui(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:
+    """Modo "Gerador de Croqui": agente com tool calling (Groq) + confirmação prévia do usuário.
+
+    Quando o modelo decide chamar a ferramenta gerar_imagem_croqui, a geração da imagem em si
+    NÃO ocorre aqui -- retorna pendente_confirmacao para o front-end exibir a confirmação
+    ("Entendi que você quer: ...") antes de gastar uma chamada de geração de imagem. A
+    confirmação/cancelamento é feita em POST /chat/croqui/confirmar.
+    """
+    estilo = payload.estilo_croqui or ESTILO_ILUSTRACAO
+    custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario, estilo)
+
+    messages_for_api: List[Dict[str, str]] = [{"role": "system", "content": custom_prompt}]
+    if payload.historico:
+        for m in payload.historico:
+            role = "assistant" if m.role in ("assistant", "IA") else m.role
+            messages_for_api.append({"role": role, "content": m.content})
+    else:
+        messages_for_api.append({"role": "user", "content": payload.mensagem})
+
+    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+    client = Groq(api_key=api_key)
+
+    texto, imagem_url, usou_fallback, pendente = chamar_agente(
+        client, config["modos"][payload.modo], messages_for_api, estilo
+    )
+
+    if pendente:
+        pendente["modo"] = payload.modo
+        return {
+            "resposta": None,
+            "imagem_url": None,
+            "pendente_confirmacao": pendente,
+            "fontes_consultadas": [],
+            "trechos_consultados": []
+        }
+
+    return {
+        "resposta": texto,
+        "imagem_url": imagem_url,
+        "pendente_confirmacao": None,
+        "fontes_consultadas": [],
+        "trechos_consultados": []
+    }
+
+
 @app.post("/chat")
 def chat(payload: ChatRequest) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
@@ -210,6 +285,9 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
 
     if payload.modo == "Análise de Dados":
         return _chat_analise_dados(payload, config)
+
+    if payload.modo == "Gerador de Croqui":
+        return _chat_gerador_croqui(payload, config)
 
     if payload.modo != "Base de Conhecimento":
         _endpoint_nao_implementado(f"POST /chat (modo='{payload.modo}')")
@@ -252,6 +330,95 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
         "resposta": resposta,
         "fontes_consultadas": sorted(fontes_consultadas),
         "trechos_consultados": chunks_relevantes
+    }
+
+
+class ConfirmarCroquiRequest(BaseModel):
+    tenant_id: str
+    confirmado: bool
+    pendente: Dict[str, Any]
+
+
+@app.post("/chat/croqui/confirmar")
+def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
+    """Segundo passo do modo "Gerador de Croqui": confirma ou cancela a geração de imagem.
+
+    `payload.pendente` é o mesmo dict retornado em `pendente_confirmacao` por POST /chat --
+    o front-end o mantém em memória e o devolve aqui inalterado, evitando qualquer estado
+    guardado no servidor entre as duas chamadas.
+    """
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+
+    if not payload.confirmado:
+        return {
+            "resposta": "Entendido! Por favor, reescreva seu pedido com mais detalhes sobre como você gostaria que fosse o croqui.",
+            "imagem_url": None,
+            "imagem_url_costas": None
+        }
+
+    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+    client = Groq(api_key=api_key)
+
+    prompt_vis = payload.pendente.get("prompt_visual", "")
+    estilo = payload.pendente.get("estilo_croqui", ESTILO_ILUSTRACAO)
+
+    resultado_mod = validar_prompt_imagem(client, prompt_vis, payload.tenant_id)
+    if not resultado_mod.get("aprovado", False):
+        raise HTTPException(
+            status_code=422,
+            detail=resultado_mod.get("motivo", "O pedido contém elementos fora do escopo de moda e vestuário.")
+        )
+
+    config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
+    limite_img = config.get("limite_imagens_dia", 30)
+    qtd_necessaria = 2 if estilo == ESTILO_TECNICO else 1
+    if not verificar_limite(payload.tenant_id, "imagens", limite_img, quantidade_necessaria=qtd_necessaria):
+        raise HTTPException(status_code=429, detail="Limite diário de geração de imagens atingido. Novas gerações estarão disponíveis amanhã.")
+
+    imagem_url_gerada = None
+    imagem_url_costas_gerada = None
+
+    if estilo == ESTILO_TECNICO:
+        prompt_frente = f"{prompt_vis}{SUFIXO_TECNICO}, front view"
+        prompt_costas = f"{prompt_vis}{SUFIXO_TECNICO}, back view"
+        res_frente = chamar_api_geracao_imagem(prompt_frente)
+        res_costas = chamar_api_geracao_imagem(prompt_costas)
+        if res_frente.startswith("https://image.pollinations.ai"):
+            imagem_url_gerada = res_frente
+            incrementar_uso(payload.tenant_id, "imagens")
+        if res_costas.startswith("https://image.pollinations.ai"):
+            imagem_url_costas_gerada = res_costas
+            incrementar_uso(payload.tenant_id, "imagens")
+        resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados com sucesso (Frente: {imagem_url_gerada}, Costas: {imagem_url_costas_gerada})."
+    else:
+        resultado_ferramenta = executar_ferramenta_local("gerar_imagem_croqui", payload.pendente.get("argumentos", {}), estilo)
+        if resultado_ferramenta.startswith("https://image.pollinations.ai"):
+            imagem_url_gerada = resultado_ferramenta
+            incrementar_uso(payload.tenant_id, "imagens")
+
+    msgs_api = list(payload.pendente.get("messages_for_api", []))
+    msgs_api.append(payload.pendente.get("assistant_message"))
+    msgs_api.append({
+        "role": "tool",
+        "tool_call_id": payload.pendente.get("tool_call_id"),
+        "content": str(resultado_ferramenta),
+    })
+
+    segunda_resposta = client.chat.completions.create(
+        messages=msgs_api,
+        model=GROQ_MODEL,
+        temperature=0.7,
+        max_tokens=2048,
+    )
+    texto_final = segunda_resposta.choices[0].message.content
+
+    return {
+        "resposta": texto_final,
+        "imagem_url": imagem_url_gerada,
+        "imagem_url_costas": imagem_url_costas_gerada
     }
 
 
