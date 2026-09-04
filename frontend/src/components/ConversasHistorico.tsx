@@ -16,7 +16,6 @@ import {
 interface Props {
   conversas: Conversa[];
   conversaAtualId: string | null;
-  corPrimaria: string;
   onSelecionar: (id: string) => void;
   onNovaConversa: () => void;
   onRenomear: (id: string, novoTitulo: string) => void;
@@ -26,7 +25,6 @@ interface Props {
 export default function ConversasHistorico({
   conversas,
   conversaAtualId,
-  corPrimaria,
   onSelecionar,
   onNovaConversa,
   onRenomear,
@@ -84,8 +82,7 @@ export default function ConversasHistorico({
               onNovaConversa();
               setAberto(false);
             }}
-            className="w-full text-white"
-            style={{ backgroundColor: corPrimaria }}
+            className="w-full"
           >
             <Plus className="h-4 w-4" />
             Nova conversa

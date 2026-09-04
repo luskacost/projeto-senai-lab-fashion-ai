@@ -2,16 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import {
-  ApiError,
-  TenantConfig,
-  adminLogin,
-  deletarDocumento,
-  listarDocumentos,
-  obterConfigTenant,
-  uploadDocumento,
-} from "@/lib/api";
-import AparenciaForm from "@/components/AparenciaForm";
+import { ApiError, adminLogin, deletarDocumento, listarDocumentos, uploadDocumento } from "@/lib/api";
+import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,7 +14,6 @@ const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const CHAVE_SESSAO_ADMIN = "labfashion_admin_ok";
 
 export default function AdminPage() {
-  const [config, setConfig] = useState<TenantConfig | null>(null);
   const [autorizado, setAutorizado] = useState(false);
   const [senha, setSenha] = useState("");
   const [erroLogin, setErroLogin] = useState<string | null>(null);
@@ -34,21 +25,10 @@ export default function AdminPage() {
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    recarregarConfig();
-
     if (typeof window !== "undefined" && window.sessionStorage.getItem(CHAVE_SESSAO_ADMIN) === "1") {
       setAutorizado(true);
     }
   }, []);
-
-  async function recarregarConfig() {
-    try {
-      const c = await obterConfigTenant(TENANT_ID);
-      setConfig(c);
-    } catch {
-      setConfig(null);
-    }
-  }
 
   useEffect(() => {
     if (autorizado) {
@@ -114,8 +94,6 @@ export default function AdminPage() {
     }
   }
 
-  const corPrimaria = config?.cor_primaria ?? "#0047AB";
-
   if (!autorizado) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
@@ -134,12 +112,7 @@ export default function AdminPage() {
                 autoFocus
               />
               {erroLogin && <p className="text-sm text-destructive">{erroLogin}</p>}
-              <Button
-                type="submit"
-                disabled={validandoLogin || !senha}
-                className="w-full text-white"
-                style={{ backgroundColor: corPrimaria }}
-              >
+              <Button type="submit" disabled={validandoLogin || !senha} className="w-full">
                 {validandoLogin && <Loader2 className="animate-spin" />}
                 {validandoLogin ? "Validando..." : "Entrar"}
               </Button>
@@ -156,13 +129,11 @@ export default function AdminPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento — {config?.nome ?? TENANT_ID}</h1>
+        <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento — {APP_NOME}</h1>
         <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
           ← Voltar ao chat
         </Link>
       </div>
-
-      <AparenciaForm tenantId={TENANT_ID} config={config} corPrimaria={corPrimaria} onSalvo={recarregarConfig} />
 
       <Card>
         <CardHeader>
@@ -176,7 +147,7 @@ export default function AdminPage() {
               type="file"
               className="flex-1 text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
             />
-            <Button onClick={enviarArquivo} disabled={enviando} className="text-white shrink-0" style={{ backgroundColor: corPrimaria }}>
+            <Button onClick={enviarArquivo} disabled={enviando} className="shrink-0">
               {enviando ? <Loader2 className="animate-spin" /> : <Upload />}
               {enviando ? "Enviando..." : "Indexar"}
             </Button>

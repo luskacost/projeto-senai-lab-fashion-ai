@@ -14,10 +14,9 @@ import {
   deletarConversa,
   enviarMensagemChat,
   listarConversas,
-  obterConfigTenant,
-  TenantConfig,
 } from "@/lib/api";
 import { obterUsuarioId } from "@/lib/usuario";
+import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
 import ConversasHistorico from "@/components/ConversasHistorico";
 import ImagemGerada from "@/components/ImagemGerada";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -52,7 +51,6 @@ const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
 const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";
 
 export default function ChatPage() {
-  const [config, setConfig] = useState<TenantConfig | null>(null);
   const [usuarioId, setUsuarioId] = useState<string | null>(null);
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [conversaAtualId, setConversaAtualId] = useState<string | null>(null);
@@ -65,10 +63,6 @@ export default function ChatPage() {
   const fimDaListaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    obterConfigTenant(TENANT_ID)
-      .then(setConfig)
-      .catch(() => setConfig(null));
-
     const uid = obterUsuarioId();
     setUsuarioId(uid);
 
@@ -250,8 +244,6 @@ export default function ChatPage() {
     }
   }
 
-  const corPrimaria = config?.cor_primaria ?? "#0047AB";
-
   return (
     <div className="flex h-screen w-full flex-col">
       <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
@@ -259,15 +251,12 @@ export default function ChatPage() {
             <ConversasHistorico
               conversas={conversas}
               conversaAtualId={conversaAtualId}
-              corPrimaria={corPrimaria}
               onSelecionar={selecionarConversa}
               onNovaConversa={novaConversa}
               onRenomear={renomearConversaAtual}
               onDeletar={excluirConversa}
             />
-            <span className="font-medium truncate" style={{ color: corPrimaria }}>
-              {config?.nome ?? "SenaiLabFashion IA"}
-            </span>
+            <span className="font-medium truncate text-primary">{APP_NOME}</span>
             <ToggleGroup
               value={[modo]}
               onValueChange={(valores) => {
@@ -337,9 +326,7 @@ export default function ChatPage() {
                     <Bot className="h-6 w-6" />
                   </AvatarFallback>
                 </Avatar>
-                <p className="text-muted-foreground max-w-md">
-                  {config?.mensagem_boas_vindas ?? "Faça uma pergunta sobre a base de conhecimento."}
-                </p>
+                <p className="text-muted-foreground max-w-md">{MENSAGEM_BOAS_VINDAS}</p>
                 <div className="flex flex-col gap-2 w-full max-w-md">
                   {(SUGESTOES_POR_MODO[modo] ?? []).map((sugestao) => (
                     <Button
@@ -373,10 +360,9 @@ export default function ChatPage() {
               <div
                 className={`max-w-[80%] min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                   m.role === "user"
-                    ? "rounded-2xl rounded-br-sm px-4 py-2 text-white"
+                    ? "rounded-2xl rounded-br-sm px-4 py-2 bg-primary text-primary-foreground"
                     : "text-foreground"
                 }`}
-                style={m.role === "user" ? { backgroundColor: corPrimaria } : undefined}
               >
                 {m.role === "assistant" ? (
                   <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:mt-3 prose-headings:mb-1.5">
@@ -446,10 +432,7 @@ export default function ChatPage() {
                   <Bot className="h-4 w-4" />
                 </AvatarFallback>
               </Avatar>
-              <Card
-                className="max-w-[80%] border-2 py-3 gap-2"
-                style={{ borderColor: corPrimaria, backgroundColor: `color-mix(in oklch, ${corPrimaria} 6%, var(--card))` }}
-              >
+              <Card className="max-w-[80%] border-2 border-primary bg-primary/[0.06] py-3 gap-2">
                 <CardContent className="space-y-2">
                   <p className="text-sm">
                     <strong>Entendi que você quer:</strong>{" "}
@@ -459,12 +442,7 @@ export default function ChatPage() {
                   </p>
                   <p className="text-xs text-muted-foreground">Por favor, confirme antes de gerar a imagem:</p>
                   <div className="flex gap-2 pt-1">
-                    <Button
-                      onClick={() => resolverConfirmacao(true)}
-                      disabled={carregando}
-                      className="text-white"
-                      style={{ backgroundColor: corPrimaria }}
-                    >
+                    <Button onClick={() => resolverConfirmacao(true)} disabled={carregando}>
                       Confirmar e gerar imagem
                     </Button>
                     <Button onClick={() => resolverConfirmacao(false)} disabled={carregando} variant="outline">
@@ -508,8 +486,7 @@ export default function ChatPage() {
               onClick={enviar}
               disabled={carregando || !entrada.trim() || !!pendenteConfirmacao}
               size="icon-lg"
-              className="rounded-xl text-white shrink-0"
-              style={{ backgroundColor: corPrimaria }}
+              className="rounded-xl shrink-0"
               aria-label="Enviar mensagem"
             >
               {carregando ? <Loader2 className="animate-spin" /> : <Send />}
