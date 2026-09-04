@@ -79,6 +79,24 @@ export async function obterConfigTenant(tenantId: string): Promise<TenantConfig>
   return request<TenantConfig>(`/config/tenant?tenant_id=${encodeURIComponent(tenantId)}`);
 }
 
+export interface AparenciaTenant {
+  nome: string;
+  cor_primaria: string;
+  cor_secundaria: string;
+  logo_url: string;
+  tema: "claro" | "escuro";
+  fonte: string;
+  favicon_url: string;
+  mensagem_boas_vindas: string;
+}
+
+export async function atualizarConfigTenant(tenantId: string, dadosCustom: AparenciaTenant): Promise<void> {
+  await request<{ status: string }>("/config/tenant", {
+    method: "PUT",
+    body: JSON.stringify({ tenant_id: tenantId, dados_custom: dadosCustom }),
+  });
+}
+
 export interface MensagemConversa {
   role: "user" | "assistant";
   content: string;

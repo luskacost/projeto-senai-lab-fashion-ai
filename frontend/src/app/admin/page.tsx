@@ -11,6 +11,7 @@ import {
   obterConfigTenant,
   uploadDocumento,
 } from "@/lib/api";
+import AparenciaForm from "@/components/AparenciaForm";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const CHAVE_SESSAO_ADMIN = "labfashion_admin_ok";
@@ -30,14 +31,21 @@ export default function AdminPage() {
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    obterConfigTenant(TENANT_ID)
-      .then(setConfig)
-      .catch(() => setConfig(null));
+    recarregarConfig();
 
     if (typeof window !== "undefined" && window.sessionStorage.getItem(CHAVE_SESSAO_ADMIN) === "1") {
       setAutorizado(true);
     }
   }, []);
+
+  async function recarregarConfig() {
+    try {
+      const c = await obterConfigTenant(TENANT_ID);
+      setConfig(c);
+    } catch {
+      setConfig(null);
+    }
+  }
 
   useEffect(() => {
     if (autorizado) {
@@ -150,6 +158,8 @@ export default function AdminPage() {
           ← Voltar ao chat
         </Link>
       </div>
+
+      <AparenciaForm tenantId={TENANT_ID} config={config} corPrimaria={corPrimaria} onSalvo={recarregarConfig} />
 
       <section className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">
         <h2 className="font-medium text-gray-800">Indexar novo documento</h2>
