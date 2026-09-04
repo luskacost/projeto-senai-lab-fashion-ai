@@ -9,12 +9,28 @@ têm lógica implementada (ver roadmap: cada um é implementado em uma sessão f
 Rodar localmente: uvicorn api.main:app --reload
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from groq import Groq
 
-from tenant_config import TENANT_CONFIG, carregar_config_tenant, salvar_config_tenant
+from tenant_config import (
+    TENANT_CONFIG,
+    PERFIS_USUARIO,
+    carregar_config_tenant,
+    salvar_config_tenant,
+    obter_secret_tenant
+)
+from rag_manager import buscar_contexto_relevante, montar_prompt_final, listar_documentos_indexados
+from rag_config import GROQ_MODEL
+
+try:
+    # pyrefly: ignore [missing-import]
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 app = FastAPI(
     title="SenaiLabFashionAssistant API",
@@ -75,7 +91,8 @@ def admin_login(payload: AdminLoginRequest):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAT (stub — Passo 17: implementar primeiro só "Base de Conhecimento")
+# CHAT (Passo 17: implementado o modo "Base de Conhecimento";
+# demais modos — Análise de Dados, Gerador de Croqui, custom — ficam para Passo 18+)
 # ─────────────────────────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     tenant_id: str
@@ -85,9 +102,77 @@ class ChatRequest(BaseModel):
     mensagem: str
 
 
+def _montar_custom_prompt(config: Dict[str, Any], modo_selecionado: str, perfil_usuario: Optional[str]) -> str:
+    """Monta o prompt de sistema (base_prompt + prompt do modo + contexto de perfil).
+
+    Espelha a montagem de CUSTOM_PROMPT em app.py, exceto pela seleção de estilo do
+    "Gerador de Croqui" (prompt_tecnico/prompt_ilustracao) — não relevante para o modo
+    "Base de Conhecimento" implementado aqui.
+    """
+    modo_cfg = config["modos"][modo_selecionado]
+    prompt_modo = modo_cfg["prompt"]
+
+    contexto_perfil = ""
+    if perfil_usuario:
+        perfil_info = PERFIS_USUARIO.get(perfil_usuario, {})
+        rotulo = perfil_info.get("rotulo_prompt", perfil_usuario)
+        contexto_perfil = f"\n\nO usuário se identificou como {rotulo}. Adapte a profundidade técnica e o tom da resposta para esse perfil."
+
+    return f"{config['base_prompt']}\n\n{prompt_modo}{contexto_perfil}"
+
+
 @app.post("/chat")
-def chat(payload: ChatRequest):
-    _endpoint_nao_implementado("POST /chat")
+def chat(payload: ChatRequest) -> Dict[str, Any]:
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+
+    config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
+
+    if payload.modo not in config["modos"]:
+        raise HTTPException(status_code=400, detail=f"Modo '{payload.modo}' inválido para o tenant '{payload.tenant_id}'.")
+
+    if payload.modo != "Base de Conhecimento":
+        _endpoint_nao_implementado(f"POST /chat (modo='{payload.modo}')")
+
+    chunks_relevantes = buscar_contexto_relevante(
+        payload.tenant_id,
+        payload.mensagem,
+        top_k=10,
+        conversation_id=payload.conversation_id
+    )
+
+    if not chunks_relevantes:
+        docs_cadastrados = listar_documentos_indexados(payload.tenant_id)
+        if docs_cadastrados:
+            resposta = "Não encontrei essa informação no documento."
+        else:
+            resposta = "📚 Nenhum documento foi carregado ainda para este assistente na Base de Conhecimento. Peça ao administrador para adicionar materiais na aba Configurações."
+        return {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
+
+    prompt_com_contexto, fontes_consultadas = montar_prompt_final(chunks_relevantes, payload.mensagem)
+    custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario)
+
+    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+
+    client = Groq(api_key=api_key)
+    resposta_obj = client.chat.completions.create(
+        messages=[
+            {"role": "system", "content": custom_prompt},
+            {"role": "user", "content": prompt_com_contexto}
+        ],
+        model=GROQ_MODEL,
+        temperature=0.1,
+        max_tokens=2048
+    )
+    resposta = resposta_obj.choices[0].message.content
+
+    return {
+        "resposta": resposta,
+        "fontes_consultadas": sorted(fontes_consultadas),
+        "trechos_consultados": chunks_relevantes
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
