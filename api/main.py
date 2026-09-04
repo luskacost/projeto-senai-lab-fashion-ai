@@ -9,6 +9,7 @@ têm lógica implementada (ver roadmap: cada um é implementado em uma sessão f
 Rodar localmente: uvicorn api.main:app --reload
 """
 
+import io
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -40,6 +41,13 @@ from conversas_manager import (
     renomear_conversa,
     formatar_conversa_txt,
     gerar_conversa_pdf
+)
+from analise_dados import (
+    carregar_planilha,
+    gerar_resumo_estatistico,
+    responder_pergunta_sobre_dados,
+    salvar_resumo_estatistico,
+    carregar_resumo_estatistico
 )
 
 try:
@@ -111,8 +119,8 @@ def admin_login(payload: AdminLoginRequest) -> Dict[str, bool]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAT (Passo 17: implementado o modo "Base de Conhecimento";
-# demais modos — Análise de Dados, Gerador de Croqui, custom — ficam para Passo 18+)
+# CHAT (implementados: "Base de Conhecimento" e "Análise de Dados".
+# "Gerador de Croqui" e modos custom ficam para uma sessão futura.)
 # ─────────────────────────────────────────────────────────────────────────────
 class ChatRequest(BaseModel):
     tenant_id: str
@@ -141,6 +149,42 @@ def _montar_custom_prompt(config: Dict[str, Any], modo_selecionado: str, perfil_
     return f"{config['base_prompt']}\n\n{prompt_modo}{contexto_perfil}"
 
 
+def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:
+    """Modo "Análise de Dados": interpreta o resumo estatístico persistido para a conversa.
+
+    Requer que POST /planilha/upload já tenha sido chamado antes para o mesmo
+    tenant_id + conversation_id, persistindo o resumo via
+    analise_dados.salvar_resumo_estatistico (substitui st.session_state.resumo_estatistico_atual).
+    """
+    if not payload.conversation_id:
+        raise HTTPException(status_code=400, detail="conversation_id é obrigatório para o modo 'Análise de Dados'.")
+
+    resumo_estatistico = carregar_resumo_estatistico(payload.tenant_id, payload.conversation_id)
+    if not resumo_estatistico:
+        return {
+            "resposta": "Nenhum resumo de dados foi encontrado para esta conversa. Faça o upload de uma planilha primeiro via POST /planilha/upload.",
+            "fontes_consultadas": [],
+            "trechos_consultados": []
+        }
+
+    custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario)
+
+    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+
+    client = Groq(api_key=api_key)
+    resposta = responder_pergunta_sobre_dados(
+        client=client,
+        pergunta=payload.mensagem,
+        resumo_estatistico=resumo_estatistico,
+        prompt_sistema=custom_prompt,
+        modelo=GROQ_MODEL,
+        tenant_id=payload.tenant_id
+    )
+    return {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
+
+
 @app.post("/chat")
 def chat(payload: ChatRequest) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
@@ -150,6 +194,9 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
 
     if payload.modo not in config["modos"]:
         raise HTTPException(status_code=400, detail=f"Modo '{payload.modo}' inválido para o tenant '{payload.tenant_id}'.")
+
+    if payload.modo == "Análise de Dados":
+        return _chat_analise_dados(payload, config)
 
     if payload.modo != "Base de Conhecimento":
         _endpoint_nao_implementado(f"POST /chat (modo='{payload.modo}')")
@@ -312,11 +359,30 @@ def deletar_documento(nome_arquivo: str, tenant_id: str) -> Dict[str, str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ANÁLISE DE DADOS (upload de planilha) (stub)
+# ANÁLISE DE DADOS (upload de planilha)
 # ─────────────────────────────────────────────────────────────────────────────
 @app.post("/planilha/upload")
-def upload_planilha(tenant_id: str, conversation_id: str):
-    _endpoint_nao_implementado("POST /planilha/upload")
+async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadFile = File(...)) -> Dict[str, Any]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+
+    conteudo = await arquivo.read()
+    stream = io.BytesIO(conteudo)
+    stream.name = arquivo.filename
+
+    df = carregar_planilha(stream, tenant_id)
+    if df is None:
+        raise HTTPException(status_code=422, detail=f"Não foi possível ler a planilha '{arquivo.filename}' (formato inválido, corrompida ou vazia).")
+
+    resumo = gerar_resumo_estatistico(df)
+    salvar_resumo_estatistico(tenant_id, conversation_id, resumo)
+
+    return {
+        "nome_arquivo": arquivo.filename,
+        "linhas": len(df),
+        "colunas": list(df.columns),
+        "resumo_estatistico": resumo
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

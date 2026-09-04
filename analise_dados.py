@@ -376,3 +376,34 @@ def responder_pergunta_sobre_dados(
     except Exception as e:
         logger.error(f"Erro ao consultar LLM sobre resumo de dados: {e}", exc_info=True)
         raise
+
+
+DIRETORIO_ANALISE_DADOS = os.path.join("tenant_data", "analise_dados")
+
+
+def salvar_resumo_estatistico(tenant_id: str, conversation_id: str, resumo: dict) -> None:
+    """Persiste o resumo estatístico de uma planilha carregada, associado a uma conversa.
+
+    Permite que o modo "Análise de Dados" funcione via API sem depender de
+    st.session_state: o resumo gerado no upload fica disponível para perguntas
+    subsequentes na mesma conversa (mesmo tenant_id + conversation_id).
+    """
+    try:
+        os.makedirs(DIRETORIO_ANALISE_DADOS, exist_ok=True)
+        caminho = os.path.join(DIRETORIO_ANALISE_DADOS, f"{tenant_id}_{conversation_id}.json")
+        with open(caminho, "w", encoding="utf-8") as f:
+            json.dump(resumo, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def carregar_resumo_estatistico(tenant_id: str, conversation_id: str) -> Optional[dict]:
+    """Carrega o resumo estatístico previamente persistido para uma conversa, se existir."""
+    try:
+        caminho = os.path.join(DIRETORIO_ANALISE_DADOS, f"{tenant_id}_{conversation_id}.json")
+        if os.path.exists(caminho):
+            with open(caminho, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return None
+    except Exception:
+        return None
