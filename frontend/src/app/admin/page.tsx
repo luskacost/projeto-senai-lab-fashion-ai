@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FileText, Loader2, Trash2, Upload } from "lucide-react";
+import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const CHAVE_SESSAO_ADMIN = "labfashion_admin_ok";
@@ -30,8 +31,6 @@ export default function AdminPage() {
   const [documentos, setDocumentos] = useState<string[]>([]);
   const [carregandoDocs, setCarregandoDocs] = useState(false);
   const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -63,7 +62,7 @@ export default function AdminPage() {
       const lista = await listarDocumentos(TENANT_ID);
       setDocumentos(lista);
     } catch {
-      setErro("Não foi possível carregar a lista de documentos.");
+      toast.error("Não foi possível carregar a lista de documentos.");
     } finally {
       setCarregandoDocs(false);
     }
@@ -93,15 +92,13 @@ export default function AdminPage() {
     if (!arquivo) return;
 
     setEnviando(true);
-    setErro(null);
-    setMensagemSucesso(null);
     try {
       const resultado = await uploadDocumento(TENANT_ID, arquivo);
-      setMensagemSucesso(`"${resultado.nome_arquivo}" indexado com sucesso (${resultado.chunks_indexados} trechos).`);
+      toast.success(`"${resultado.nome_arquivo}" indexado com sucesso (${resultado.chunks_indexados} trechos).`);
       if (inputArquivoRef.current) inputArquivoRef.current.value = "";
       await recarregarDocumentos();
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : "Falha ao enviar o arquivo.");
+      toast.error(e instanceof ApiError ? e.message : "Falha ao enviar o arquivo.");
     } finally {
       setEnviando(false);
     }
@@ -109,12 +106,11 @@ export default function AdminPage() {
 
   async function excluirDocumento(nome: string) {
     if (!window.confirm(`Remover "${nome}" da Base de Conhecimento?`)) return;
-    setErro(null);
     try {
       await deletarDocumento(TENANT_ID, nome);
       await recarregarDocumentos();
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : "Falha ao remover o documento.");
+      toast.error(e instanceof ApiError ? e.message : "Falha ao remover o documento.");
     }
   }
 
@@ -185,10 +181,6 @@ export default function AdminPage() {
               {enviando ? "Enviando..." : "Indexar"}
             </Button>
           </div>
-          {mensagemSucesso && (
-            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensagemSucesso}</p>
-          )}
-          {erro && <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erro}</p>}
         </CardContent>
       </Card>
 

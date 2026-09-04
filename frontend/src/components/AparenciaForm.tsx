@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 const OPCOES_FONTE = ["Inter", "Roboto", "Poppins"];
 
@@ -36,8 +37,6 @@ function valoresIniciais(config: TenantConfig | null): AparenciaTenant {
 export default function AparenciaForm({ tenantId, config, corPrimaria, onSalvo }: Props) {
   const [form, setForm] = useState<AparenciaTenant>(valoresIniciais(config));
   const [salvando, setSalvando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-  const [sucesso, setSucesso] = useState(false);
 
   useEffect(() => {
     setForm(valoresIniciais(config));
@@ -45,20 +44,17 @@ export default function AparenciaForm({ tenantId, config, corPrimaria, onSalvo }
 
   function atualizarCampo<K extends keyof AparenciaTenant>(campo: K, valor: AparenciaTenant[K]) {
     setForm((atual) => ({ ...atual, [campo]: valor }));
-    setSucesso(false);
   }
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setSalvando(true);
-    setErro(null);
-    setSucesso(false);
     try {
       await atualizarConfigTenant(tenantId, { ...form, nome: form.nome.trim(), logo_url: form.logo_url.trim(), favicon_url: form.favicon_url.trim() });
-      setSucesso(true);
+      toast.success("Configurações salvas com sucesso!");
       onSalvo();
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : "Falha ao salvar as configurações.");
+      toast.error(e instanceof ApiError ? e.message : "Falha ao salvar as configurações.");
     } finally {
       setSalvando(false);
     }
@@ -161,13 +157,6 @@ export default function AparenciaForm({ tenantId, config, corPrimaria, onSalvo }
               rows={3}
             />
           </div>
-
-          {sucesso && (
-            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              Configurações salvas com sucesso!
-            </p>
-          )}
-          {erro && <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{erro}</p>}
 
           <Button type="submit" disabled={salvando} className="text-white" style={{ backgroundColor: corPrimaria }}>
             {salvando && <Loader2 className="animate-spin" />}

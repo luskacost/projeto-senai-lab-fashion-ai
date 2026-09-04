@@ -31,6 +31,7 @@ import { Bot, Loader2, Send } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
@@ -57,7 +58,6 @@ export default function ChatPage() {
   const [mensagens, setMensagens] = useState<MensagemConversa[]>([]);
   const [entrada, setEntrada] = useState("");
   const [carregando, setCarregando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
   const [modo, setModo] = useState(MODOS_DISPONIVEIS[0]);
   const [estiloCroqui, setEstiloCroqui] = useState(ESTILO_ILUSTRACAO);
   const [pendenteConfirmacao, setPendenteConfirmacao] = useState<PendenteConfirmacao | null>(null);
@@ -87,7 +87,7 @@ export default function ChatPage() {
         setConversaAtualId(maisRecente.id);
         setMensagens(maisRecente.mensagens);
       })
-      .catch(() => setErro("Não foi possível carregar as conversas."));
+      .catch(() => toast.error("Não foi possível carregar as conversas."));
   }, []);
 
   useEffect(() => {
@@ -105,7 +105,6 @@ export default function ChatPage() {
     setConversaAtualId(id);
     setMensagens(conv.mensagens);
     setPendenteConfirmacao(null);
-    setErro(null);
   }
 
   async function novaConversa() {
@@ -116,9 +115,8 @@ export default function ChatPage() {
       setConversaAtualId(nova.id);
       setMensagens([]);
       setPendenteConfirmacao(null);
-      setErro(null);
     } catch (e) {
-      setErro(mensagemDeErro(e, "criar conversa"));
+      toast.error(mensagemDeErro(e, "criar conversa"));
     }
   }
 
@@ -128,7 +126,7 @@ export default function ChatPage() {
       const atualizada = await atualizarConversa(TENANT_ID, usuarioId, id, { novoTitulo });
       setConversas((atual) => atual.map((c) => (c.id === id ? atualizada : c)));
     } catch (e) {
-      setErro(mensagemDeErro(e, "renomear conversa"));
+      toast.error(mensagemDeErro(e, "renomear conversa"));
     }
   }
 
@@ -147,7 +145,7 @@ export default function ChatPage() {
         }
       }
     } catch (e) {
-      setErro(mensagemDeErro(e, "excluir conversa"));
+      toast.error(mensagemDeErro(e, "excluir conversa"));
     }
   }
 
@@ -156,7 +154,7 @@ export default function ChatPage() {
     try {
       await baixarExportacaoConversa(TENANT_ID, usuarioId, conversaAtualId, formato);
     } catch (e) {
-      setErro(mensagemDeErro(e, `exportar conversa em ${formato.toUpperCase()}`));
+      toast.error(mensagemDeErro(e, `exportar conversa em ${formato.toUpperCase()}`));
     }
   }
 
@@ -177,7 +175,6 @@ export default function ChatPage() {
     setMensagens(mensagensComUsuario);
     setEntrada("");
     setCarregando(true);
-    setErro(null);
 
     try {
       const resposta = await enviarMensagemChat({
@@ -213,7 +210,7 @@ export default function ChatPage() {
       setMensagens(mensagensFinais);
       await persistirMensagens(mensagensFinais);
     } catch (e) {
-      setErro(mensagemDeErro(e, "enviar mensagem"));
+      toast.error(mensagemDeErro(e, "enviar mensagem"));
     } finally {
       setCarregando(false);
     }
@@ -222,7 +219,6 @@ export default function ChatPage() {
   async function resolverConfirmacao(confirmado: boolean) {
     if (!pendenteConfirmacao) return;
     setCarregando(true);
-    setErro(null);
     try {
       const resultado = await confirmarCroqui(TENANT_ID, confirmado, pendenteConfirmacao);
       const mensagensFinais: MensagemConversa[] = [
@@ -240,7 +236,7 @@ export default function ChatPage() {
       setPendenteConfirmacao(null);
       await persistirMensagens(mensagensFinais);
     } catch (e) {
-      setErro(mensagemDeErro(e, "confirmar geração de imagem"));
+      toast.error(mensagemDeErro(e, "confirmar geração de imagem"));
     } finally {
       setCarregando(false);
     }
@@ -461,16 +457,16 @@ export default function ChatPage() {
           )}
 
           {carregando && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-sm px-4 py-2 text-gray-400">
+            <div className="flex gap-3 justify-start">
+              <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+                <AvatarFallback className="bg-secondary text-secondary-foreground">
+                  <Bot className="h-4 w-4" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
                 {modo === "Gerador de Croqui" ? "Pensando no seu croqui..." : "Pesquisando na base de documentos..."}
               </div>
-            </div>
-          )}
-
-          {erro && (
-            <div className="text-center text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-              {erro}
             </div>
           )}
 
