@@ -78,3 +78,56 @@ export interface TenantConfig {
 export async function obterConfigTenant(tenantId: string): Promise<TenantConfig> {
   return request<TenantConfig>(`/config/tenant?tenant_id=${encodeURIComponent(tenantId)}`);
 }
+
+export interface MensagemConversa {
+  role: "user" | "assistant";
+  content: string;
+  mode?: string;
+  tenant_id?: string;
+  fontes_consultadas?: string[];
+}
+
+export interface Conversa {
+  id: string;
+  titulo: string;
+  mensagens: MensagemConversa[];
+  criado_em: string;
+  atualizado_em: string;
+}
+
+export async function listarConversas(tenantId: string, usuarioId: string): Promise<Conversa[]> {
+  return request<Conversa[]>(
+    `/conversas?tenant_id=${encodeURIComponent(tenantId)}&usuario_id=${encodeURIComponent(usuarioId)}`
+  );
+}
+
+export async function criarConversa(tenantId: string, usuarioId: string): Promise<Conversa> {
+  return request<Conversa>("/conversas", {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, usuario_id: usuarioId }),
+  });
+}
+
+export async function atualizarConversa(
+  tenantId: string,
+  usuarioId: string,
+  conversaId: string,
+  atualizacoes: { novoTitulo?: string; mensagens?: MensagemConversa[] }
+): Promise<Conversa> {
+  return request<Conversa>(`/conversas/${encodeURIComponent(conversaId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      usuario_id: usuarioId,
+      novo_titulo: atualizacoes.novoTitulo ?? null,
+      mensagens: atualizacoes.mensagens ?? null,
+    }),
+  });
+}
+
+export async function deletarConversa(tenantId: string, usuarioId: string, conversaId: string): Promise<void> {
+  await request<{ status: string }>(
+    `/conversas/${encodeURIComponent(conversaId)}?tenant_id=${encodeURIComponent(tenantId)}&usuario_id=${encodeURIComponent(usuarioId)}`,
+    { method: "DELETE" }
+  );
+}
