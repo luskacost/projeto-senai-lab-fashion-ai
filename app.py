@@ -19,8 +19,16 @@ from usage_tracker import carregar_uso_do_dia, incrementar_uso, verificar_limite
 from moderacao import validar_prompt_imagem
 from resposta_cache import obter_resposta_cacheada, salvar_resposta_cache
 from logger_config import obter_logger
-from utils_visual import hex_to_rgb, calcular_cor_texto_contraste
-from conversas_manager import carregar_conversas, salvar_conversas, criar_nova_conversa, gerar_titulo_conversa, renomear_conversa
+from utils_visual import calcular_cor_texto_contraste
+from conversas_manager import (
+    carregar_conversas,
+    salvar_conversas,
+    criar_nova_conversa,
+    gerar_titulo_conversa,
+    renomear_conversa,
+    formatar_conversa_txt,
+    gerar_conversa_pdf
+)
 from analise_dados import carregar_planilha, gerar_resumo_estatistico, responder_pergunta_sobre_dados
 from rag_manager import (
     extrair_documento,
@@ -83,120 +91,9 @@ st.set_page_config(
 )
 
 
-def hex_to_rgb(hex_str):
-    hex_str = hex_str.lstrip('#')
-    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
-
-# Funções auxiliares para exportar conversas
-def clean_text_for_pdf(text):
-    replacements = {
-        "\u201c": '"',
-        "\u201d": '"',
-        "\u2018": "'",
-        "\u2019": "'",
-        "\u2013": "-",
-        "\u2014": "-",
-        "\u2022": "*",
-        "\u2026": "...",
-    }
-    for orig, rep in replacements.items():
-        text = text.replace(orig, rep)
-    return "".join(c for c in text if ord(c) <= 255)
-
-def formatar_conversa_txt(messages, tenant_id=None, usuario_nome=None, conversa_titulo=None):
-    if tenant_id is not None:
-        messages = [m for m in messages if m.get("tenant_id") == tenant_id]
-        
-    data_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    linhas = [
-        "==================================================",
-        f"{config['nome'].upper()} - HISTÓRICO DE CONVERSA",
-    ]
-    if usuario_nome:
-        linhas.append(f"Usuário: {usuario_nome.title()}")
-    if conversa_titulo:
-        linhas.append(f"Conversa: {conversa_titulo}")
-    linhas.extend([
-        f"Exportado em: {data_str}",
-        "==================================================\n"
-    ])
-    for msg in messages:
-        role = msg.get("role", "user")
-        mode = msg.get("mode", "")
-        content = msg.get("content", "")
-        
-        if role == "user":
-            linhas.append(f"[USUÁRIO]:\n{content}\n")
-        else:
-            header = f"[IA - {mode}]" if mode else "[IA]"
-            linhas.append(f"{header}:\n{content}\n")
-        linhas.append("-" * 50 + "\n")
-        
-    return "\n".join(linhas)
-
-def gerar_conversa_pdf(messages, tenant_id=None, usuario_nome=None, conversa_titulo=None):
-    if tenant_id is not None:
-        messages = [m for m in messages if m.get("tenant_id") == tenant_id]
-        
-    try:
-        from fpdf import FPDF
-    except ImportError:
-        return None
-        
-    pdf = FPDF()
-    pdf.add_page()
-    
-    # Title
-    pdf.set_font("Helvetica", style="B", size=16)
-    pdf.cell(0, 10, clean_text_for_pdf(f"{config['nome']} - Histórico de Conversa"), align="C")
-    pdf.ln(8)
-    
-    # Subtitle with user & conversation title
-    if usuario_nome or conversa_titulo:
-        pdf.set_font("Helvetica", style="B", size=10)
-        parts = []
-        if usuario_nome:
-            parts.append(f"Usuario: {usuario_nome.title()}")
-        if conversa_titulo:
-            parts.append(f"Conversa: {conversa_titulo}")
-        pdf.cell(0, 6, clean_text_for_pdf(" | ".join(parts)), align="C")
-        pdf.ln(6)
-
-    # Subtitle with date
-    pdf.set_font("Helvetica", style="I", size=9)
-    data_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    pdf.cell(0, 6, clean_text_for_pdf(f"Exportado em: {data_str}"), align="C")
-    pdf.ln(8)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(8)
-    
-    cor_p = hex_to_rgb(config["cor_primaria"])
-    cor_s = hex_to_rgb(config["cor_secundaria"])
-    
-    for msg in messages:
-        role = msg.get("role", "user")
-        mode = msg.get("mode", "")
-        content = msg.get("content", "")
-        
-        if role == "user":
-            header_text = "USUÁRIO:"
-            pdf.set_font("Helvetica", style="B", size=11)
-            pdf.set_text_color(*cor_p)
-        else:
-            header_text = f"IA ({mode}):" if mode else "IA:"
-            pdf.set_font("Helvetica", style="B", size=11)
-            pdf.set_text_color(*cor_s)
-            
-        pdf.multi_cell(0, 6, clean_text_for_pdf(header_text))
-        pdf.ln(2)
-        
-        pdf.set_font("Helvetica", style="", size=10)
-        pdf.set_text_color(40, 40, 40) # Dark gray
-        pdf.multi_cell(0, 5, clean_text_for_pdf(content))
-        pdf.ln(6)
-        
-    return bytes(pdf.output())
-
+# hex_to_rgb vem de utils_visual.py; clean_text_for_pdf, formatar_conversa_txt e
+# gerar_conversa_pdf vivem em conversas_manager.py (extraídas de app.py para serem
+# reaproveitadas pela API sem depender de closures sobre o `config` do módulo).
 # Inicialização de usuário via query parameter ?usuario=... (se disponível)
 if 'usuario_nome' not in st.session_state or not st.session_state.usuario_nome:
     param_usr = st.query_params.get("usuario", "")
@@ -948,6 +845,7 @@ with st.sidebar:
       
       conversa_txt = formatar_conversa_txt(
           st.session_state.messages,
+          config,
           tenant_id=tenant_id,
           usuario_nome=nome_export,
           conversa_titulo=titulo_export
@@ -963,6 +861,7 @@ with st.sidebar:
       try:
           conversa_pdf = gerar_conversa_pdf(
               st.session_state.messages,
+              config,
               tenant_id=tenant_id,
               usuario_nome=nome_export,
               conversa_titulo=titulo_export

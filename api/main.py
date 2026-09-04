@@ -12,6 +12,7 @@ Rodar localmente: uvicorn api.main:app --reload
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from groq import Groq
 
@@ -35,7 +36,9 @@ from conversas_manager import (
     carregar_conversas,
     salvar_conversas,
     criar_nova_conversa,
-    renomear_conversa
+    renomear_conversa,
+    formatar_conversa_txt,
+    gerar_conversa_pdf
 )
 
 try:
@@ -240,8 +243,37 @@ def deletar_conversa(conversa_id: str, tenant_id: str, usuario_id: str) -> Dict[
 
 
 @app.get("/conversas/{conversa_id}/export")
-def exportar_conversa(conversa_id: str, tenant_id: str, formato: str = "txt"):
-    _endpoint_nao_implementado("GET /conversas/{conversa_id}/export")
+def exportar_conversa(conversa_id: str, tenant_id: str, usuario_id: str, formato: str = "txt") -> Response:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    if formato not in ("txt", "pdf"):
+        raise HTTPException(status_code=400, detail=f"Formato '{formato}' inválido — use 'txt' ou 'pdf'.")
+
+    conversas = carregar_conversas(tenant_id, usuario_id)
+    conversa = next((c for c in conversas if c.get("id") == conversa_id), None)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail=f"Conversa '{conversa_id}' não encontrada.")
+
+    config = carregar_config_tenant(tenant_id, TENANT_CONFIG[tenant_id])
+    messages = conversa.get("mensagens", [])
+    titulo = conversa.get("titulo", "Conversa")
+
+    if formato == "txt":
+        conteudo = formatar_conversa_txt(messages, config, tenant_id=tenant_id, conversa_titulo=titulo)
+        return Response(
+            content=conteudo,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="conversa_{tenant_id}.txt"'}
+        )
+
+    pdf_bytes = gerar_conversa_pdf(messages, config, tenant_id=tenant_id, conversa_titulo=titulo)
+    if pdf_bytes is None:
+        raise HTTPException(status_code=500, detail="Biblioteca fpdf2 não disponível no servidor.")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="conversa_{tenant_id}.pdf"'}
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

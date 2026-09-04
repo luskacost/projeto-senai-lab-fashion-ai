@@ -18,6 +18,9 @@ import json
 import uuid
 import re
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from utils_visual import hex_to_rgb
 
 DIRETORIO_CONVERSAS = os.path.join("tenant_data", "conversas")
 
@@ -97,4 +100,128 @@ def renomear_conversa(conversas: list, conversa_id: str, novo_titulo: str) -> bo
             conv["atualizado_em"] = datetime.now().isoformat()
             return True
     return False
+
+
+def clean_text_for_pdf(text: str) -> str:
+    """Normaliza caracteres tipográficos especiais e remove não-latin1 para exportação em PDF."""
+    replacements = {
+        "“": '"',
+        "”": '"',
+        "‘": "'",
+        "’": "'",
+        "–": "-",
+        "—": "-",
+        "•": "*",
+        "…": "...",
+    }
+    for orig, rep in replacements.items():
+        text = text.replace(orig, rep)
+    return "".join(c for c in text if ord(c) <= 255)
+
+
+def formatar_conversa_txt(
+    messages: List[Dict[str, Any]],
+    config: Dict[str, Any],
+    tenant_id: Optional[str] = None,
+    usuario_nome: Optional[str] = None,
+    conversa_titulo: Optional[str] = None
+) -> str:
+    """Formata o histórico de mensagens de uma conversa em texto plano para exportação."""
+    if tenant_id is not None:
+        messages = [m for m in messages if m.get("tenant_id") == tenant_id]
+
+    data_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    linhas = [
+        "==================================================",
+        f"{config['nome'].upper()} - HISTÓRICO DE CONVERSA",
+    ]
+    if usuario_nome:
+        linhas.append(f"Usuário: {usuario_nome.title()}")
+    if conversa_titulo:
+        linhas.append(f"Conversa: {conversa_titulo}")
+    linhas.extend([
+        f"Exportado em: {data_str}",
+        "==================================================\n"
+    ])
+    for msg in messages:
+        role = msg.get("role", "user")
+        mode = msg.get("mode", "")
+        content = msg.get("content", "")
+
+        if role == "user":
+            linhas.append(f"[USUÁRIO]:\n{content}\n")
+        else:
+            header = f"[IA - {mode}]" if mode else "[IA]"
+            linhas.append(f"{header}:\n{content}\n")
+        linhas.append("-" * 50 + "\n")
+
+    return "\n".join(linhas)
+
+
+def gerar_conversa_pdf(
+    messages: List[Dict[str, Any]],
+    config: Dict[str, Any],
+    tenant_id: Optional[str] = None,
+    usuario_nome: Optional[str] = None,
+    conversa_titulo: Optional[str] = None
+) -> Optional[bytes]:
+    """Gera o histórico de mensagens de uma conversa como PDF (fpdf2). Retorna None se fpdf2 ausente."""
+    if tenant_id is not None:
+        messages = [m for m in messages if m.get("tenant_id") == tenant_id]
+
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        return None
+
+    pdf = FPDF()
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", style="B", size=16)
+    pdf.cell(0, 10, clean_text_for_pdf(f"{config['nome']} - Histórico de Conversa"), align="C")
+    pdf.ln(8)
+
+    if usuario_nome or conversa_titulo:
+        pdf.set_font("Helvetica", style="B", size=10)
+        parts = []
+        if usuario_nome:
+            parts.append(f"Usuario: {usuario_nome.title()}")
+        if conversa_titulo:
+            parts.append(f"Conversa: {conversa_titulo}")
+        pdf.cell(0, 6, clean_text_for_pdf(" | ".join(parts)), align="C")
+        pdf.ln(6)
+
+    pdf.set_font("Helvetica", style="I", size=9)
+    data_str = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    pdf.cell(0, 6, clean_text_for_pdf(f"Exportado em: {data_str}"), align="C")
+    pdf.ln(8)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(8)
+
+    cor_p = hex_to_rgb(config["cor_primaria"])
+    cor_s = hex_to_rgb(config["cor_secundaria"])
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        mode = msg.get("mode", "")
+        content = msg.get("content", "")
+
+        if role == "user":
+            header_text = "USUÁRIO:"
+            pdf.set_font("Helvetica", style="B", size=11)
+            pdf.set_text_color(*cor_p)
+        else:
+            header_text = f"IA ({mode}):" if mode else "IA:"
+            pdf.set_font("Helvetica", style="B", size=11)
+            pdf.set_text_color(*cor_s)
+
+        pdf.multi_cell(0, 6, clean_text_for_pdf(header_text))
+        pdf.ln(2)
+
+        pdf.set_font("Helvetica", style="", size=10)
+        pdf.set_text_color(40, 40, 40)
+        pdf.multi_cell(0, 5, clean_text_for_pdf(content))
+        pdf.ln(6)
+
+    return bytes(pdf.output())
 
