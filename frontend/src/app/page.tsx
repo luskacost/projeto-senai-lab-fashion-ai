@@ -21,7 +21,9 @@ import { obterUsuarioId } from "@/lib/usuario";
 import ConversasSidebar from "@/components/ConversasSidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Bot } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Bot, Loader2, Send } from "lucide-react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
@@ -409,23 +411,24 @@ export default function ChatPage() {
 
         <footer className="p-4 border-t border-border bg-card">
           <div className="max-w-3xl mx-auto flex gap-2 items-end">
-            <textarea
+            <Textarea
               value={entrada}
               onChange={(e) => setEntrada(e.target.value)}
               onKeyDown={aoPressionarTecla}
               disabled={!!pendenteConfirmacao}
               placeholder={pendenteConfirmacao ? "Responda a confirmação acima antes de continuar..." : "Digite sua pergunta..."}
-              rows={1}
-              className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              className="flex-1 max-h-40 overflow-y-auto resize-none rounded-xl min-h-11 py-2.5"
             />
-            <button
+            <Button
               onClick={enviar}
               disabled={carregando || !entrada.trim() || !!pendenteConfirmacao}
-              className="rounded-xl px-4 py-2 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              size="icon-lg"
+              className="rounded-xl text-white shrink-0"
               style={{ backgroundColor: corPrimaria }}
+              aria-label="Enviar mensagem"
             >
-              Enviar
-            </button>
+              {carregando ? <Loader2 className="animate-spin" /> : <Send />}
+            </Button>
           </div>
         </footer>
       </div>
