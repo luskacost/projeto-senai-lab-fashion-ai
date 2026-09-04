@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Bot, Loader2, Send } from "lucide-react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -392,33 +393,39 @@ export default function ChatPage() {
           ))}
 
           {pendenteConfirmacao && (
-            <div className="flex justify-start">
-              <div className="max-w-[80%] rounded-2xl px-4 py-3 bg-white border border-gray-200 rounded-bl-sm space-y-2">
-                <p className="text-sm text-gray-700">
-                  <strong>Entendi que você quer:</strong>{" "}
-                  {typeof pendenteConfirmacao.resumo_confirmacao === "string"
-                    ? pendenteConfirmacao.resumo_confirmacao
-                    : ""}
-                </p>
-                <p className="text-xs text-gray-500">Por favor, confirme antes de gerar a imagem:</p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => resolverConfirmacao(true)}
-                    disabled={carregando}
-                    className="rounded-lg px-3 py-1.5 text-sm text-white font-medium disabled:opacity-40"
-                    style={{ backgroundColor: corPrimaria }}
-                  >
-                    ✅ Confirmar e gerar imagem
-                  </button>
-                  <button
-                    onClick={() => resolverConfirmacao(false)}
-                    disabled={carregando}
-                    className="rounded-lg px-3 py-1.5 text-sm border border-gray-300 text-gray-700 disabled:opacity-40"
-                  >
-                    ✏️ Não é isso
-                  </button>
-                </div>
-              </div>
+            <div className="flex gap-3 justify-start">
+              <Avatar className="h-7 w-7 shrink-0 mt-0.5">
+                <AvatarFallback className="bg-secondary text-secondary-foreground">
+                  <Bot className="h-4 w-4" />
+                </AvatarFallback>
+              </Avatar>
+              <Card
+                className="max-w-[80%] border-2 py-3 gap-2"
+                style={{ borderColor: corPrimaria, backgroundColor: `color-mix(in oklch, ${corPrimaria} 6%, var(--card))` }}
+              >
+                <CardContent className="space-y-2">
+                  <p className="text-sm">
+                    <strong>Entendi que você quer:</strong>{" "}
+                    {typeof pendenteConfirmacao.resumo_confirmacao === "string"
+                      ? pendenteConfirmacao.resumo_confirmacao
+                      : ""}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Por favor, confirme antes de gerar a imagem:</p>
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      onClick={() => resolverConfirmacao(true)}
+                      disabled={carregando}
+                      className="text-white"
+                      style={{ backgroundColor: corPrimaria }}
+                    >
+                      Confirmar e gerar imagem
+                    </Button>
+                    <Button onClick={() => resolverConfirmacao(false)} disabled={carregando} variant="outline">
+                      Não é isso
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
 
