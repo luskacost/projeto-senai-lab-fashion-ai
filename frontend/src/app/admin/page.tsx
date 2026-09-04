@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { ApiError, adminLogin, deletarDocumento, listarDocumentos, uploadDocumento } from "@/lib/api";
 import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -96,7 +97,8 @@ export default function AdminPage() {
 
   if (!autorizado) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
+      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-background">
+        <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-10 w-auto" />
         <form onSubmit={fazerLogin} className="w-full max-w-sm">
           <Card>
             <CardHeader>

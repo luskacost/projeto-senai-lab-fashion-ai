@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ApiError,
   Conversa,
@@ -256,7 +257,7 @@ export default function ChatPage() {
               onRenomear={renomearConversaAtual}
               onDeletar={excluirConversa}
             />
-            <span className="font-medium truncate text-primary">{APP_NOME}</span>
+            <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-8 w-auto shrink-0" />
             <ToggleGroup
               value={[modo]}
               onValueChange={(valores) => {
