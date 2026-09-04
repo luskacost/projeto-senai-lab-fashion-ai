@@ -178,3 +178,39 @@ export async function deletarDocumento(tenantId: string, nomeArquivo: string): P
     { method: "DELETE" }
   );
 }
+
+// Baixa a exportação de uma conversa (TXT ou PDF) e dispara o download no navegador,
+// já que a resposta é um arquivo binário/texto, não JSON.
+export async function baixarExportacaoConversa(
+  tenantId: string,
+  usuarioId: string,
+  conversaId: string,
+  formato: "txt" | "pdf"
+): Promise<void> {
+  const url =
+    `${API_URL}/conversas/${encodeURIComponent(conversaId)}/export` +
+    `?tenant_id=${encodeURIComponent(tenantId)}&usuario_id=${encodeURIComponent(usuarioId)}&formato=${formato}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // corpo nao era JSON valido, mantem statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  const blob = await res.blob();
+  const nomeArquivo = `conversa_${tenantId}.${formato}`;
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = nomeArquivo;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}

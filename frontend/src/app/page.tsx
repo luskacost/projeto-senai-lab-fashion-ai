@@ -7,6 +7,7 @@ import {
   Conversa,
   MensagemConversa,
   atualizarConversa,
+  baixarExportacaoConversa,
   criarConversa,
   deletarConversa,
   enviarMensagemChat,
@@ -118,6 +119,15 @@ export default function ChatPage() {
     }
   }
 
+  async function exportarConversaAtual(formato: "txt" | "pdf") {
+    if (!usuarioId || !conversaAtualId) return;
+    try {
+      await baixarExportacaoConversa(TENANT_ID, usuarioId, conversaAtualId, formato);
+    } catch (e) {
+      setErro(mensagemDeErro(e, `exportar conversa em ${formato.toUpperCase()}`));
+    }
+  }
+
   async function enviar() {
     const texto = entrada.trim();
     if (!texto || carregando || !usuarioId || !conversaAtualId) return;
@@ -190,9 +200,29 @@ export default function ChatPage() {
             {config?.nome ?? "SenaiLabFashion IA"}
             <span className="ml-2 text-sm font-normal opacity-80">{MODO}</span>
           </div>
-          <Link href="/admin" className="text-sm font-normal opacity-80 hover:opacity-100">
-            ⚙️ Configurações
-          </Link>
+          <div className="flex items-center gap-3">
+            {mensagens.length > 0 && (
+              <div className="flex gap-1 text-sm font-normal">
+                <button
+                  onClick={() => exportarConversaAtual("txt")}
+                  className="opacity-80 hover:opacity-100"
+                  title="Baixar conversa em TXT"
+                >
+                  ⬇️ TXT
+                </button>
+                <button
+                  onClick={() => exportarConversaAtual("pdf")}
+                  className="opacity-80 hover:opacity-100"
+                  title="Baixar conversa em PDF"
+                >
+                  ⬇️ PDF
+                </button>
+              </div>
+            )}
+            <Link href="/admin" className="text-sm font-normal opacity-80 hover:opacity-100">
+              ⚙️ Configurações
+            </Link>
+          </div>
         </header>
 
         <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-gray-50">
