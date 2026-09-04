@@ -1,2 +1,14 @@
+Streamlit (app antigo, ainda funcional):
 python -m streamlit run c:/Users/lucascosta.est/Downloads/SenaiLabFashionAssistant/app.py
+
+API (FastAPI) - rodar a partir da raiz do projeto:
 .venv\Scripts\Activate
+uvicorn api.main:app --reload
+
+Front-end (React/Next.js) - rodar a partir da pasta frontend/:
+cd frontend
+npm run dev
+
+Ordem de inicializacao: primeiro a API (porta 8000), depois o front-end (porta 3000).
+Acessar em: http://localhost:3000
+Documentacao interativa da API: http://localhost:8000/docs
