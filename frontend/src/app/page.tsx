@@ -243,19 +243,21 @@ export default function ChatPage() {
       />
 
       <div className="flex flex-col flex-1 min-w-0">
-        <header className="px-4 py-3 text-white shadow-sm flex items-center justify-between gap-3" style={{ backgroundColor: corPrimaria }}>
+        <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="font-semibold text-lg truncate">{config?.nome ?? "SenaiLabFashion IA"}</span>
+            <span className="font-medium truncate" style={{ color: corPrimaria }}>
+              {config?.nome ?? "SenaiLabFashion IA"}
+            </span>
             <select
               value={modo}
               onChange={(e) => {
                 setModo(e.target.value);
                 setPendenteConfirmacao(null);
               }}
-              className="text-sm rounded-lg bg-white/20 text-white px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-white/50"
+              className="text-sm rounded-lg bg-muted text-foreground px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-ring"
             >
               {MODOS_DISPONIVEIS.map((m) => (
-                <option key={m} value={m} className="text-gray-900">
+                <option key={m} value={m}>
                   {m}
                 </option>
               ))}
@@ -264,14 +266,10 @@ export default function ChatPage() {
               <select
                 value={estiloCroqui}
                 onChange={(e) => setEstiloCroqui(e.target.value)}
-                className="text-sm rounded-lg bg-white/20 text-white px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-white/50"
+                className="text-sm rounded-lg bg-muted text-foreground px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value={ESTILO_ILUSTRACAO} className="text-gray-900">
-                  {ESTILO_ILUSTRACAO}
-                </option>
-                <option value={ESTILO_TECNICO} className="text-gray-900">
-                  {ESTILO_TECNICO}
-                </option>
+                <option value={ESTILO_ILUSTRACAO}>{ESTILO_ILUSTRACAO}</option>
+                <option value={ESTILO_TECNICO}>{ESTILO_TECNICO}</option>
               </select>
             )}
           </div>
@@ -280,29 +278,30 @@ export default function ChatPage() {
               <div className="flex gap-1 text-sm font-normal">
                 <button
                   onClick={() => exportarConversaAtual("txt")}
-                  className="opacity-80 hover:opacity-100"
+                  className="text-muted-foreground hover:text-foreground"
                   title="Baixar conversa em TXT"
                 >
                   ⬇️ TXT
                 </button>
                 <button
                   onClick={() => exportarConversaAtual("pdf")}
-                  className="opacity-80 hover:opacity-100"
+                  className="text-muted-foreground hover:text-foreground"
                   title="Baixar conversa em PDF"
                 >
                   ⬇️ PDF
                 </button>
               </div>
             )}
-            <Link href="/admin" className="text-sm font-normal opacity-80 hover:opacity-100">
+            <Link href="/admin" className="text-sm font-normal text-muted-foreground hover:text-foreground">
               ⚙️ Configurações
             </Link>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-gray-50">
+        <main className="flex-1 overflow-y-auto px-4 py-4 bg-background">
+          <div className="max-w-3xl mx-auto space-y-4">
           {mensagens.length === 0 && !carregando && (
-            <p className="text-center text-gray-400 mt-8">
+            <p className="text-center text-muted-foreground mt-8">
               {config?.mensagem_boas_vindas ?? "Faça uma pergunta sobre a base de conhecimento."}
             </p>
           )}
@@ -310,7 +309,7 @@ export default function ChatPage() {
           {mensagens.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2 whitespace-pre-wrap ${
+                className={`max-w-[80%] min-w-0 rounded-2xl px-4 py-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${
                   m.role === "user"
                     ? "bg-blue-600 text-white rounded-br-sm"
                     : "bg-white text-gray-900 border border-gray-200 rounded-bl-sm"
@@ -392,10 +391,11 @@ export default function ChatPage() {
           )}
 
           <div ref={fimDaListaRef} />
+          </div>
         </main>
 
-        <footer className="p-4 border-t border-gray-200 bg-white">
-          <div className="flex gap-2 items-end">
+        <footer className="p-4 border-t border-border bg-card">
+          <div className="max-w-3xl mx-auto flex gap-2 items-end">
             <textarea
               value={entrada}
               onChange={(e) => setEntrada(e.target.value)}
@@ -403,7 +403,7 @@ export default function ChatPage() {
               disabled={!!pendenteConfirmacao}
               placeholder={pendenteConfirmacao ? "Responda a confirmação acima antes de continuar..." : "Digite sua pergunta..."}
               rows={1}
-              className="flex-1 resize-none rounded-xl border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
             />
             <button
               onClick={enviar}
