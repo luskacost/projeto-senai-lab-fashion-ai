@@ -20,6 +20,7 @@ import {
 import { obterUsuarioId } from "@/lib/usuario";
 import ConversasSidebar from "@/components/ConversasSidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Bot } from "lucide-react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -250,20 +251,22 @@ export default function ChatPage() {
             <span className="font-medium truncate" style={{ color: corPrimaria }}>
               {config?.nome ?? "SenaiLabFashion IA"}
             </span>
-            <select
-              value={modo}
-              onChange={(e) => {
-                setModo(e.target.value);
+            <ToggleGroup
+              value={[modo]}
+              onValueChange={(valores) => {
+                if (valores.length === 0) return;
+                setModo(valores[0]);
                 setPendenteConfirmacao(null);
               }}
-              className="text-sm rounded-lg bg-muted text-foreground px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-ring"
+              variant="outline"
+              size="sm"
             >
               {MODOS_DISPONIVEIS.map((m) => (
-                <option key={m} value={m}>
+                <ToggleGroupItem key={m} value={m} className="text-sm">
                   {m}
-                </option>
+                </ToggleGroupItem>
               ))}
-            </select>
+            </ToggleGroup>
             {modo === "Gerador de Croqui" && (
               <select
                 value={estiloCroqui}
