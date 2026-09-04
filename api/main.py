@@ -10,6 +10,7 @@ Rodar localmente: uvicorn api.main:app --reload
 """
 
 import io
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -40,6 +41,7 @@ from conversas_manager import (
     salvar_conversas,
     criar_nova_conversa,
     renomear_conversa,
+    gerar_titulo_conversa,
     formatar_conversa_txt,
     gerar_conversa_pdf
 )
@@ -275,20 +277,44 @@ def criar_conversa(payload: NovaConversaRequest) -> Dict[str, Any]:
     return nova_conv
 
 
-class RenomearConversaRequest(BaseModel):
+class AtualizarConversaRequest(BaseModel):
     tenant_id: str
     usuario_id: str
-    novo_titulo: str
+    novo_titulo: Optional[str] = None
+    mensagens: Optional[List[Dict[str, Any]]] = None
 
 
 @app.patch("/conversas/{conversa_id}")
-def renomear_conversa_endpoint(conversa_id: str, payload: RenomearConversaRequest) -> Dict[str, Any]:
+def atualizar_conversa_endpoint(conversa_id: str, payload: AtualizarConversaRequest) -> Dict[str, Any]:
+    """Atualiza título e/ou mensagens de uma conversa.
+
+    Substitui a lacuna do contrato original (que só previa renomear): o front-end
+    precisa de uma forma de persistir o histórico de mensagens à medida que a
+    conversa avança, equivalente a persistir_mensagem_atualizada() em app.py.
+    """
+    if payload.novo_titulo is None and payload.mensagens is None:
+        raise HTTPException(status_code=400, detail="Informe ao menos 'novo_titulo' ou 'mensagens' para atualizar.")
+
     conversas = carregar_conversas(payload.tenant_id, payload.usuario_id)
-    sucesso = renomear_conversa(conversas, conversa_id, payload.novo_titulo)
-    if not sucesso:
-        raise HTTPException(status_code=404, detail=f"Conversa '{conversa_id}' não encontrada ou título vazio.")
+    conversa = next((c for c in conversas if c.get("id") == conversa_id), None)
+    if conversa is None:
+        raise HTTPException(status_code=404, detail=f"Conversa '{conversa_id}' não encontrada.")
+
+    if payload.novo_titulo is not None:
+        sucesso = renomear_conversa(conversas, conversa_id, payload.novo_titulo)
+        if not sucesso:
+            raise HTTPException(status_code=400, detail="Título vazio não é permitido.")
+
+    if payload.mensagens is not None:
+        conversa["mensagens"] = payload.mensagens
+        conversa["atualizado_em"] = datetime.now().isoformat()
+        if conversa.get("titulo") == "Nova conversa":
+            primeira_user_msg = next((m.get("content", "") for m in payload.mensagens if m.get("role") == "user"), "")
+            if primeira_user_msg:
+                conversa["titulo"] = gerar_titulo_conversa(primeira_user_msg)
+
     salvar_conversas(payload.tenant_id, payload.usuario_id, conversas)
-    return next(c for c in conversas if c["id"] == conversa_id)
+    return conversa
 
 
 @app.delete("/conversas/{conversa_id}")
