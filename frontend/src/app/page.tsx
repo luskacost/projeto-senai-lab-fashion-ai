@@ -27,6 +27,18 @@ import { Bot, Loader2, Send } from "lucide-react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
+const SUGESTOES_POR_MODO: Record<string, string[]> = {
+  "Base de Conhecimento": [
+    "Qual a diferença entre viscose e algodão?",
+    "Como calcular o consumo de tecido para um vestido godê?",
+    "Quais os principais tipos de costura para malha?",
+  ],
+  "Gerador de Croqui": [
+    "Crie um croqui de vestido midi em linho",
+    "Gere um desenho técnico de uma calça wide leg",
+    "Ilustre uma jaqueta jeans oversized",
+  ],
+};
 const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
 const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";
 
@@ -308,9 +320,28 @@ export default function ChatPage() {
         <main className="flex-1 overflow-y-auto px-4 py-4 bg-background">
           <div className="max-w-3xl mx-auto space-y-4">
           {mensagens.length === 0 && !carregando && (
-            <p className="text-center text-muted-foreground mt-8">
-              {config?.mensagem_boas_vindas ?? "Faça uma pergunta sobre a base de conhecimento."}
-            </p>
+            <div className="mt-12 flex flex-col items-center text-center gap-4">
+              <Avatar className="h-12 w-12">
+                <AvatarFallback className="bg-secondary text-secondary-foreground">
+                  <Bot className="h-6 w-6" />
+                </AvatarFallback>
+              </Avatar>
+              <p className="text-muted-foreground max-w-md">
+                {config?.mensagem_boas_vindas ?? "Faça uma pergunta sobre a base de conhecimento."}
+              </p>
+              <div className="flex flex-col gap-2 w-full max-w-md">
+                {(SUGESTOES_POR_MODO[modo] ?? []).map((sugestao) => (
+                  <Button
+                    key={sugestao}
+                    variant="outline"
+                    className="h-auto justify-start whitespace-normal text-left py-2.5 px-3.5 font-normal text-foreground"
+                    onClick={() => setEntrada(sugestao)}
+                  >
+                    {sugestao}
+                  </Button>
+                ))}
+              </div>
+            </div>
           )}
 
           {mensagens.map((m, i) => (
