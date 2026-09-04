@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import Response
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from groq import Groq
 
@@ -61,6 +62,16 @@ app = FastAPI(
     title="SenaiLabFashionAssistant API",
     description="API do assistente de IA com RAG do SENAI LabFashion.",
     version="0.1.0"
+)
+
+# CORS liberado para o front-end React/Next.js em desenvolvimento local (Fase 4).
+# Restringir para o(s) domínio(s) reais de produção quando o front-end for implantado.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
