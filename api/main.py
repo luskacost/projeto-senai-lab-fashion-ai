@@ -11,7 +11,7 @@ Rodar localmente: uvicorn api.main:app --reload
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from groq import Groq
 
@@ -22,8 +22,21 @@ from tenant_config import (
     salvar_config_tenant,
     obter_secret_tenant
 )
-from rag_manager import buscar_contexto_relevante, montar_prompt_final, listar_documentos_indexados
+from rag_manager import (
+    buscar_contexto_relevante,
+    montar_prompt_final,
+    listar_documentos_indexados,
+    indexar_documento,
+    remover_documento
+)
+from document_extractors import extrair_documento
 from rag_config import GROQ_MODEL
+from conversas_manager import (
+    carregar_conversas,
+    salvar_conversas,
+    criar_nova_conversa,
+    renomear_conversa
+)
 
 try:
     # pyrefly: ignore [missing-import]
@@ -86,8 +99,11 @@ class AdminLoginRequest(BaseModel):
 
 
 @app.post("/admin/login")
-def admin_login(payload: AdminLoginRequest):
-    _endpoint_nao_implementado("POST /admin/login")
+def admin_login(payload: AdminLoginRequest) -> Dict[str, bool]:
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+    senha_correta = obter_secret_tenant(payload.tenant_id, "ADMIN_PASSWORD")
+    return {"autorizado": bool(senha_correta) and payload.senha == senha_correta}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,11 +192,11 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONVERSAS (stub)
+# CONVERSAS
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/conversas")
-def listar_conversas(tenant_id: str, usuario_id: str):
-    _endpoint_nao_implementado("GET /conversas")
+def listar_conversas(tenant_id: str, usuario_id: str) -> List[Dict[str, Any]]:
+    return carregar_conversas(tenant_id, usuario_id)
 
 
 class NovaConversaRequest(BaseModel):
@@ -189,8 +205,12 @@ class NovaConversaRequest(BaseModel):
 
 
 @app.post("/conversas")
-def criar_conversa(payload: NovaConversaRequest):
-    _endpoint_nao_implementado("POST /conversas")
+def criar_conversa(payload: NovaConversaRequest) -> Dict[str, Any]:
+    conversas = carregar_conversas(payload.tenant_id, payload.usuario_id)
+    nova_conv = criar_nova_conversa()
+    conversas.append(nova_conv)
+    salvar_conversas(payload.tenant_id, payload.usuario_id, conversas)
+    return nova_conv
 
 
 class RenomearConversaRequest(BaseModel):
@@ -200,13 +220,23 @@ class RenomearConversaRequest(BaseModel):
 
 
 @app.patch("/conversas/{conversa_id}")
-def renomear_conversa_endpoint(conversa_id: str, payload: RenomearConversaRequest):
-    _endpoint_nao_implementado("PATCH /conversas/{conversa_id}")
+def renomear_conversa_endpoint(conversa_id: str, payload: RenomearConversaRequest) -> Dict[str, Any]:
+    conversas = carregar_conversas(payload.tenant_id, payload.usuario_id)
+    sucesso = renomear_conversa(conversas, conversa_id, payload.novo_titulo)
+    if not sucesso:
+        raise HTTPException(status_code=404, detail=f"Conversa '{conversa_id}' não encontrada ou título vazio.")
+    salvar_conversas(payload.tenant_id, payload.usuario_id, conversas)
+    return next(c for c in conversas if c["id"] == conversa_id)
 
 
 @app.delete("/conversas/{conversa_id}")
-def deletar_conversa(conversa_id: str, tenant_id: str, usuario_id: str):
-    _endpoint_nao_implementado("DELETE /conversas/{conversa_id}")
+def deletar_conversa(conversa_id: str, tenant_id: str, usuario_id: str) -> Dict[str, str]:
+    conversas = carregar_conversas(tenant_id, usuario_id)
+    conversas_restantes = [c for c in conversas if c.get("id") != conversa_id]
+    if len(conversas_restantes) == len(conversas):
+        raise HTTPException(status_code=404, detail=f"Conversa '{conversa_id}' não encontrada.")
+    salvar_conversas(tenant_id, usuario_id, conversas_restantes)
+    return {"status": "removida"}
 
 
 @app.get("/conversas/{conversa_id}/export")
@@ -215,21 +245,37 @@ def exportar_conversa(conversa_id: str, tenant_id: str, formato: str = "txt"):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# DOCUMENTOS (Base de Conhecimento) (stub)
+# DOCUMENTOS (Base de Conhecimento)
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/documentos")
-def listar_documentos(tenant_id: str):
-    _endpoint_nao_implementado("GET /documentos")
+def listar_documentos(tenant_id: str) -> List[str]:
+    return listar_documentos_indexados(tenant_id)
 
 
 @app.post("/documentos/upload")
-def upload_documento(tenant_id: str):
-    _endpoint_nao_implementado("POST /documentos/upload")
+async def upload_documento(tenant_id: str, arquivo: UploadFile = File(...)) -> Dict[str, Any]:
+    conteudo = await arquivo.read()
+    try:
+        unidades_extraidas = extrair_documento(conteudo, nome_arquivo=arquivo.filename)
+    except ValueError as err_val:
+        raise HTTPException(status_code=400, detail=str(err_val))
+
+    if not unidades_extraidas:
+        raise HTTPException(status_code=422, detail=f"O arquivo '{arquivo.filename}' não contém texto legível, registros ou está vazio.")
+
+    qtd_chunks = indexar_documento(tenant_id, arquivo.filename, unidades_extraidas)
+    if qtd_chunks == 0:
+        raise HTTPException(status_code=422, detail=f"Nenhum chunk pôde ser gerado para o arquivo '{arquivo.filename}'.")
+
+    return {"nome_arquivo": arquivo.filename, "chunks_indexados": qtd_chunks}
 
 
 @app.delete("/documentos/{nome_arquivo}")
-def deletar_documento(nome_arquivo: str, tenant_id: str):
-    _endpoint_nao_implementado("DELETE /documentos/{nome_arquivo}")
+def deletar_documento(nome_arquivo: str, tenant_id: str) -> Dict[str, str]:
+    removido = remover_documento(tenant_id, nome_arquivo)
+    if not removido:
+        raise HTTPException(status_code=404, detail=f"Documento '{nome_arquivo}' não encontrado para o tenant '{tenant_id}'.")
+    return {"status": "removido"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
