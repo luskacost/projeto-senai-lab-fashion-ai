@@ -5,10 +5,8 @@ Checklist operacional extraído de `RAG_P5_1_FAILURE_ANALYSIS.md` (220 cenários
 ciclo de melhoria pontual): reproduzir com `tests/rag/test_retrieval_quality.py`/`test_cases.json` ou
 um caso equivalente, ajustar 1 hiperparâmetro/regra, revalidar. Não recriar a análise — só executar.
 
-Status desta lista: itens 1, 2 e 3 tratados. Item 4 investigado e **rediagnosticado** (ver abaixo) —
-o diagnóstico original do relatório era impreciso; a causa raiz real é maior em escopo e fica para
-uma sessão dedicada futura. A ordem reflete o ranking de impacto do próprio relatório (Seção 7 do
-failure analysis).
+Status desta lista: itens 1, 2, 3 e 4 tratados. A ordem reflete o ranking de impacto do próprio
+relatório (Seção 7 do failure analysis).
 
 ## 1. [CONCLUÍDO] Contrato de síntese de resposta / dupla notação (maior impacto: ~91 de 138 casos, 65.9%)
 
@@ -48,7 +46,7 @@ failure analysis).
 - **Feito:** estendido `tests/rag/test_query_router.py::test_08_ambiguidade_pergunta_incompleta` com
   o caso exato do benchmark (`BAT_P_141`) e o contraste com entidades explícitas.
 
-## 4. [REDIAGNOSTICADO — pendente, escopo maior que o previsto] "Reranking corta candidato correto do Top-5" (~13 casos, 9.4%)
+## 4. [CONCLUÍDO] "Reranking corta candidato correto do Top-5" (~13 casos, 9.4%)
 
 - **Diagnóstico original do relatório (impreciso):** sugeria ajustar pesos/threshold do reranker em
   `reranker.py`/`RAG_CONFIG`.
@@ -67,14 +65,17 @@ failure analysis).
   e (b) perguntas relacionais encadeadas de duas partes ("qual X e quais Y desse X"). Uma busca
   vetorial pura estruturalmente não consegue recuperar de forma confiável *todas* as linhas de uma
   tabela que satisfazem um filtro — não há ajuste de reranker que resolva isso.
-- **Por que não foi implementado nesta sessão:** requer adicionar múltiplos padrões novos de
-  detecção de intent (`FILTER` com limiar numérico, `RELATIONAL` encadeado) em `query_router.py`,
-  com risco maior de efeitos colaterais em outras rotas já ajustadas, e sem o benchmark completo de
-  220 cenários para validar o impacto agregado (só os relatórios resumidos e os 77 casos de FAIL
-  detalhados sobrevivem em `scratch/`). Fica para uma sessão dedicada.
-- **Onde mexer (próxima sessão):** `query_router.py`, seção de detecção de intent (buscar pelos
-  blocos de padrões `RouteType.TABULAR_FILTER`/`TABULAR_RELATIONAL`); usar os 13 casos listados em
-  `scratch/benchmark_p5_1_diagnostics.json` como casos de teste dirigidos.
+- **Corrigido (Fase 7 — aprimoramento dos modos):** `query_router.py` ganhou `extrair_filtro_numerico()`
+  (reconhece "mais de/acima de/pelo menos/menor que/etc + número" e resolve a coluna via
+  `EXTENDED_COLUMN_ALIASES`) e 2 padrões genéricos em `padroes_relacionais` que detectam uma segunda
+  oração referenciando de volta uma entidade da primeira via pronome demonstrativo
+  (desse/dessa/deste/desta/dele/dela), generalizando a detecção relacional além dos 5 padrões
+  literais hardcoded. `tabular_query_engine.py` ganhou a tradução do filtro `numeric_threshold` do
+  `QueryRouter` para um `TabularFilter` executável (sem isso, `TabularIntent.FILTER` executaria com
+  `filters=[]` e devolveria todas as linhas como se estivessem filtradas). Teste de regressão
+  permanente com execução completa do plano (não só a classificação):
+  `tests/rag/test_query_router.py::test_11_filtro_por_limiar_numerico`,
+  `::test_12_relacional_encadeado_generico`.
 
 ## Fora de escopo desta lista (não ignorar, mas não é prioridade imediata)
 
