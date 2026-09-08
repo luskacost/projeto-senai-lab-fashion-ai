@@ -139,6 +139,13 @@ class TestAnaliseDados(unittest.TestCase):
         bottom_fat_produto = agregacoes["produto"]["valor_total"]["bottom_10"]
         self.assertEqual(list(bottom_fat_produto.keys())[0], "Camisa Linho")
 
+        # Transparência da heurística de seleção (Fase 7, Task 5): as colunas usadas em
+        # "agregacoes" devem ser expostas para o front-end mostrar o que foi analisado.
+        self.assertIn("colunas_selecionadas_para_analise", resumo)
+        self.assertIn("produto", resumo["colunas_selecionadas_para_analise"]["agrupamento"])
+        self.assertIn("quantidade", resumo["colunas_selecionadas_para_analise"]["metricas"])
+        self.assertIn("valor_total", resumo["colunas_selecionadas_para_analise"]["metricas"])
+
         # Datas
         self.assertIn("colunas_data", resumo)
         self.assertIn("data_venda", resumo["colunas_data"])

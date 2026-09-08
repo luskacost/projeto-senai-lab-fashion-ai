@@ -128,7 +128,11 @@ export default function ChatPage() {
   const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
   const [arquivoAnexado, setArquivoAnexado] = useState<ArquivoAnexado | null>(null);
   const [perfilAtivo, setPerfilAtivo] = useState<string | null>(null);
-  const [sugestoesAtuais, setSugestoesAtuais] = useState<string[]>(() => embaralhar(sugestoesBase(MODOS_DISPONIVEIS[0], null)));
+  // Sem embaralhar aqui: o estado inicial precisa ser identico entre o HTML renderizado no
+  // servidor e a primeira renderizacao no cliente (Math.random() geraria ordens diferentes e
+  // quebraria a hidratacao). O useEffect de montagem abaixo reembaralha assim que roda no
+  // cliente, ja depois da hidratacao estar concluida.
+  const [sugestoesAtuais, setSugestoesAtuais] = useState<string[]>(() => sugestoesBase(MODOS_DISPONIVEIS[0], null));
   const fimDaListaRef = useRef<HTMLDivElement>(null);
   const inputPlanilhaRef = useRef<HTMLInputElement>(null);
 
@@ -254,6 +258,7 @@ export default function ChatPage() {
         linhas: resultado.linhas,
         colunas: resultado.colunas.length,
         grafico: extrairGraficoDoResumo(resultado.resumo_estatistico),
+        colunasAnalisadas: resultado.resumo_estatistico?.colunas_selecionadas_para_analise ?? null,
       });
       toast.success(`"${resultado.nome_arquivo}" anexada. Pode perguntar sobre os dados.`);
     } catch (e) {
@@ -492,7 +497,9 @@ export default function ChatPage() {
                     </span>
                   </div>
                 )}
-                {m.arquivo_anexado?.grafico && <GraficoBarras dados={m.arquivo_anexado.grafico} />}
+                {m.arquivo_anexado?.grafico && (
+                  <GraficoBarras dados={m.arquivo_anexado.grafico} colunasAnalisadas={m.arquivo_anexado.colunasAnalisadas} />
+                )}
                 {m.role === "assistant" ? (
                   <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:mt-3 prose-headings:mb-1.5">
                     <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{m.content}</ReactMarkdown>

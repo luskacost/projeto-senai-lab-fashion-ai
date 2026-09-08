@@ -319,7 +319,14 @@ def gerar_resumo_estatistico(df: pd.DataFrame) -> dict:
         "totais_somas_numericas": totais_somas,
         "top_5_frequencias_categoricas": top_5_categoricas,
         "colunas_data": colunas_data,
-        "agregacoes": agregacoes
+        "agregacoes": agregacoes,
+        # Transparência da heurística de seleção (Fase 7, Task 5): quais colunas de
+        # agrupamento/métrica o sistema escolheu automaticamente para calcular "agregacoes" --
+        # permite ao front-end mostrar "Analisando: X × Y" em vez de uma escolha invisível.
+        "colunas_selecionadas_para_analise": {
+            "agrupamento": cols_agrupamento,
+            "metricas": cols_metricas
+        }
     }
 
     return resumo

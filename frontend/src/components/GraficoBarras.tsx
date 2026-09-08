@@ -1,13 +1,18 @@
-import type { GraficoBarrasDados } from "@/lib/api";
+import type { ColunasAnalisadas, GraficoBarrasDados } from "@/lib/api";
 
 function formatarNumero(valor: number): string {
   return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(valor);
 }
 
+interface Props {
+  dados: GraficoBarrasDados;
+  colunasAnalisadas?: ColunasAnalisadas | null;
+}
+
 // Ranking de magnitude (série única) em barras horizontais: sem legenda (o título já diz o que é
 // plotado), rótulo direto de categoria + valor (nunca só na cor), barra com ponta arredondada
 // ancorada na base, cor primária fixa da marca (uma série não precisa de paleta categórica).
-export default function GraficoBarras({ dados }: { dados: GraficoBarrasDados }) {
+export default function GraficoBarras({ dados, colunasAnalisadas }: Props) {
   if (!dados.itens.length) return null;
   const maximo = Math.max(...dados.itens.map((i) => i.valor), 1);
 
@@ -34,6 +39,12 @@ export default function GraficoBarras({ dados }: { dados: GraficoBarrasDados }) 
           </div>
         ))}
       </div>
+      {colunasAnalisadas && (colunasAnalisadas.agrupamento.length > 0 || colunasAnalisadas.metricas.length > 0) && (
+        <p className="mt-2.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
+          Colunas consideradas automaticamente: {colunasAnalisadas.agrupamento.join(", ")} (agrupamento) ·{" "}
+          {colunasAnalisadas.metricas.join(", ")} (métricas)
+        </p>
+      )}
     </div>
   );
 }

@@ -129,11 +129,17 @@ export interface GraficoBarrasDados {
   itens: { rotulo: string; valor: number }[];
 }
 
+export interface ColunasAnalisadas {
+  agrupamento: string[];
+  metricas: string[];
+}
+
 export interface ArquivoAnexado {
   nome: string;
   linhas: number;
   colunas: number;
   grafico?: GraficoBarrasDados | null;
+  colunasAnalisadas?: ColunasAnalisadas | null;
 }
 
 export interface MensagemConversa {
@@ -245,6 +251,7 @@ export type AgregacoesResumo = Record<string, Record<string, AgregacaoResumo>>;
 
 export interface ResumoEstatistico {
   agregacoes?: AgregacoesResumo;
+  colunas_selecionadas_para_analise?: ColunasAnalisadas;
   [key: string]: unknown;
 }
 
