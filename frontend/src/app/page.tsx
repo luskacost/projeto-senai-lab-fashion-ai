@@ -25,7 +25,7 @@ import ImagemGerada from "@/components/ImagemGerada";
 import SeletorModo from "@/components/SeletorModo";
 import SeletorPerfil from "@/components/SeletorPerfil";
 import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
-import { MODO_PADRAO_POR_PERFIL, PerfilId } from "@/lib/perfis";
+import { MODO_PADRAO_POR_PERFIL, PERGUNTAS_POR_PERFIL, PerfilId } from "@/lib/perfis";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -310,6 +310,11 @@ export default function ChatPage() {
     }
   }
 
+  const sugestoesAtuais =
+    (perfilAtivo ? PERGUNTAS_POR_PERFIL[perfilAtivo as PerfilId]?.[modo] : undefined) ??
+    SUGESTOES_POR_MODO[modo] ??
+    [];
+
   return (
     <div className="flex h-screen w-full flex-col">
       <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
@@ -400,7 +405,7 @@ export default function ChatPage() {
                 </Avatar>
                 <p className="text-muted-foreground max-w-md">{MENSAGEM_BOAS_VINDAS}</p>
                 <div className="flex flex-col gap-2 w-full max-w-md">
-                  {(SUGESTOES_POR_MODO[modo] ?? []).map((sugestao) => (
+                  {sugestoesAtuais.map((sugestao) => (
                     <Button
                       key={sugestao}
                       variant="outline"
