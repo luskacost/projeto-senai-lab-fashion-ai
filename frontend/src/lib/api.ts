@@ -220,6 +220,42 @@ export async function uploadDocumento(tenantId: string, arquivo: File): Promise<
   return res.json() as Promise<UploadDocumentoResponse>;
 }
 
+export interface UploadPlanilhaResponse {
+  nome_arquivo: string;
+  linhas: number;
+  colunas: string[];
+}
+
+// Faz upload de uma planilha (CSV/XLSX/XLS) para o modo "Análise de Dados". O resumo
+// estatístico gerado fica persistido no backend por conversation_id -- as próximas
+// mensagens de chat nessa conversa (modo "Análise de Dados") o reaproveitam automaticamente.
+export async function uploadPlanilha(
+  tenantId: string,
+  conversationId: string,
+  arquivo: File
+): Promise<UploadPlanilhaResponse> {
+  const formData = new FormData();
+  formData.append("arquivo", arquivo);
+
+  const res = await fetch(
+    `${API_URL}/planilha/upload?tenant_id=${encodeURIComponent(tenantId)}&conversation_id=${encodeURIComponent(conversationId)}`,
+    { method: "POST", body: formData }
+  );
+
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // corpo nao era JSON valido, mantem statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  return res.json() as Promise<UploadPlanilhaResponse>;
+}
+
 export async function deletarDocumento(tenantId: string, nomeArquivo: string): Promise<void> {
   await request<{ status: string }>(
     `/documentos/${encodeURIComponent(nomeArquivo)}?tenant_id=${encodeURIComponent(tenantId)}`,

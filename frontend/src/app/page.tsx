@@ -15,6 +15,7 @@ import {
   deletarConversa,
   enviarMensagemChat,
   listarConversas,
+  uploadPlanilha,
 } from "@/lib/api";
 import { obterUsuarioId } from "@/lib/usuario";
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
@@ -28,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, Loader2, Palette, Ruler, Send, Settings } from "lucide-react";
+import { Bot, Download, Loader2, Paperclip, Palette, Ruler, Send, Settings } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -82,7 +83,9 @@ export default function ChatPage() {
   const [modo, setModo] = useState(MODOS_DISPONIVEIS[0]);
   const [estiloCroqui, setEstiloCroqui] = useState(ESTILO_ILUSTRACAO);
   const [pendenteConfirmacao, setPendenteConfirmacao] = useState<PendenteConfirmacao | null>(null);
+  const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
   const fimDaListaRef = useRef<HTMLDivElement>(null);
+  const inputPlanilhaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const uid = obterUsuarioId();
@@ -172,6 +175,22 @@ export default function ChatPage() {
       await baixarExportacaoConversa(TENANT_ID, usuarioId, conversaAtualId, formato);
     } catch (e) {
       toast.error(mensagemDeErro(e, `exportar conversa em ${formato.toUpperCase()}`));
+    }
+  }
+
+  async function anexarPlanilha(arquivo: File) {
+    if (!conversaAtualId) return;
+    setEnviandoPlanilha(true);
+    try {
+      const resultado = await uploadPlanilha(TENANT_ID, conversaAtualId, arquivo);
+      toast.success(
+        `"${resultado.nome_arquivo}" carregada (${resultado.linhas} linhas, ${resultado.colunas.length} colunas). Pode perguntar sobre os dados.`
+      );
+    } catch (e) {
+      toast.error(mensagemDeErro(e, "enviar planilha"));
+    } finally {
+      setEnviandoPlanilha(false);
+      if (inputPlanilhaRef.current) inputPlanilhaRef.current.value = "";
     }
   }
 
@@ -499,12 +518,44 @@ export default function ChatPage() {
 
         <footer className="p-4 border-t border-border bg-card">
           <div className="max-w-3xl mx-auto flex gap-2 items-end">
+            {modo === "Análise de Dados" && (
+              <>
+                <input
+                  ref={inputPlanilhaRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    const arquivo = e.target.files?.[0];
+                    if (arquivo) anexarPlanilha(arquivo);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-lg"
+                  className="rounded-xl shrink-0"
+                  disabled={enviandoPlanilha || !conversaAtualId}
+                  onClick={() => inputPlanilhaRef.current?.click()}
+                  aria-label="Anexar planilha"
+                  title="Anexar planilha (CSV ou Excel)"
+                >
+                  {enviandoPlanilha ? <Loader2 className="animate-spin" /> : <Paperclip />}
+                </Button>
+              </>
+            )}
             <Textarea
               value={entrada}
               onChange={(e) => setEntrada(e.target.value)}
               onKeyDown={aoPressionarTecla}
               disabled={!!pendenteConfirmacao}
-              placeholder={pendenteConfirmacao ? "Responda a confirmação acima antes de continuar..." : "Digite sua pergunta..."}
+              placeholder={
+                pendenteConfirmacao
+                  ? "Responda a confirmação acima antes de continuar..."
+                  : modo === "Análise de Dados"
+                  ? "Anexe uma planilha e pergunte sobre os dados..."
+                  : "Digite sua pergunta..."
+              }
               className="flex-1 max-h-40 overflow-y-auto resize-none rounded-xl min-h-11 py-2.5"
             />
             <Button
