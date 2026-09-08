@@ -124,10 +124,16 @@ export async function atualizarConfigTenant(tenantId: string, dadosCustom: Apare
   });
 }
 
+export interface GraficoBarrasDados {
+  titulo: string;
+  itens: { rotulo: string; valor: number }[];
+}
+
 export interface ArquivoAnexado {
   nome: string;
   linhas: number;
   colunas: number;
+  grafico?: GraficoBarrasDados | null;
 }
 
 export interface MensagemConversa {
@@ -227,10 +233,26 @@ export async function uploadDocumento(tenantId: string, arquivo: File): Promise<
   return res.json() as Promise<UploadDocumentoResponse>;
 }
 
+export interface AgregacaoResumo {
+  top_10: Record<string, number>;
+  bottom_10: Record<string, number>;
+  total_geral: number;
+  media_por_grupo: number;
+}
+
+// resumo["agregacoes"][categoria][metrica] -- ver analise_dados.py:gerar_resumo_estatistico.
+export type AgregacoesResumo = Record<string, Record<string, AgregacaoResumo>>;
+
+export interface ResumoEstatistico {
+  agregacoes?: AgregacoesResumo;
+  [key: string]: unknown;
+}
+
 export interface UploadPlanilhaResponse {
   nome_arquivo: string;
   linhas: number;
   colunas: string[];
+  resumo_estatistico?: ResumoEstatistico;
 }
 
 // Faz upload de uma planilha (CSV/XLSX/XLS) para o modo "Análise de Dados". O resumo

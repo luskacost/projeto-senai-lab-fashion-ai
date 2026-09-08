@@ -7,8 +7,10 @@ import {
   ApiError,
   ArquivoAnexado,
   Conversa,
+  GraficoBarrasDados,
   MensagemConversa,
   PendenteConfirmacao,
+  ResumoEstatistico,
   atualizarConversa,
   baixarExportacaoConversa,
   confirmarCroqui,
@@ -22,6 +24,7 @@ import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
 import ConversasHistorico from "@/components/ConversasHistorico";
 import ImagemGerada from "@/components/ImagemGerada";
+import GraficoBarras from "@/components/GraficoBarras";
 import SeletorModo from "@/components/SeletorModo";
 import SeletorPerfil from "@/components/SeletorPerfil";
 import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
@@ -83,6 +86,25 @@ function embaralhar<T>(lista: T[]): T[] {
     [copia[i], copia[j]] = [copia[j], copia[i]];
   }
   return copia;
+}
+
+// Extrai um gráfico simples (top 10) da primeira combinação categoria x métrica que o backend
+// já pré-calculou (analise_dados.py:gerar_resumo_estatistico) -- sem chamada extra ao LLM.
+function extrairGraficoDoResumo(resumo: ResumoEstatistico | undefined): GraficoBarrasDados | null {
+  const agregacoes = resumo?.agregacoes;
+  if (!agregacoes) return null;
+
+  const primeiraCategoria = Object.keys(agregacoes)[0];
+  if (!primeiraCategoria) return null;
+  const metricas = agregacoes[primeiraCategoria];
+  const primeiraMetrica = Object.keys(metricas)[0];
+  if (!primeiraMetrica) return null;
+
+  const top10 = metricas[primeiraMetrica].top_10;
+  const itens = Object.entries(top10).map(([rotulo, valor]) => ({ rotulo, valor }));
+  if (!itens.length) return null;
+
+  return { titulo: `${primeiraMetrica} por ${primeiraCategoria} (top ${itens.length})`, itens };
 }
 
 function sugestoesBase(modoAlvo: string, perfilAlvo: string | null): string[] {
@@ -231,6 +253,7 @@ export default function ChatPage() {
         nome: resultado.nome_arquivo,
         linhas: resultado.linhas,
         colunas: resultado.colunas.length,
+        grafico: extrairGraficoDoResumo(resultado.resumo_estatistico),
       });
       toast.success(`"${resultado.nome_arquivo}" anexada. Pode perguntar sobre os dados.`);
     } catch (e) {
@@ -469,6 +492,7 @@ export default function ChatPage() {
                     </span>
                   </div>
                 )}
+                {m.arquivo_anexado?.grafico && <GraficoBarras dados={m.arquivo_anexado.grafico} />}
                 {m.role === "assistant" ? (
                   <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:mt-3 prose-headings:mb-1.5">
                     <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{m.content}</ReactMarkdown>
