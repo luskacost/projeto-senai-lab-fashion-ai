@@ -28,7 +28,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Loader2, Send } from "lucide-react";
+import { Bot, Download, Loader2, Palette, Ruler, Send, Settings } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -285,14 +286,21 @@ export default function ChatPage() {
               }}
             />
             {modo === "Gerador de Croqui" && (
-              <select
-                value={estiloCroqui}
-                onChange={(e) => setEstiloCroqui(e.target.value)}
-                className="text-sm rounded-lg bg-muted text-foreground px-2 py-1 border-none focus:outline-none focus:ring-2 focus:ring-ring"
+              <ToggleGroup
+                value={[estiloCroqui]}
+                onValueChange={(valores) => valores.length > 0 && setEstiloCroqui(valores[0])}
+                variant="outline"
+                size="sm"
               >
-                <option value={ESTILO_ILUSTRACAO}>{ESTILO_ILUSTRACAO}</option>
-                <option value={ESTILO_TECNICO}>{ESTILO_TECNICO}</option>
-              </select>
+                <ToggleGroupItem value={ESTILO_ILUSTRACAO} className="gap-1.5 text-sm">
+                  <Palette className="h-3.5 w-3.5" />
+                  Ilustração
+                </ToggleGroupItem>
+                <ToggleGroupItem value={ESTILO_TECNICO} className="gap-1.5 text-sm">
+                  <Ruler className="h-3.5 w-3.5" />
+                  Desenho Técnico
+                </ToggleGroupItem>
+              </ToggleGroup>
             )}
           </div>
           <div className="flex items-center gap-3 shrink-0">
@@ -300,22 +308,28 @@ export default function ChatPage() {
               <div className="flex gap-1 text-sm font-normal">
                 <button
                   onClick={() => exportarConversaAtual("txt")}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
                   title="Baixar conversa em TXT"
                 >
-                  ⬇️ TXT
+                  <Download className="h-3.5 w-3.5" />
+                  TXT
                 </button>
                 <button
                   onClick={() => exportarConversaAtual("pdf")}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
                   title="Baixar conversa em PDF"
                 >
-                  ⬇️ PDF
+                  <Download className="h-3.5 w-3.5" />
+                  PDF
                 </button>
               </div>
             )}
-            <Link href="/admin" className="text-sm font-normal text-muted-foreground hover:text-foreground">
-              ⚙️ Configurações
+            <Link
+              href="/admin"
+              className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
+            >
+              <Settings className="h-3.5 w-3.5" />
+              Configurações
             </Link>
           </div>
         </header>

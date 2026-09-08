@@ -8,7 +8,7 @@ import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { FileText, Loader2, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -118,8 +118,12 @@ export default function AdminPage() {
                 {validandoLogin && <Loader2 className="animate-spin" />}
                 {validandoLogin ? "Validando..." : "Entrar"}
               </Button>
-              <Link href="/" className="block text-center text-sm text-muted-foreground hover:text-foreground">
-                ← Voltar ao chat
+              <Link
+                href="/"
+                className="flex items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Voltar ao chat
               </Link>
             </CardContent>
           </Card>
@@ -132,8 +136,9 @@ export default function AdminPage() {
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento — {APP_NOME}</h1>
-        <Link href="/" className="text-sm text-muted-foreground hover:text-foreground">
-          ← Voltar ao chat
+        <Link href="/" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Voltar ao chat
         </Link>
       </div>
 

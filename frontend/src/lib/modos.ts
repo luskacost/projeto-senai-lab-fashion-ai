@@ -2,9 +2,11 @@
 // (TENANT_CONFIG["senai_labfashion"]["descricoes_modos"] / "descricoes_detalhadas").
 // Fixo no código, mesmo padrão de branding.ts -- não é mais buscado do /config/tenant.
 
+import { BarChart3, BookOpen, LucideIcon, Palette, Ruler, Shirt, TrendingUp } from "lucide-react";
+
 export interface ModoInfo {
   id: string;
-  emoji: string;
+  icone: LucideIcon;
   categoria: string;
   descricao: string;
 }
@@ -12,37 +14,37 @@ export interface ModoInfo {
 export const MODOS: ModoInfo[] = [
   {
     id: "Base de Conhecimento",
-    emoji: "📚",
+    icone: BookOpen,
     categoria: "Materiais e Manuais",
     descricao: "Pergunte sobre os materiais e documentos que a empresa disponibilizou (apostilas, manuais, fichas técnicas).",
   },
   {
     id: "Gerador de Croqui",
-    emoji: "🎨",
+    icone: Palette,
     categoria: "Desenho e Croquis",
     descricao: "Cria conceitos visuais em 2 estilos: Ilustração de Moda (conceito artístico) ou Desenho Técnico / Flat Sketch (diagrama 2D com vistas frontal e traseira).",
   },
   {
     id: "Consultor de Estilo",
-    emoji: "👔",
+    icone: Shirt,
     categoria: "Estilo e Looks",
     descricao: "Focado em combinações, harmonia de cores, looks e consultoria de imagem pessoal.",
   },
   {
     id: "Professor Técnico",
-    emoji: "📐",
+    icone: Ruler,
     categoria: "Costura e Modelagem",
     descricao: "Especializado em costura, modelagem, tecidos e processos têxteis.",
   },
   {
     id: "Tendências",
-    emoji: "📈",
+    icone: TrendingUp,
     categoria: "Consumo e Mercado",
     descricao: "Analisa comportamento de consumo, desfiles e previsões de mercado.",
   },
   {
     id: "Análise de Dados",
-    emoji: "📊",
+    icone: BarChart3,
     categoria: "Planilhas e Indicadores",
     descricao: "Envie uma planilha de vendas, estoque ou produção e faça perguntas sobre os números.",
   },
