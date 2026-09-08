@@ -249,24 +249,34 @@ class TestQueryRouter(unittest.TestCase):
         full2, nick2, paren2 = normalizar_nome_entidade_ou_nickname('Asuna (Peter Mazuryk)')
         self.assertEqual(paren2, "peter mazuryk")
 
-    # 11-12. Gap documentado em TODO_RAG_QUALIDADE.md (item 4): QueryRouter nao detecta filtros por
+    # 11-12. Gap documentado em TODO_RAG_QUALIDADE.md (item 4): QueryRouter nao detectava filtros por
     # limiar numerico nem perguntas relacionais encadeadas fora dos 5 padroes fixos de
     # `padroes_relacionais` -- causa raiz de 9.4% das falhas do benchmark (RAG_P5_1_FAILURE_ANALYSIS.md).
-    # Os dois testes abaixo travam esse comportamento como falha esperada (xfail) ate a Fase 7
-    # implementar a deteccao de intent FILTER/RELATIONAL correspondente -- remover o decorator
-    # @unittest.expectedFailure quando o fix estiver pronto (o teste deve passar normalmente).
-    @unittest.expectedFailure
+    # Corrigido em query_router.py (extrair_filtro_numerico + padroes_relacionais genericos).
     def test_11_filtro_por_limiar_numerico(self):
         # Caso documentado: "Quais organizacoes possuem mais de 4.000 pontos?" (TODO_RAG_QUALIDADE.md,
-        # scratch/benchmark_p5_1_diagnostics.json). Hoje cai no fallback VECTOR_SEMANTIC porque nenhum
-        # padrao de deteccao reconhece "mais de X pontos" como um filtro numerico -- uma busca vetorial
-        # pura nao consegue recuperar de forma confiavel *todas* as linhas que atendem ao limiar.
-        r = self.router.route_query("Quais organizações possuem mais de 4.000 pontos no Club Championship?")
+        # scratch/benchmark_p5_1_diagnostics.json).
+        pergunta = "Quais organizações possuem mais de 4.000 pontos no Club Championship?"
+        r = self.router.route_query(pergunta)
         self.assertEqual(r.route, RouteType.TABULAR_FILTER)
         self.assertTrue(any(f.get("tipo") == "numeric_threshold" for f in r.filters))
         self.assertIn("03_EWC2026_Club_Championship_Standings.csv", r.preferred_sources)
 
-    @unittest.expectedFailure
+        # Execução completa do plano (não só a classificação): confirma que o filtro numérico é
+        # de fato aplicado pelo tabular_query_engine, não só reconhecido pelo router. Sem essa
+        # tradução, TabularIntent.FILTER com filters=[] retornaria TODAS as linhas como se
+        # estivessem filtradas -- pior que o fallback anterior.
+        plano = detectar_e_planejar_consulta_tabular(pergunta, self.TEST_TENANT)
+        self.assertIsNotNone(plano)
+        self.assertTrue(any(f.column == "Total_Points" and f.operator == ">" for f in plano.filters))
+        res = executar_consulta_tabular(plano, self.TEST_TENANT)
+        self.assertTrue(res.success)
+        self.assertEqual(res.rows_matched, 2)
+        self.assertIn("AG.AL International", res.formatted_result_block)
+        self.assertIn("Team Falcons", res.formatted_result_block)
+        self.assertNotIn("Team Liquid", res.formatted_result_block)
+        self.assertNotIn("ZETA DIVISION", res.formatted_result_block)
+
     def test_12_relacional_encadeado_generico(self):
         # Pergunta relacional de 2 etapas ("qual X e quais Y desse X") que nao bate em nenhum dos 5
         # padroes fixos de `padroes_relacionais` (todos hardcoded para frases especificas de

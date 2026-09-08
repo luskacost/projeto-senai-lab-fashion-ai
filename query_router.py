@@ -333,6 +333,72 @@ def extrair_intervalo_datas(texto: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _parse_numero_pergunta(bruto: str) -> Optional[float]:
+    """Converte um número escrito em português natural numa pergunta (ex: "4.000", "3,5") para float.
+
+    Diferente de `semantic_enrichment._parse_numero_generico` (que assume valores vindos de células
+    de planilha, onde "." tipicamente é decimal), aqui o texto vem de uma pergunta em linguagem
+    natural em português, onde "." é o separador de milhar convencional ("mais de 4.000 pontos").
+    """
+    s = bruto.strip()
+    if '.' in s and ',' in s:
+        s = s.replace('.', '').replace(',', '.')
+    elif ',' in s:
+        s = s.replace(',', '.')
+    else:
+        partes = s.split('.')
+        if len(partes) == 2 and len(partes[1]) == 3:
+            s = s.replace('.', '')
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+# Expressões de comparação numérica em português -> operador correspondente.
+# Ordem importa: variantes mais específicas ("maior ou igual a") antes das genéricas ("maior que").
+_PADROES_OPERADOR_NUMERICO: List[Tuple[str, str]] = [
+    (r'maior ou igual a', ">="),
+    (r'pelo menos', ">="),
+    (r'no minimo', ">="),
+    (r'menor ou igual a', "<="),
+    (r'no maximo', "<="),
+    (r'mais de', ">"),
+    (r'acima de', ">"),
+    (r'superior a', ">"),
+    (r'maior que', ">"),
+    (r'maior a', ">"),
+    (r'menos de', "<"),
+    (r'abaixo de', "<"),
+    (r'inferior a', "<"),
+    (r'menor que', "<"),
+    (r'menor a', "<"),
+]
+
+_NUMERO_PT_PATTERN = r'(\d{1,3}(?:[.,]\d{3})+|\d+(?:[.,]\d+)?)'
+
+
+def extrair_filtro_numerico(texto: str) -> Optional[Dict[str, Any]]:
+    """Identifica expressões de filtro por limiar numérico em português.
+
+    Ex: "mais de 4.000 pontos", "acima de 10", "no mínimo 500", "menor que 3,5". Retorna
+    {"operador": ">", "valor": 4000.0, "termo_coluna": "pontos"} ou None se não houver filtro numérico.
+    """
+    t_norm = normalizar_texto_router(texto)
+    for padrao_op, operador in _PADROES_OPERADOR_NUMERICO:
+        m = re.search(r'\b' + padrao_op + r'\s+' + _NUMERO_PT_PATTERN + r'\b', t_norm)
+        if m:
+            valor = _parse_numero_pergunta(m.group(1))
+            if valor is None:
+                continue
+            # Termo de coluna: primeira palavra relevante logo após o número (ex: "pontos" em
+            # "mais de 4.000 pontos"), usada depois para resolver contra o schema/aliases.
+            resto = t_norm[m.end():].strip()
+            termo_coluna = resto.split(" ")[0] if resto else None
+            return {"operador": operador, "valor": valor, "termo_coluna": termo_coluna}
+    return None
+
+
 class QueryRouter:
     """Roteador inteligente e determinístico de consultas para o pipeline RAG."""
 
@@ -585,6 +651,19 @@ class QueryRouter:
             reasons.append(f"Filtro temporal detectado: {filtro_data['tipo']} ({filtro_data.get('data_inicio', '')} a {filtro_data.get('data_fim', '')})")
 
         # ─────────────────────────────────────────────────────────────────────
+        # SINAL 3.5: Detecção de Filtro por Limiar Numérico (TODO_RAG_QUALIDADE.md item 4)
+        # ─────────────────────────────────────────────────────────────────────
+        # Ex: "mais de 4.000 pontos" -- uma busca vetorial pura não recupera de forma confiável
+        # *todas* as linhas que atendem a um limiar; precisa de uma rota tabular dedicada.
+        filtro_numerico = extrair_filtro_numerico(query)
+        if filtro_numerico:
+            detected_filters.append({"tipo": "numeric_threshold", **filtro_numerico})
+            reasons.append(
+                f"Filtro numérico detectado: {filtro_numerico['operador']} {filtro_numerico['valor']}"
+                f" (coluna candidata: {filtro_numerico.get('termo_coluna')})"
+            )
+
+        # ─────────────────────────────────────────────────────────────────────
         # SINAL 4: Perguntas Conceituais / Semânticas (README / Narrativo)
         # ─────────────────────────────────────────────────────────────────────
         padroes_semanticos = [
@@ -603,7 +682,13 @@ class QueryRouter:
             r'\bjogadores da equipe vencedora\b',
             r'\bquem venceu\b.*\be quais sao os jogadores\b',
             r'\bqual organizacao esse jogador representa\b',
-            r'\broster da equipe\b', r'\bjogadores que representam\b'
+            r'\broster da equipe\b', r'\bjogadores que representam\b',
+            # Padrões genéricos: pergunta encadeada de 2 etapas ("qual X e quais Y desse X") --
+            # detecta uma segunda oração que se refere de volta a uma entidade da primeira via
+            # pronome demonstrativo, o sinal generalizável de um cruzamento relacional entre
+            # tabelas (TODO_RAG_QUALIDADE.md item 4), em vez de depender só de frases literais.
+            r'\be\s+qua(?:l|is)\s+.{0,40}?\b(?:desse|dessa|deste|desta|dele|dela)\b',
+            r'\be\s+quant[oa]s\s+.{0,40}?\b(?:desse|dessa|deste|desta|dele|dela)\b',
         ]
         eh_relacional = any(re.search(p, q_norm) for p in padroes_relacionais)
 
@@ -646,7 +731,22 @@ class QueryRouter:
             )
 
         # 3. Caso Tabular Agregação ou Filtro
-        if tem_group_count or (tem_rank and ("mais" in q_norm or "vitorias" in q_norm or "vitórias" in q_norm)):
+        if filtro_numerico:
+            intent = "FILTER"
+            termo_coluna_filtro = filtro_numerico.get("termo_coluna")
+            coluna_resolvida = None
+            for alias_key, aliases in EXTENDED_COLUMN_ALIASES.items():
+                if termo_coluna_filtro == alias_key or termo_coluna_filtro in [normalizar_texto_router(a) for a in aliases]:
+                    coluna_resolvida = alias_key
+                    break
+            if coluna_resolvida:
+                target_cols = [coluna_resolvida]
+                if coluna_resolvida not in termos_coluna_detectados:
+                    termos_coluna_detectados.append(coluna_resolvida)
+            elif termo_coluna_filtro:
+                target_cols = [termo_coluna_filtro]
+            reasons.append("Identificado filtro por limiar numérico em coluna estruturada (FILTER).")
+        elif tem_group_count or (tem_rank and ("mais" in q_norm or "vitorias" in q_norm or "vitórias" in q_norm)):
             intent = "GROUP_COUNT"
             group_by_cols = ["vencedor"] if "venceu" in q_norm or "ganhou" in q_norm else ["organizacao"]
             reasons.append("Identificada consulta de contagem por grupo e ranking (GROUP_COUNT / RANK).")
@@ -682,6 +782,19 @@ class QueryRouter:
         reasons.extend(raz_fonte)
 
         # Decisão de Rota
+        if intent == "FILTER":
+            conf = min(0.94, max(0.70, score_fonte + 0.30))
+            return QueryRoute(
+                route=RouteType.TABULAR_FILTER,
+                confidence=conf,
+                reasons=reasons,
+                tabular_intent="FILTER",
+                preferred_sources=[perfil_sel.document_name] if perfil_sel else [],
+                fallback_sources=["README.md"],
+                target_columns=target_cols or termos_coluna_detectados,
+                filters=detected_filters
+            )
+
         if intent in ("COUNT", "SUM", "AVG", "MIN", "MAX", "GROUP_COUNT", "RANK"):
             conf = min(0.96, max(0.70, score_fonte + 0.30))
             return QueryRoute(

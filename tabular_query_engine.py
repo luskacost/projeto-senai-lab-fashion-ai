@@ -612,6 +612,10 @@ def detectar_e_planejar_consulta_tabular(
                     col_dt = resolver_coluna("data", colunas_reais) or resolver_coluna("start_date", colunas_reais) or resolver_coluna("month", colunas_reais)
                     if col_dt:
                         filtros_resolvidos.append(TabularFilter(column=col_dt, operator="date_range", value=interv))
+                elif rf.get("tipo") == "numeric_threshold":
+                    col_num = resolver_coluna(rf.get("termo_coluna", ""), colunas_reais)
+                    if col_num and rf.get("operador") and rf.get("valor") is not None:
+                        filtros_resolvidos.append(TabularFilter(column=col_num, operator=rf["operador"], value=rf["valor"]))
 
             # Identifica filtros por valores literais presentes na query
             for col in colunas_reais:
