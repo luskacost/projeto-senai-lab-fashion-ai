@@ -249,6 +249,33 @@ class TestQueryRouter(unittest.TestCase):
         full2, nick2, paren2 = normalizar_nome_entidade_ou_nickname('Asuna (Peter Mazuryk)')
         self.assertEqual(paren2, "peter mazuryk")
 
+    # 11-12. Gap documentado em TODO_RAG_QUALIDADE.md (item 4): QueryRouter nao detecta filtros por
+    # limiar numerico nem perguntas relacionais encadeadas fora dos 5 padroes fixos de
+    # `padroes_relacionais` -- causa raiz de 9.4% das falhas do benchmark (RAG_P5_1_FAILURE_ANALYSIS.md).
+    # Os dois testes abaixo travam esse comportamento como falha esperada (xfail) ate a Fase 7
+    # implementar a deteccao de intent FILTER/RELATIONAL correspondente -- remover o decorator
+    # @unittest.expectedFailure quando o fix estiver pronto (o teste deve passar normalmente).
+    @unittest.expectedFailure
+    def test_11_filtro_por_limiar_numerico(self):
+        # Caso documentado: "Quais organizacoes possuem mais de 4.000 pontos?" (TODO_RAG_QUALIDADE.md,
+        # scratch/benchmark_p5_1_diagnostics.json). Hoje cai no fallback VECTOR_SEMANTIC porque nenhum
+        # padrao de deteccao reconhece "mais de X pontos" como um filtro numerico -- uma busca vetorial
+        # pura nao consegue recuperar de forma confiavel *todas* as linhas que atendem ao limiar.
+        r = self.router.route_query("Quais organizações possuem mais de 4.000 pontos no Club Championship?")
+        self.assertEqual(r.route, RouteType.TABULAR_FILTER)
+        self.assertTrue(any(f.get("tipo") == "numeric_threshold" for f in r.filters))
+        self.assertIn("03_EWC2026_Club_Championship_Standings.csv", r.preferred_sources)
+
+    @unittest.expectedFailure
+    def test_12_relacional_encadeado_generico(self):
+        # Pergunta relacional de 2 etapas ("qual X e quais Y desse X") que nao bate em nenhum dos 5
+        # padroes fixos de `padroes_relacionais` (todos hardcoded para frases especificas de
+        # vencedor/roster) -- generaliza mal para qualquer outra combinacao de tabelas relacionadas.
+        r = self.router.route_query(
+            "Quem venceu o torneio de Dota 2 e qual é a pontuação dessa organização no Club Championship?"
+        )
+        self.assertEqual(r.route, RouteType.TABULAR_RELATIONAL)
+
 
 if __name__ == "__main__":
     unittest.main()
