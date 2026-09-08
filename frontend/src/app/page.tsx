@@ -18,12 +18,14 @@ import {
   listarConversas,
   uploadPlanilha,
 } from "@/lib/api";
-import { obterUsuarioId } from "@/lib/usuario";
+import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId } from "@/lib/usuario";
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
 import ConversasHistorico from "@/components/ConversasHistorico";
 import ImagemGerada from "@/components/ImagemGerada";
 import SeletorModo from "@/components/SeletorModo";
+import SeletorPerfil from "@/components/SeletorPerfil";
 import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
+import { MODO_PADRAO_POR_PERFIL, PerfilId } from "@/lib/perfis";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -86,12 +88,14 @@ export default function ChatPage() {
   const [pendenteConfirmacao, setPendenteConfirmacao] = useState<PendenteConfirmacao | null>(null);
   const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
   const [arquivoAnexado, setArquivoAnexado] = useState<ArquivoAnexado | null>(null);
+  const [perfilAtivo, setPerfilAtivo] = useState<string | null>(null);
   const fimDaListaRef = useRef<HTMLDivElement>(null);
   const inputPlanilhaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const uid = obterUsuarioId();
     setUsuarioId(uid);
+    setPerfilAtivo(obterPerfilAtivo());
 
     listarConversas(TENANT_ID, uid)
       .then(async (lista) => {
@@ -127,6 +131,21 @@ export default function ChatPage() {
     setConversaAtualId(id);
     setMensagens(conv.mensagens);
     setPendenteConfirmacao(null);
+  }
+
+  function selecionarPerfil(perfil: string) {
+    definirPerfilAtivo(perfil);
+    setPerfilAtivo(perfil);
+    const modoPadrao = MODO_PADRAO_POR_PERFIL[perfil as PerfilId];
+    if (modoPadrao) {
+      setModo(modoPadrao);
+      setPendenteConfirmacao(null);
+    }
+  }
+
+  function limparPerfil() {
+    limparPerfilAtivo();
+    setPerfilAtivo(null);
   }
 
   async function novaConversa() {
@@ -310,6 +329,7 @@ export default function ChatPage() {
                 setPendenteConfirmacao(null);
               }}
             />
+            <SeletorPerfil perfilAtivo={perfilAtivo} onSelecionar={selecionarPerfil} onLimpar={limparPerfil} />
             {modo === "Gerador de Croqui" && (
               <ToggleGroup
                 value={[estiloCroqui]}
