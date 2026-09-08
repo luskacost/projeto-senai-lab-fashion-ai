@@ -76,6 +76,23 @@ const SUGESTOES_POR_MODO: Record<string, string[]> = {
 const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
 const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";
 
+function embaralhar<T>(lista: T[]): T[] {
+  const copia = [...lista];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
+function sugestoesBase(modoAlvo: string, perfilAlvo: string | null): string[] {
+  return (
+    (perfilAlvo ? PERGUNTAS_POR_PERFIL[perfilAlvo as PerfilId]?.[modoAlvo] : undefined) ??
+    SUGESTOES_POR_MODO[modoAlvo] ??
+    []
+  );
+}
+
 export default function ChatPage() {
   const [usuarioId, setUsuarioId] = useState<string | null>(null);
   const [conversas, setConversas] = useState<Conversa[]>([]);
@@ -89,13 +106,16 @@ export default function ChatPage() {
   const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
   const [arquivoAnexado, setArquivoAnexado] = useState<ArquivoAnexado | null>(null);
   const [perfilAtivo, setPerfilAtivo] = useState<string | null>(null);
+  const [sugestoesAtuais, setSugestoesAtuais] = useState<string[]>(() => embaralhar(sugestoesBase(MODOS_DISPONIVEIS[0], null)));
   const fimDaListaRef = useRef<HTMLDivElement>(null);
   const inputPlanilhaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const uid = obterUsuarioId();
     setUsuarioId(uid);
-    setPerfilAtivo(obterPerfilAtivo());
+    const perfilSalvo = obterPerfilAtivo();
+    setPerfilAtivo(perfilSalvo);
+    setSugestoesAtuais(embaralhar(sugestoesBase(MODOS_DISPONIVEIS[0], perfilSalvo)));
 
     listarConversas(TENANT_ID, uid)
       .then(async (lista) => {
@@ -137,15 +157,18 @@ export default function ChatPage() {
     definirPerfilAtivo(perfil);
     setPerfilAtivo(perfil);
     const modoPadrao = MODO_PADRAO_POR_PERFIL[perfil as PerfilId];
+    const modoAlvo = modoPadrao ?? modo;
     if (modoPadrao) {
       setModo(modoPadrao);
       setPendenteConfirmacao(null);
     }
+    setSugestoesAtuais(embaralhar(sugestoesBase(modoAlvo, perfil)));
   }
 
   function limparPerfil() {
     limparPerfilAtivo();
     setPerfilAtivo(null);
+    setSugestoesAtuais(embaralhar(sugestoesBase(modo, null)));
   }
 
   async function novaConversa() {
@@ -310,11 +333,6 @@ export default function ChatPage() {
     }
   }
 
-  const sugestoesAtuais =
-    (perfilAtivo ? PERGUNTAS_POR_PERFIL[perfilAtivo as PerfilId]?.[modo] : undefined) ??
-    SUGESTOES_POR_MODO[modo] ??
-    [];
-
   return (
     <div className="flex h-screen w-full flex-col">
       <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
@@ -334,6 +352,7 @@ export default function ChatPage() {
               onSelecionar={(novoModo) => {
                 setModo(novoModo);
                 setPendenteConfirmacao(null);
+                setSugestoesAtuais(embaralhar(sugestoesBase(novoModo, perfilAtivo)));
               }}
             />
             <SeletorPerfil perfilAtivo={perfilAtivo} onSelecionar={selecionarPerfil} onLimpar={limparPerfil} />
