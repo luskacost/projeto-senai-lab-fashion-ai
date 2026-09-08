@@ -325,6 +325,7 @@ export default function ChatPage() {
             <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-8 w-auto shrink-0" />
             <SeletorModo
               modoAtivo={modo}
+              perfilAtivo={perfilAtivo}
               onSelecionar={(novoModo) => {
                 setModo(novoModo);
                 setPendenteConfirmacao(null);
