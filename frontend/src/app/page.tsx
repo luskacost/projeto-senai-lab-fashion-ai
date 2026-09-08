@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   ApiError,
+  ArquivoAnexado,
   Conversa,
   MensagemConversa,
   PendenteConfirmacao,
@@ -29,7 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, Loader2, Paperclip, Palette, Ruler, Send, Settings } from "lucide-react";
+import { Bot, Download, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -84,6 +85,7 @@ export default function ChatPage() {
   const [estiloCroqui, setEstiloCroqui] = useState(ESTILO_ILUSTRACAO);
   const [pendenteConfirmacao, setPendenteConfirmacao] = useState<PendenteConfirmacao | null>(null);
   const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
+  const [arquivoAnexado, setArquivoAnexado] = useState<ArquivoAnexado | null>(null);
   const fimDaListaRef = useRef<HTMLDivElement>(null);
   const inputPlanilhaRef = useRef<HTMLInputElement>(null);
 
@@ -183,9 +185,12 @@ export default function ChatPage() {
     setEnviandoPlanilha(true);
     try {
       const resultado = await uploadPlanilha(TENANT_ID, conversaAtualId, arquivo);
-      toast.success(
-        `"${resultado.nome_arquivo}" carregada (${resultado.linhas} linhas, ${resultado.colunas.length} colunas). Pode perguntar sobre os dados.`
-      );
+      setArquivoAnexado({
+        nome: resultado.nome_arquivo,
+        linhas: resultado.linhas,
+        colunas: resultado.colunas.length,
+      });
+      toast.success(`"${resultado.nome_arquivo}" anexada. Pode perguntar sobre os dados.`);
     } catch (e) {
       toast.error(mensagemDeErro(e, "enviar planilha"));
     } finally {
@@ -206,10 +211,11 @@ export default function ChatPage() {
 
     const mensagensComUsuario: MensagemConversa[] = [
       ...mensagens,
-      { role: "user", content: texto, tenant_id: TENANT_ID },
+      { role: "user", content: texto, tenant_id: TENANT_ID, arquivo_anexado: arquivoAnexado },
     ];
     setMensagens(mensagensComUsuario);
     setEntrada("");
+    setArquivoAnexado(null);
     setCarregando(true);
 
     try {
@@ -408,6 +414,15 @@ export default function ChatPage() {
                     : "text-foreground"
                 }`}
               >
+                {m.arquivo_anexado && (
+                  <div className="mb-1.5 flex w-fit items-center gap-1.5 rounded-lg bg-primary-foreground/15 px-2.5 py-1.5 text-xs">
+                    <Paperclip className="h-3.5 w-3.5" />
+                    <span className="font-medium">{m.arquivo_anexado.nome}</span>
+                    <span className="opacity-80">
+                      ({m.arquivo_anexado.linhas} linhas, {m.arquivo_anexado.colunas} colunas)
+                    </span>
+                  </div>
+                )}
                 {m.role === "assistant" ? (
                   <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-headings:mt-3 prose-headings:mb-1.5">
                     <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{m.content}</ReactMarkdown>
@@ -517,7 +532,26 @@ export default function ChatPage() {
         </main>
 
         <footer className="p-4 border-t border-border bg-card">
-          <div className="max-w-3xl mx-auto flex gap-2 items-end">
+          <div className="max-w-3xl mx-auto">
+          {arquivoAnexado && (
+            <div className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground">
+              <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="font-medium">{arquivoAnexado.nome}</span>
+              <span className="text-muted-foreground">
+                ({arquivoAnexado.linhas} linhas, {arquivoAnexado.colunas} colunas)
+              </span>
+              <button
+                type="button"
+                onClick={() => setArquivoAnexado(null)}
+                className="ml-1 text-muted-foreground hover:text-foreground"
+                aria-label="Remover anexo"
+                title="Remover anexo"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <div className="flex gap-2 items-end">
             {modo === "Análise de Dados" && (
               <>
                 <input
@@ -567,6 +601,7 @@ export default function ChatPage() {
             >
               {carregando ? <Loader2 className="animate-spin" /> : <Send />}
             </Button>
+          </div>
           </div>
         </footer>
     </div>

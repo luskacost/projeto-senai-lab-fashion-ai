@@ -124,6 +124,12 @@ export async function atualizarConfigTenant(tenantId: string, dadosCustom: Apare
   });
 }
 
+export interface ArquivoAnexado {
+  nome: string;
+  linhas: number;
+  colunas: number;
+}
+
 export interface MensagemConversa {
   role: "user" | "assistant";
   content: string;
@@ -133,6 +139,7 @@ export interface MensagemConversa {
   trechos_consultados?: ChunkConsultado[];
   imagem_url?: string | null;
   imagem_url_costas?: string | null;
+  arquivo_anexado?: ArquivoAnexado | null;
 }
 
 export interface Conversa {
