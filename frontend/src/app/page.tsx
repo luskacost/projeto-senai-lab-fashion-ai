@@ -247,6 +247,7 @@ export default function ChatPage() {
           ? mensagensComUsuario.map((m) => ({ role: m.role, content: m.content }))
           : undefined,
         estiloCroqui: modo === "Gerador de Croqui" ? estiloCroqui : undefined,
+        perfilUsuario: perfilAtivo,
       });
 
       if (resposta.pendente_confirmacao) {
