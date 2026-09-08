@@ -20,8 +20,9 @@ import { obterUsuarioId } from "@/lib/usuario";
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
 import ConversasHistorico from "@/components/ConversasHistorico";
 import ImagemGerada from "@/components/ImagemGerada";
+import SeletorModo from "@/components/SeletorModo";
+import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,7 +36,6 @@ import { toast } from "sonner";
 import { AnimatePresence, motion } from "motion/react";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
-const MODOS_DISPONIVEIS = ["Base de Conhecimento", "Gerador de Croqui"];
 const SUGESTOES_POR_MODO: Record<string, string[]> = {
   "Base de Conhecimento": [
     "Qual a diferença entre viscose e algodão?",
@@ -46,6 +46,26 @@ const SUGESTOES_POR_MODO: Record<string, string[]> = {
     "Crie um croqui de vestido midi em linho",
     "Gere um desenho técnico de uma calça wide leg",
     "Ilustre uma jaqueta jeans oversized",
+  ],
+  "Consultor de Estilo": [
+    "Quais cores combinam com verde oliva?",
+    "Sugira um look casual elegante masculino.",
+    "Como valorizar a silhueta ampulheta?",
+  ],
+  "Professor Técnico": [
+    "Qual agulha usar para costurar seda?",
+    "Como fazer a graduação de moldes?",
+    "Explique a diferença entre urdume e trama.",
+  ],
+  "Tendências": [
+    "Quais as cores tendência para esta estação?",
+    "O que é upcycling na moda atual?",
+    "Quais macro-tendências vêm da Geração Z?",
+  ],
+  "Análise de Dados": [
+    "Qual o resumo geral e principais totais da planilha?",
+    "Quais são os itens ou categorias mais frequentes?",
+    "Quais métricas e médias foram identificadas?",
   ],
 };
 const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
@@ -178,10 +198,9 @@ export default function ChatPage() {
         mensagem: texto,
         modo,
         conversationId: conversaAtualId,
-        historico:
-          modo === "Gerador de Croqui"
-            ? mensagensComUsuario.map((m) => ({ role: m.role, content: m.content }))
-            : undefined,
+        historico: ehModoDeAgente(modo)
+          ? mensagensComUsuario.map((m) => ({ role: m.role, content: m.content }))
+          : undefined,
         estiloCroqui: modo === "Gerador de Croqui" ? estiloCroqui : undefined,
       });
 
@@ -258,22 +277,13 @@ export default function ChatPage() {
               onDeletar={excluirConversa}
             />
             <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-8 w-auto shrink-0" />
-            <ToggleGroup
-              value={[modo]}
-              onValueChange={(valores) => {
-                if (valores.length === 0) return;
-                setModo(valores[0]);
+            <SeletorModo
+              modoAtivo={modo}
+              onSelecionar={(novoModo) => {
+                setModo(novoModo);
                 setPendenteConfirmacao(null);
               }}
-              variant="outline"
-              size="sm"
-            >
-              {MODOS_DISPONIVEIS.map((m) => (
-                <ToggleGroupItem key={m} value={m} className="text-sm">
-                  {m}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            />
             {modo === "Gerador de Croqui" && (
               <select
                 value={estiloCroqui}
