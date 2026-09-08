@@ -87,13 +87,6 @@ app.add_middleware(
 )
 
 
-def _endpoint_nao_implementado(nome: str):
-    raise HTTPException(
-        status_code=501,
-        detail=f"Endpoint '{nome}' ainda não implementado — ver API_CONTRATO.md e o roadmap (Fase 3, Passo 17+)."
-    )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # HEALTH CHECK
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,8 +219,14 @@ def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[
     return {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
 
 
-def _chat_gerador_croqui(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:
-    """Modo "Gerador de Croqui": agente com tool calling (Groq) + confirmação prévia do usuário.
+def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:
+    """Modos baseados em agente com tool calling (Groq): Gerador de Croqui, Consultor de Estilo,
+    Professor Técnico e Tendências.
+
+    A função é agnóstica ao modo -- chamar_agente() só usa as "tools" configuradas para o modo
+    em questão (None para Consultor de Estilo/Professor Técnico, web_search para Tendências,
+    a função gerar_imagem_croqui para Gerador de Croqui). Só o Gerador de Croqui de fato aciona
+    o fluxo de confirmação abaixo (pendente_confirmacao), pois é o único modo com essa tool.
 
     Quando o modelo decide chamar a ferramenta gerar_imagem_croqui, a geração da imagem em si
     NÃO ocorre aqui -- retorna pendente_confirmacao para o front-end exibir a confirmação
@@ -286,11 +285,8 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
     if payload.modo == "Análise de Dados":
         return _chat_analise_dados(payload, config)
 
-    if payload.modo == "Gerador de Croqui":
-        return _chat_gerador_croqui(payload, config)
-
     if payload.modo != "Base de Conhecimento":
-        _endpoint_nao_implementado(f"POST /chat (modo='{payload.modo}')")
+        return _chat_via_agente(payload, config)
 
     chunks_relevantes = buscar_contexto_relevante(
         payload.tenant_id,
