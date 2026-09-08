@@ -751,13 +751,20 @@ def indexar_documento(
     try:
         chunks_estruturados: List[Dict[str, Any]] = []
 
+        tamanho_chunk = RAG_CONFIG.get("chunk_size", 600)
+        sobreposicao = RAG_CONFIG.get("chunk_overlap", 100)
+
         if isinstance(texto_ou_paginas, list):
             for item in texto_ou_paginas:
                 num_pag = item.get("pagina", 1)
                 txt_pag = item.get("texto", "")
                 meta_item = item.get("metadados", {})
                 chunks_estruturados.extend(
-                    dividir_pagina_em_chunks(num_pag, txt_pag, metadados_base=meta_item)
+                    dividir_pagina_em_chunks(
+                        num_pag, txt_pag,
+                        tamanho_chunk=tamanho_chunk, sobreposicao=sobreposicao,
+                        metadados_base=meta_item
+                    )
                 )
         elif isinstance(texto_ou_paginas, str):
             padrao_pag = re.compile(r'---\s*\[PÁGINA\s*(\d+)\]\s*---', re.IGNORECASE)
@@ -766,9 +773,19 @@ def indexar_documento(
                 for i in range(1, len(partes), 2):
                     num_pag = int(partes[i])
                     txt_pag = partes[i + 1] if i + 1 < len(partes) else ""
-                    chunks_estruturados.extend(dividir_pagina_em_chunks(num_pag, txt_pag))
+                    chunks_estruturados.extend(
+                        dividir_pagina_em_chunks(
+                            num_pag, txt_pag,
+                            tamanho_chunk=tamanho_chunk, sobreposicao=sobreposicao
+                        )
+                    )
             else:
-                chunks_estruturados.extend(dividir_pagina_em_chunks(1, texto_ou_paginas))
+                chunks_estruturados.extend(
+                    dividir_pagina_em_chunks(
+                        1, texto_ou_paginas,
+                        tamanho_chunk=tamanho_chunk, sobreposicao=sobreposicao
+                    )
+                )
         else:
             raise ValueError(f"Formato inválido de documento para indexação: {type(texto_ou_paginas)}")
 
