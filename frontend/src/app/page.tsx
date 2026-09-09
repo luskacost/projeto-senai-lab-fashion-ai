@@ -65,6 +65,11 @@ const SUGESTOES_POR_MODO: Record<string, string[]> = {
     "Como fazer a graduação de moldes?",
     "Explique a diferença entre urdume e trama.",
   ],
+  "Engenharia Têxtil": [
+    "Quais ensaios avaliam o encolhimento de um tecido?",
+    "Como funciona o teste de solidez de cor?",
+    "Quais normas ABNT se aplicam a etiquetagem têxtil?",
+  ],
   "Tendências": [
     "Quais as cores tendência para esta estação?",
     "O que é upcycling na moda atual?",
@@ -92,6 +97,7 @@ const TEXTO_CARREGANDO_POR_MODO: Record<string, string> = {
   "Análise de Dados": "Analisando os dados...",
   "Consultor de Estilo": "Pensando na melhor sugestão...",
   "Professor Técnico": "Preparando a explicação técnica...",
+  "Engenharia Têxtil": "Consultando normas e especificações...",
   "Assistente Geral": "Pensando...",
 };
 const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";

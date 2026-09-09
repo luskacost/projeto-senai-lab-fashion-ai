@@ -2,7 +2,7 @@
 // (TENANT_CONFIG["senai_labfashion"]["descricoes_modos"] / "descricoes_detalhadas").
 // Fixo no código, mesmo padrão de branding.ts -- não é mais buscado do /config/tenant.
 
-import { BarChart3, BookOpen, Bot, LucideIcon, Palette, Ruler, Shirt, TrendingUp } from "lucide-react";
+import { BarChart3, BookOpen, Bot, FlaskConical, LucideIcon, Palette, Ruler, Shirt, TrendingUp } from "lucide-react";
 
 export interface ModoInfo {
   id: string;
@@ -35,6 +35,12 @@ export const MODOS: ModoInfo[] = [
     icone: Ruler,
     categoria: "Costura e Modelagem",
     descricao: "Especializado em costura, modelagem, tecidos e processos têxteis.",
+  },
+  {
+    id: "Engenharia Têxtil",
+    icone: FlaskConical,
+    categoria: "Normas e Ensaios",
+    descricao: "Normas técnicas (ABNT/ISO), ensaios de tecido, controle de qualidade e processos industriais de beneficiamento e tingimento.",
   },
   {
     id: "Tendências",
