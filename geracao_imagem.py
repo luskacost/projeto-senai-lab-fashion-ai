@@ -26,10 +26,17 @@ ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)"
 
 # IMPORTANTE: validar_prompt_imagem() (moderacao.py) deve sempre rodar antes desta função,
 # independente do provedor de imagem usado (Pollinations, DALL-E, Gemini, etc.).
-def chamar_api_geracao_imagem(prompt_visual: str) -> str:
-    """Retorna a URL de uma imagem gerada pela Pollinations.ai a partir do prompt."""
+def chamar_api_geracao_imagem(prompt_visual: str, seed: Optional[int] = None) -> str:
+    """Retorna a URL de uma imagem gerada pela Pollinations.ai a partir do prompt.
+
+    `seed` é opcional -- passar o mesmo seed para dois prompts relacionados (ex: frente/costas
+    do mesmo croqui) ajuda a Pollinations a gerar imagens visualmente mais consistentes entre si.
+    """
     prompt_encoded = urllib.parse.quote(prompt_visual)
-    return f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=512&height=768&nologo=true"
+    url = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=512&height=768&nologo=true"
+    if seed is not None:
+        url += f"&seed={seed}"
+    return url
 
 
 def buscar_tendencias_web(query: str, tenant_id: str) -> Tuple[str, List[Dict[str, str]]]:
