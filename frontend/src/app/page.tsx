@@ -23,6 +23,7 @@ import {
 import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId } from "@/lib/usuario";
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
 import ConversasHistorico from "@/components/ConversasHistorico";
+import ContatoSenai from "@/components/ContatoSenai";
 import ImagemGerada from "@/components/ImagemGerada";
 import GraficoBarras from "@/components/GraficoBarras";
 import SeletorModo from "@/components/SeletorModo";
@@ -447,6 +448,7 @@ export default function ChatPage() {
                 </button>
               </div>
             )}
+            <ContatoSenai />
             <Link
               href="/admin"
               className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
