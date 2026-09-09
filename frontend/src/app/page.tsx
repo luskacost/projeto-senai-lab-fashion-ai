@@ -81,6 +81,19 @@ const SUGESTOES_POR_MODO: Record<string, string[]> = {
     "Resuma as vantagens e desvantagens de trabalho remoto.",
   ],
 };
+
+// Texto do indicador de carregamento por modo -- cada modo faz algo diferente por trás
+// (busca em documentos, busca na web, geração de imagem, etc.), então o texto precisa refletir
+// isso em vez de um "Pesquisando na base de documentos..." genérico pra tudo que não é croqui.
+const TEXTO_CARREGANDO_POR_MODO: Record<string, string> = {
+  "Base de Conhecimento": "Pesquisando na base de documentos...",
+  "Gerador de Croqui": "Pensando no seu croqui...",
+  "Tendências": "Buscando tendências na web...",
+  "Análise de Dados": "Analisando os dados...",
+  "Consultor de Estilo": "Pensando na melhor sugestão...",
+  "Professor Técnico": "Preparando a explicação técnica...",
+  "Assistente Geral": "Pensando...",
+};
 const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
 const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";
 
@@ -604,7 +617,7 @@ export default function ChatPage() {
               </Avatar>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {modo === "Gerador de Croqui" ? "Pensando no seu croqui..." : "Pesquisando na base de documentos..."}
+                {TEXTO_CARREGANDO_POR_MODO[modo] ?? "Pensando..."}
               </div>
             </div>
           )}
