@@ -32,17 +32,21 @@ def chamar_api_geracao_imagem(prompt_visual: str) -> str:
     return f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=512&height=768&nologo=true"
 
 
-def buscar_tendencias_web(query: str, tenant_id: str) -> str:
-    """Busca resultados atuais na web via Tavily e retorna um bloco de texto com título, URL e
-    trecho de cada resultado, para o modelo sintetizar a resposta citando as fontes.
+def buscar_tendencias_web(query: str, tenant_id: str) -> Tuple[str, List[Dict[str, str]]]:
+    """Busca resultados atuais na web via Tavily.
 
     Substitui o antigo `{"type": "web_search"}` (não era uma tool válida para o modelo Groq
     configurado -- ver TODO/relatório da Fase 7, o modo "Tendências" alucinava respostas sem
     busca real nenhuma).
+
+    Retorna (texto_formatado, fontes) -- texto_formatado é o bloco enviado de volta ao modelo
+    como resultado da tool call; fontes é a lista estruturada [{"titulo", "url", "trecho"}] usada
+    por _chat_via_agente (api/main.py) para popular fontes_consultadas/trechos_consultados na
+    resposta da API, no mesmo padrão de citação já usado pelo modo "Base de Conhecimento".
     """
     api_key = obter_secret_tenant(tenant_id, "TAVILY_API_KEY")
     if not api_key:
-        return f"[Erro] Busca na web indisponível: TAVILY_API_KEY não configurada para o tenant '{tenant_id}'."
+        return f"[Erro] Busca na web indisponível: TAVILY_API_KEY não configurada para o tenant '{tenant_id}'.", []
 
     try:
         resposta = requests.post(
@@ -59,13 +63,14 @@ def buscar_tendencias_web(query: str, tenant_id: str) -> str:
         resposta.raise_for_status()
         dados = resposta.json()
     except Exception as e:
-        return f"[Erro] Falha ao buscar na web: {e}"
+        return f"[Erro] Falha ao buscar na web: {e}", []
 
     resultados = dados.get("results", [])
     if not resultados:
-        return "Nenhum resultado encontrado na busca web para essa consulta."
+        return "Nenhum resultado encontrado na busca web para essa consulta.", []
 
     blocos = []
+    fontes: List[Dict[str, str]] = []
     for r in resultados:
         titulo = str(r.get("title", "")).strip()
         url = str(r.get("url", "")).strip()
@@ -73,8 +78,10 @@ def buscar_tendencias_web(query: str, tenant_id: str) -> str:
         if len(trecho) > 500:
             trecho = trecho[:500] + "..."
         blocos.append(f"- {titulo}\n  URL: {url}\n  Trecho: {trecho}")
+        fontes.append({"titulo": titulo, "url": url, "trecho": trecho})
 
-    return "Resultados da busca web (cite a URL de cada fonte usada na resposta):\n\n" + "\n\n".join(blocos)
+    texto = "Resultados da busca web (cite a URL de cada fonte usada na resposta):\n\n" + "\n\n".join(blocos)
+    return texto, fontes
 
 
 def executar_ferramenta_local(
@@ -83,14 +90,19 @@ def executar_ferramenta_local(
     tenant_id: str,
     estilo_croqui: str = ESTILO_ILUSTRACAO
 ) -> str:
-    """Chama a função local correspondente ao nome_ferramenta e retorna o resultado."""
+    """Chama a função local correspondente ao nome_ferramenta e retorna o resultado.
+
+    Para 'buscar_tendencias_web', usar chamar_agente() diretamente quando as fontes estruturadas
+    forem necessárias -- este dispatcher genérico devolve só o texto formatado.
+    """
     if nome_ferramenta == "gerar_imagem_croqui":
         prompt_visual = argumentos.get("prompt_visual", "")
         if estilo_croqui == ESTILO_TECNICO:
             prompt_visual = f"{prompt_visual}{SUFIXO_TECNICO}, front view"
         return chamar_api_geracao_imagem(prompt_visual)
     if nome_ferramenta == "buscar_tendencias_web":
-        return buscar_tendencias_web(argumentos.get("query", ""), tenant_id)
+        texto, _fontes = buscar_tendencias_web(argumentos.get("query", ""), tenant_id)
+        return texto
     return f"[Erro] Ferramenta '{nome_ferramenta}' não reconhecida. Nenhuma ação foi executada."
 
 
@@ -100,7 +112,7 @@ def chamar_agente(
     messages_for_api: List[Dict[str, Any]],
     tenant_id: str,
     estilo_croqui: str = ESTILO_ILUSTRACAO
-) -> Tuple[Optional[str], Optional[str], bool, Optional[Dict[str, Any]]]:
+) -> Tuple[Optional[str], Optional[str], bool, Optional[Dict[str, Any]], List[Dict[str, str]]]:
     """Chama a API da Groq com suporte a tool calling quando o agente tiver tools.
 
     Se a ferramenta 'gerar_imagem_croqui' for detectada, retorna um sinal de confirmação
@@ -108,7 +120,7 @@ def chamar_agente(
     do usuário -- a geração da imagem em si só ocorre após confirmação explícita (ver
     api/main.py: POST /chat/croqui/confirmar).
 
-    Retorna (texto_resposta, imagem_url, usou_fallback_sem_tools, pendente_dados).
+    Retorna (texto_resposta, imagem_url, usou_fallback_sem_tools, pendente_dados, fontes_busca_web).
     """
     tools = agente_config.get("tools")
     imagem_url = None
@@ -139,12 +151,21 @@ def chamar_agente(
                 temperature=0.7,
                 max_tokens=2048,
             )
-            return primeira_resposta.choices[0].message.content, None, True, None
+            return primeira_resposta.choices[0].message.content, None, True, None, []
         raise
 
     message = primeira_resposta.choices[0].message
+    fontes_busca_web: List[Dict[str, str]] = []
 
-    if hasattr(message, "tool_calls") and message.tool_calls:
+    # Loop limitado de rodadas de tool calling: uma ferramenta como buscar_tendencias_web pode
+    # legitimamente ser chamada mais de uma vez (o modelo refina a busca), diferente de
+    # gerar_imagem_croqui (sempre encerra a rodada, ver abaixo). Repassar "tools" em toda chamada
+    # de acompanhamento evita um 400 da Groq ("Tool choice is none, but model called a tool") caso
+    # o modelo decida chamar a ferramenta de novo -- encontrado em teste manual real.
+    MAX_RODADAS_TOOL_CALLING = 3
+    rodada = 0
+    while hasattr(message, "tool_calls") and message.tool_calls and rodada < MAX_RODADAS_TOOL_CALLING:
+        rodada += 1
         tem_gerar_croqui = any(tc.function.name == "gerar_imagem_croqui" for tc in message.tool_calls)
 
         if tem_gerar_croqui:
@@ -183,7 +204,7 @@ def chamar_agente(
                 "messages_for_api": list(messages_for_api),
                 "estilo_croqui": estilo_croqui,
             }
-            return None, None, False, pendente_dados
+            return None, None, False, pendente_dados, []
 
         # Para outras ferramentas (ex: buscar_tendencias_web), executa normalmente
         messages_for_api.append({
@@ -207,7 +228,12 @@ def chamar_agente(
                 argumentos = json.loads(tool_call.function.arguments)
             except json.JSONDecodeError:
                 argumentos = {}
-            resultado = executar_ferramenta_local(tool_call.function.name, argumentos, tenant_id, estilo_croqui)
+
+            if tool_call.function.name == "buscar_tendencias_web":
+                resultado, fontes_tool = buscar_tendencias_web(argumentos.get("query", ""), tenant_id)
+                fontes_busca_web.extend(fontes_tool)
+            else:
+                resultado = executar_ferramenta_local(tool_call.function.name, argumentos, tenant_id, estilo_croqui)
 
             if resultado.startswith("https://image.pollinations.ai"):
                 imagem_url = resultado
@@ -218,13 +244,21 @@ def chamar_agente(
                 "content": str(resultado),
             })
 
-        segunda_resposta = client.chat.completions.create(
-            messages=messages_for_api,
-            model=GROQ_MODEL,
-            temperature=0.7,
-            max_tokens=2048,
-        )
-        texto_final = segunda_resposta.choices[0].message.content
-        return texto_final, imagem_url, False, None
+        try:
+            proxima_resposta = client.chat.completions.create(
+                messages=messages_for_api,
+                model=GROQ_MODEL,
+                temperature=0.7,
+                max_tokens=2048,
+                tools=tools,
+                tool_choice="auto" if rodada < MAX_RODADAS_TOOL_CALLING else "none",
+            )
+        except Exception:
+            # Rede de segurança: se mesmo com tool_choice="none" o modelo insistir em chamar uma
+            # ferramenta (raro), a Groq rejeita a chamada -- encerra o loop com o que já foi
+            # sintetizado/buscado em vez de propagar um 500 pro usuário.
+            texto_parcial = message.content or "Não consegui concluir a busca agora. Tente novamente em instantes."
+            return texto_parcial, imagem_url, False, None, fontes_busca_web
+        message = proxima_resposta.choices[0].message
 
-    return message.content, imagem_url, False, None
+    return message.content, imagem_url, False, None, fontes_busca_web

@@ -249,7 +249,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
         raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
     client = Groq(api_key=api_key)
 
-    texto, imagem_url, usou_fallback, pendente = chamar_agente(
+    texto, imagem_url, usou_fallback, pendente, fontes_busca_web = chamar_agente(
         client, config["modos"][payload.modo], messages_for_api, payload.tenant_id, estilo
     )
 
@@ -267,8 +267,10 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
         "resposta": texto,
         "imagem_url": imagem_url,
         "pendente_confirmacao": None,
-        "fontes_consultadas": [],
-        "trechos_consultados": []
+        "fontes_consultadas": [f["titulo"] for f in fontes_busca_web],
+        "trechos_consultados": [
+            {"fonte": f["titulo"], "texto": f"{f['trecho']}\n\nURL: {f['url']}"} for f in fontes_busca_web
+        ]
     }
 
 
