@@ -9,6 +9,7 @@ têm lógica implementada (ver roadmap: cada um é implementado em uma sessão f
 Rodar localmente: uvicorn api.main:app --reload
 """
 
+import hashlib
 import io
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -382,8 +383,27 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
     if estilo == ESTILO_TECNICO:
         prompt_frente = f"{prompt_vis}{SUFIXO_TECNICO}, front view"
         prompt_costas = f"{prompt_vis}{SUFIXO_TECNICO}, back view"
-        res_frente = chamar_api_geracao_imagem(prompt_frente)
-        res_costas = chamar_api_geracao_imagem(prompt_costas)
+
+        # Modera os dois prompts finais individualmente (não só o prompt_vis base acima) --
+        # são eles, com os sufixos técnicos já aplicados, que de fato chegam ao provedor de
+        # imagem. Hoje ambos derivam do mesmo prompt_vis já aprovado, mas validar o texto final
+        # de cada vista fecha o gap para qualquer mudança futura que os faça divergir.
+        for prompt_final, rotulo in ((prompt_frente, "frente"), (prompt_costas, "costas")):
+            resultado_mod_vista = validar_prompt_imagem(client, prompt_final, payload.tenant_id)
+            if not resultado_mod_vista.get("aprovado", False):
+                raise HTTPException(
+                    status_code=422,
+                    detail=resultado_mod_vista.get(
+                        "motivo", f"O pedido contém elementos fora do escopo de moda e vestuário (vista de {rotulo})."
+                    )
+                )
+
+        # Seed derivado do prompt_vis (não do prompt final, que já muda por vista) para que
+        # frente e costas do mesmo croqui usem o mesmo seed -- gera imagens mais consistentes
+        # entre si na Pollinations do que dois seeds aleatórios independentes.
+        seed_compartilhado = int(hashlib.sha256(prompt_vis.encode("utf-8")).hexdigest(), 16) % (2**31)
+        res_frente = chamar_api_geracao_imagem(prompt_frente, seed=seed_compartilhado)
+        res_costas = chamar_api_geracao_imagem(prompt_costas, seed=seed_compartilhado)
         if res_frente.startswith("https://image.pollinations.ai"):
             imagem_url_gerada = res_frente
             incrementar_uso(payload.tenant_id, "imagens")
