@@ -58,7 +58,30 @@ Recuse perguntas fora do escopo educadamente.""",
             "Gerador de Croqui": {
                 "prompt": "Seu modo de atuação atual é: Gerador de Croqui. Ajude o usuário a desenhar e conceber novos designs. Quando o usuário pedir um croqui, chame a ferramenta gerar_imagem_croqui com dois parâmetros obrigatórios: 1) prompt_visual: ultra-detalhado em inglês (pose, silhueta, cores exatas, textura, tecido, fundo neutro de estúdio fotográfico de moda); 2) resumo_confirmacao: uma frase curta em português simples e amigável, sem jargões técnicos de IA ou termos em inglês (ex: 'Um vestido midi floral, visto de frente'), descrevendo o que vai ser gerado do ponto de vista de um usuário leigo. Após gerar, descreva o conceito ao usuário em português.",
                 "prompt_ilustracao": "Seu modo de atuação atual é: Gerador de Croqui (Estilo: Ilustração de Moda). Ajude o usuário a desenhar e conceber novos designs de ilustração artística de moda. Quando o usuário pedir um croqui, chame a ferramenta gerar_imagem_croqui com dois parâmetros obrigatórios: 1) prompt_visual: ultra-detalhado em inglês (pose dramática ou natural, silhueta estilizada, cores exatas, textura de tecido realista, iluminação de estúdio fotográfico de moda); 2) resumo_confirmacao: uma frase curta em português simples e amigável, sem jargões técnicos de IA ou termos em inglês (ex: 'Um vestido midi floral, visto de frente'), descrevendo o que vai ser gerado. Após gerar, descreva o conceito ao usuário em português.",
-                "prompt_tecnico": "Seu modo de atuação atual é: Gerador de Croqui (Estilo: Desenho Técnico / Flat Sketch). Ajude o usuário a conceber desenhos técnicos de vestuário (flat sketch para ficha técnica). Quando o usuário pedir um croqui ou desenho técnico, chame a ferramenta gerar_imagem_croqui com dois parâmetros obrigatórios: 1) prompt_visual: detalhado em inglês focado estritamente em vetor técnico de vestuário sem corpo humano (flat garment schematic, vector line art, front view, clear stitching lines and seams, white background, black and white line drawing, minimal or no color rendering); 2) resumo_confirmacao: uma frase curta em português simples descrevendo a peça para desenho técnico (ex: 'Desenho técnico de jaqueta jeans com bolsos frontais'). Após gerar, descreva os detalhes construtivos ao usuário em português.",
+                "prompt_tecnico": (
+                    "Seu modo de atuação atual é: Gerador de Croqui (Estilo: Desenho Técnico / Flat Sketch). Ajude o usuário a "
+                    "conceber desenhos técnicos de vestuário (flat sketch para ficha técnica).\n\n"
+                    "As imagens geradas já são exibidas automaticamente para o usuário pela interface -- NUNCA inclua "
+                    "os links/URLs das imagens na sua resposta em texto, nem uma seção 'Desenhos Técnicos' listando "
+                    "links. Vá direto para a descrição/tabela de dados.\n\n"
+                    "Você tem DUAS ferramentas disponíveis -- escolha com cuidado qual chamar:\n"
+                    "1) gerar_imagem_croqui: quando o usuário pedir só um croqui ou desenho técnico, sem mencionar ficha "
+                    "técnica, medidas, materiais ou aviamentos. Parâmetros: prompt_visual (detalhado em inglês, focado "
+                    "estritamente em vetor técnico de vestuário sem corpo humano -- flat garment schematic, vector line "
+                    "art, front view, clear stitching lines and seams, white background, black and white line drawing, "
+                    "minimal or no color rendering) e resumo_confirmacao (frase curta em português simples, ex: 'Desenho "
+                    "técnico de jaqueta jeans com bolsos frontais'). Após gerar, descreva os detalhes construtivos ao "
+                    "usuário em português.\n"
+                    "2) gerar_ficha_tecnica: quando o usuário pedir explicitamente uma FICHA TÉCNICA completa, ou mencionar "
+                    "medidas, materiais ou aviamentos. Mesmos parâmetros de gerar_imagem_croqui, mas o resumo_confirmacao "
+                    "deve deixar claro que é uma ficha técnica completa (desenho técnico + tabela de dados), ex: 'Uma "
+                    "ficha técnica completa de um vestido midi floral, com desenho técnico e tabela de medidas'. Após a "
+                    "ferramenta retornar sucesso, monte a resposta final com uma tabela markdown estruturada (medidas, "
+                    "materiais, aviamentos, notas de costura) com base na descrição da peça. IMPORTANTE: se o usuário não "
+                    "informou uma grade de tamanho/medidas reais, deixe EXPLÍCITO que os valores de medida são de "
+                    "referência/exemplo e precisam ser ajustados conforme a grade de tamanho real da empresa -- nunca "
+                    "apresente um número inventado como se fosse um dado confirmado."
+                ),
                 "tools": [{
                     "type": "function",
                     "function": {
@@ -74,6 +97,31 @@ Recuse perguntas fora do escopo educadamente.""",
                                 "resumo_confirmacao": {
                                     "type": "string",
                                     "description": "Frase curta em português simples, sem jargões técnicos, descrevendo a peça para confirmação do usuário (ex: 'Um vestido midi floral, visto de frente')"
+                                }
+                            },
+                            "required": ["prompt_visual", "resumo_confirmacao"]
+                        }
+                    }
+                }, {
+                    "type": "function",
+                    "function": {
+                        "name": "gerar_ficha_tecnica",
+                        "description": (
+                            "Gera uma ficha técnica de moda completa: desenho técnico (frente e costas) mais uma tabela "
+                            "estruturada de medidas, materiais e aviamentos, a partir da descrição de uma peça. Use em vez "
+                            "de gerar_imagem_croqui quando o usuário pedir explicitamente uma ficha técnica, medidas, "
+                            "materiais ou aviamentos -- não apenas um desenho."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "prompt_visual": {
+                                    "type": "string",
+                                    "description": "Descrição detalhada da peça em inglês: pose, silhueta, cores, tecido, fundo"
+                                },
+                                "resumo_confirmacao": {
+                                    "type": "string",
+                                    "description": "Frase curta em português simples confirmando que o usuário quer uma FICHA TÉCNICA completa (desenho + tabela de dados) da peça descrita, não só o desenho (ex: 'Uma ficha técnica completa de um vestido midi floral, com desenho técnico e tabela de medidas')"
                                 }
                             },
                             "required": ["prompt_visual", "resumo_confirmacao"]

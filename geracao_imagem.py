@@ -23,6 +23,11 @@ SUFIXO_TECNICO = (
 ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda"
 ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)"
 
+# Ferramentas que exigem confirmação prévia do usuário antes de gastar uma geração de imagem de
+# verdade (ver o fluxo pendente_confirmacao em chamar_agente() abaixo e /chat/croqui/confirmar em
+# api/main.py). gerar_ficha_tecnica (Fase 8) reusa o mesmo fluxo de gerar_imagem_croqui.
+FERRAMENTAS_COM_CONFIRMACAO = {"gerar_imagem_croqui", "gerar_ficha_tecnica"}
+
 
 # IMPORTANTE: validar_prompt_imagem() (moderacao.py) deve sempre rodar antes desta função,
 # independente do provedor de imagem usado (Pollinations, DALL-E, Gemini, etc.).
@@ -173,10 +178,15 @@ def chamar_agente(
     rodada = 0
     while hasattr(message, "tool_calls") and message.tool_calls and rodada < MAX_RODADAS_TOOL_CALLING:
         rodada += 1
-        tem_gerar_croqui = any(tc.function.name == "gerar_imagem_croqui" for tc in message.tool_calls)
+        # gerar_ficha_tecnica (Fase 8) segue exatamente o mesmo fluxo de confirmação prévia que
+        # gerar_imagem_croqui -- só muda o que acontece depois da confirmação (ver
+        # /chat/croqui/confirmar em api/main.py).
+        tc_com_confirmacao = next(
+            (tc for tc in message.tool_calls if tc.function.name in FERRAMENTAS_COM_CONFIRMACAO), None
+        )
 
-        if tem_gerar_croqui:
-            croqui_tc = next(tc for tc in message.tool_calls if tc.function.name == "gerar_imagem_croqui")
+        if tc_com_confirmacao is not None:
+            croqui_tc = tc_com_confirmacao
             try:
                 argumentos = json.loads(croqui_tc.function.arguments)
             except (json.JSONDecodeError, TypeError):
@@ -203,7 +213,7 @@ def chamar_agente(
 
             pendente_dados = {
                 "tool_call_id": croqui_tc.id,
-                "nome_ferramenta": "gerar_imagem_croqui",
+                "nome_ferramenta": croqui_tc.function.name,
                 "argumentos": argumentos,
                 "prompt_visual": prompt_visual,
                 "resumo_confirmacao": resumo_confirmacao,

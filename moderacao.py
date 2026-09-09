@@ -51,7 +51,7 @@ def validar_prompt_imagem(client, prompt_visual: str, tenant_id: str) -> dict:
                 messages=messages,
                 model="openai/gpt-oss-20b",
                 temperature=0.0,
-                max_tokens=150,
+                max_tokens=300,
                 response_format={"type": "json_object"}
             )
         except Exception as e_resp:
@@ -61,7 +61,7 @@ def validar_prompt_imagem(client, prompt_visual: str, tenant_id: str) -> dict:
                 messages=messages,
                 model="openai/gpt-oss-20b",
                 temperature=0.0,
-                max_tokens=150
+                max_tokens=300
             )
 
         content = resposta.choices[0].message.content or ""

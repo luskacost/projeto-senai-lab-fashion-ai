@@ -373,6 +373,10 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 
     prompt_vis = payload.pendente.get("prompt_visual", "")
     estilo = payload.pendente.get("estilo_croqui", ESTILO_ILUSTRACAO)
+    # gerar_ficha_tecnica só faz sentido pareada com o fluxo frente/costas do Desenho Técnico
+    # (Fase 8) -- força esse caminho mesmo no caso hipotético de o modelo tê-la chamado fora do
+    # estilo técnico, já que não existe um equivalente de ficha técnica para Ilustração de Moda.
+    eh_ficha_tecnica = payload.pendente.get("nome_ferramenta") == "gerar_ficha_tecnica"
 
     resultado_mod = validar_prompt_imagem(client, prompt_vis, payload.tenant_id)
     if not resultado_mod.get("aprovado", False):
@@ -383,14 +387,14 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 
     config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
     limite_img = config.get("limite_imagens_dia", 30)
-    qtd_necessaria = 2 if estilo == ESTILO_TECNICO else 1
+    qtd_necessaria = 2 if (estilo == ESTILO_TECNICO or eh_ficha_tecnica) else 1
     if not verificar_limite(payload.tenant_id, "imagens", limite_img, quantidade_necessaria=qtd_necessaria):
         raise HTTPException(status_code=429, detail="Limite diário de geração de imagens atingido. Novas gerações estarão disponíveis amanhã.")
 
     imagem_url_gerada = None
     imagem_url_costas_gerada = None
 
-    if estilo == ESTILO_TECNICO:
+    if estilo == ESTILO_TECNICO or eh_ficha_tecnica:
         prompt_frente = f"{prompt_vis}{SUFIXO_TECNICO}, front view"
         prompt_costas = f"{prompt_vis}{SUFIXO_TECNICO}, back view"
 
@@ -420,7 +424,18 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
         if res_costas.startswith("https://image.pollinations.ai"):
             imagem_url_costas_gerada = res_costas
             incrementar_uso(payload.tenant_id, "imagens")
-        resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados com sucesso (Frente: {imagem_url_gerada}, Costas: {imagem_url_costas_gerada})."
+        # Não repassa as URLs das imagens pro modelo no resultado da tool -- ele não precisa delas
+        # pra nada (a interface já exibe as imagens sozinha) e incluí-las aqui só convida o modelo
+        # a reproduzi-las na resposta em texto, duplicando as imagens como link feio na conversa.
+        frente_ok = "sucesso" if imagem_url_gerada else "falhou"
+        costas_ok = "sucesso" if imagem_url_costas_gerada else "falhou"
+        if eh_ficha_tecnica:
+            resultado_ferramenta = (
+                f"Ficha técnica gerada: desenho técnico de frente ({frente_ok}) e de costas ({costas_ok}). "
+                f"Agora monte a tabela markdown estruturada de medidas/materiais/aviamentos conforme instruído."
+            )
+        else:
+            resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados: frente ({frente_ok}), costas ({costas_ok})."
     else:
         resultado_ferramenta = executar_ferramenta_local("gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
         if resultado_ferramenta.startswith("https://image.pollinations.ai"):
