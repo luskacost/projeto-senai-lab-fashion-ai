@@ -75,6 +75,11 @@ const SUGESTOES_POR_MODO: Record<string, string[]> = {
     "Quais são os itens ou categorias mais frequentes?",
     "Quais métricas e médias foram identificadas?",
   ],
+  "Assistente Geral": [
+    "Explique a diferença entre IA generativa e IA preditiva.",
+    "Me dê ideias de nomes para uma newsletter sobre sustentabilidade.",
+    "Resuma as vantagens e desvantagens de trabalho remoto.",
+  ],
 };
 const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
 const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";

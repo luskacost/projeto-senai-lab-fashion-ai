@@ -160,7 +160,12 @@ def _montar_custom_prompt(
     perfil_usuario: Optional[str],
     estilo_croqui: Optional[str] = None
 ) -> str:
-    """Monta o prompt de sistema (base_prompt + prompt do modo + contexto de perfil).
+    """Monta o prompt de sistema (regras de base + prompt do modo + contexto de perfil).
+
+    As regras de base vêm de duas partes independentes (Fase 7, Bloco E): prompt_seguranca
+    (sempre aplicado, todo modo) e prompt_escopo_moda (só aplicado quando o modo tiver
+    escopo_moda=True, o padrão -- o modo "Assistente Geral" define escopo_moda=False para não
+    herdar a restrição "responda só sobre moda").
 
     Para o modo "Gerador de Croqui", seleciona prompt_tecnico ou prompt_ilustracao
     conforme estilo_croqui, espelhando app.py.
@@ -175,13 +180,18 @@ def _montar_custom_prompt(
         else:
             prompt_modo = modo_cfg.get("prompt_ilustracao", prompt_modo)
 
+    partes_base = [config["prompt_seguranca"]]
+    if modo_cfg.get("escopo_moda", True):
+        partes_base.append(config["prompt_escopo_moda"])
+    prompt_base = "\n\n".join(partes_base)
+
     contexto_perfil = ""
     if perfil_usuario:
         perfil_info = PERFIS_USUARIO.get(perfil_usuario, {})
         rotulo = perfil_info.get("rotulo_prompt", perfil_usuario)
         contexto_perfil = f"\n\nO usuário se identificou como {rotulo}. Adapte a profundidade técnica e o tom da resposta para esse perfil."
 
-    return f"{config['base_prompt']}\n\n{prompt_modo}{contexto_perfil}"
+    return f"{prompt_base}\n\n{prompt_modo}{contexto_perfil}"
 
 
 def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:

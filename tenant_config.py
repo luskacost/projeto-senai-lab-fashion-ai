@@ -33,10 +33,17 @@ TENANT_CONFIG = {
         "cor_secundaria": "#F47B20",
         "limite_mensagens_dia": 200,
         "limite_imagens_dia": 30,
-        "base_prompt": """Você é o LabFashion IA do Senai LabFashion. Responda apenas sobre moda, têxtil, croquis e modelagem.
-Mantenha tom técnico e profissional. Nunca gere conteúdo sexual, violento, discriminatório ou ilegal.
-Recuse perguntas fora do escopo educadamente. Respeite as políticas de segurança (não mencione nem use pessoas reais ou celebridades).
-Para temas sensíveis (como plus size, diversidade, sustentabilidade e cadeia produtiva), responda com respeito, precisão técnica e responsabilidade social.""",
+        # Regras de segurança: sempre aplicadas, em TODOS os modos (inclusive o "Assistente Geral",
+        # que não tem restrição de escopo a moda). Separado de prompt_escopo_moda abaixo para que o
+        # modo generalista possa herdar só a parte de segurança (Fase 7, Bloco E).
+        "prompt_seguranca": """Mantenha tom técnico e profissional. Nunca gere conteúdo sexual, violento, discriminatório ou ilegal.
+Respeite as políticas de segurança (não mencione nem use pessoas reais ou celebridades).
+Para temas sensíveis (como plus size, diversidade, sustentabilidade e cadeia produtiva, política e religião), responda com respeito, precisão técnica e responsabilidade social.""",
+        # Restrição de escopo "só moda": aplicada apenas aos modos com escopo_moda=True (o padrão --
+        # ver _montar_custom_prompt em api/main.py). O modo "Assistente Geral" define escopo_moda=False
+        # e não recebe este trecho.
+        "prompt_escopo_moda": """Você é o LabFashion IA do Senai LabFashion. Responda apenas sobre moda, têxtil, croquis e modelagem.
+Recuse perguntas fora do escopo educadamente.""",
         "modos": {
             "Consultor de Estilo": {
                 "prompt": "Seu modo de atuação atual é: Consultor de Estilo. Ajude o usuário com consultoria de imagem, combinações de estilo, indicação de looks para diferentes ocasiões e biotipos, harmonização de cores (círculo cromático) e estética visual. Seja elegante, inspirador e dê dicas práticas de como se vestir bem.",
@@ -126,6 +133,19 @@ Para temas sensíveis (como plus size, diversidade, sustentabilidade e cadeia pr
                     "8. Sempre cite a fonte e página utilizada quando disponível (ex: 'Segundo [Documento], página X...')."
                 ),
                 "tools": None,
+                "validade_cache_horas": 0,
+            },
+            "Assistente Geral": {
+                "prompt": (
+                    "Seu modo de atuação atual é: Assistente Geral. Você é um assistente de IA de "
+                    "propósito geral, sem restrição de escopo a moda -- pode conversar sobre "
+                    "qualquer assunto (tecnologia, ciência, cultura, dúvidas do dia a dia, etc.), "
+                    "como o ChatGPT ou o Claude. Seja claro, útil e direto nas respostas."
+                ),
+                "tools": None,
+                # Único modo sem restrição de escopo a moda -- ver _montar_custom_prompt
+                # (api/main.py) e prompt_escopo_moda acima (Fase 7, Bloco E).
+                "escopo_moda": False,
                 "validade_cache_horas": 0,
             },
         },
