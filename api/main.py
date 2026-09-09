@@ -224,7 +224,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
     Professor Técnico e Tendências.
 
     A função é agnóstica ao modo -- chamar_agente() só usa as "tools" configuradas para o modo
-    em questão (None para Consultor de Estilo/Professor Técnico, web_search para Tendências,
+    em questão (None para Consultor de Estilo/Professor Técnico, buscar_tendencias_web para Tendências,
     a função gerar_imagem_croqui para Gerador de Croqui). Só o Gerador de Croqui de fato aciona
     o fluxo de confirmação abaixo (pendente_confirmacao), pois é o único modo com essa tool.
 
@@ -250,7 +250,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
     client = Groq(api_key=api_key)
 
     texto, imagem_url, usou_fallback, pendente = chamar_agente(
-        client, config["modos"][payload.modo], messages_for_api, estilo
+        client, config["modos"][payload.modo], messages_for_api, payload.tenant_id, estilo
     )
 
     if pendente:
@@ -390,7 +390,7 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
             incrementar_uso(payload.tenant_id, "imagens")
         resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados com sucesso (Frente: {imagem_url_gerada}, Costas: {imagem_url_costas_gerada})."
     else:
-        resultado_ferramenta = executar_ferramenta_local("gerar_imagem_croqui", payload.pendente.get("argumentos", {}), estilo)
+        resultado_ferramenta = executar_ferramenta_local("gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
         if resultado_ferramenta.startswith("https://image.pollinations.ai"):
             imagem_url_gerada = resultado_ferramenta
             incrementar_uso(payload.tenant_id, "imagens")

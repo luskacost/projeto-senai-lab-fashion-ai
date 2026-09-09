@@ -76,8 +76,35 @@ Para temas sensíveis (como plus size, diversidade, sustentabilidade e cadeia pr
                 "validade_cache_horas": 0,
             },
             "Tendências": {
-                "prompt": "Seu modo de atuação atual é: Tendências. Analise macro e microtendências de moda global, coleções recentes de alta-costura e prêt-à-porter, comportamento de consumo de moda, cartela de cores sazonais e o impacto cultural de movimentos históricos na moda moderna. Traga insights informados sobre o futuro do mercado da moda.",
-                "tools": [{"type": "web_search"}],
+                "prompt": (
+                    "Seu modo de atuação atual é: Tendências. Analise macro e microtendências de moda global, "
+                    "coleções recentes de alta-costura e prêt-à-porter, comportamento de consumo de moda, cartela "
+                    "de cores sazonais e o impacto cultural de movimentos históricos na moda moderna. Traga "
+                    "insights informados sobre o futuro do mercado da moda.\n\n"
+                    "Você TEM acesso à ferramenta buscar_tendencias_web para buscar informações atuais e reais na "
+                    "internet. Para qualquer pergunta sobre tendências, cores, coleções ou dados de mercado "
+                    "recentes/atuais, SEMPRE chame essa ferramenta antes de responder -- nunca responda de memória "
+                    "sobre algo que possa ter mudado recentemente. Na resposta final, cite explicitamente a URL de "
+                    "cada fonte usada (ex: 'Segundo [URL]...'). Se a busca não retornar nada relevante, diga "
+                    "claramente que não encontrou informação atual sobre o assunto em vez de inventar."
+                ),
+                "tools": [{
+                    "type": "function",
+                    "function": {
+                        "name": "buscar_tendencias_web",
+                        "description": "Busca informações atuais na web (notícias, artigos, previsões de mercado) sobre tendências de moda, cores, coleções e comportamento de consumo.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Termos de busca objetivos e específicos, em português ou inglês (ex: 'cores tendência primavera verão 2027 Pantone')"
+                                }
+                            },
+                            "required": ["query"]
+                        }
+                    }
+                }],
                 "validade_cache_horas": 24,
             },
             "Análise de Dados": {

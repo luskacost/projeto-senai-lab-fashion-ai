@@ -10,7 +10,10 @@ import json
 import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
+import requests
+
 from rag_config import GROQ_MODEL
+from tenant_config import obter_secret_tenant
 
 SUFIXO_TECNICO = (
     ", fashion technical flat sketch, vector line art style, black and white line drawing, "
@@ -29,9 +32,55 @@ def chamar_api_geracao_imagem(prompt_visual: str) -> str:
     return f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=512&height=768&nologo=true"
 
 
+def buscar_tendencias_web(query: str, tenant_id: str) -> str:
+    """Busca resultados atuais na web via Tavily e retorna um bloco de texto com título, URL e
+    trecho de cada resultado, para o modelo sintetizar a resposta citando as fontes.
+
+    Substitui o antigo `{"type": "web_search"}` (não era uma tool válida para o modelo Groq
+    configurado -- ver TODO/relatório da Fase 7, o modo "Tendências" alucinava respostas sem
+    busca real nenhuma).
+    """
+    api_key = obter_secret_tenant(tenant_id, "TAVILY_API_KEY")
+    if not api_key:
+        return f"[Erro] Busca na web indisponível: TAVILY_API_KEY não configurada para o tenant '{tenant_id}'."
+
+    try:
+        resposta = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": api_key,
+                "query": query,
+                "search_depth": "basic",
+                "max_results": 5,
+                "include_answer": False,
+            },
+            timeout=15,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+    except Exception as e:
+        return f"[Erro] Falha ao buscar na web: {e}"
+
+    resultados = dados.get("results", [])
+    if not resultados:
+        return "Nenhum resultado encontrado na busca web para essa consulta."
+
+    blocos = []
+    for r in resultados:
+        titulo = str(r.get("title", "")).strip()
+        url = str(r.get("url", "")).strip()
+        trecho = str(r.get("content", "") or "").strip()
+        if len(trecho) > 500:
+            trecho = trecho[:500] + "..."
+        blocos.append(f"- {titulo}\n  URL: {url}\n  Trecho: {trecho}")
+
+    return "Resultados da busca web (cite a URL de cada fonte usada na resposta):\n\n" + "\n\n".join(blocos)
+
+
 def executar_ferramenta_local(
     nome_ferramenta: str,
     argumentos: Dict[str, Any],
+    tenant_id: str,
     estilo_croqui: str = ESTILO_ILUSTRACAO
 ) -> str:
     """Chama a função local correspondente ao nome_ferramenta e retorna o resultado."""
@@ -40,6 +89,8 @@ def executar_ferramenta_local(
         if estilo_croqui == ESTILO_TECNICO:
             prompt_visual = f"{prompt_visual}{SUFIXO_TECNICO}, front view"
         return chamar_api_geracao_imagem(prompt_visual)
+    if nome_ferramenta == "buscar_tendencias_web":
+        return buscar_tendencias_web(argumentos.get("query", ""), tenant_id)
     return f"[Erro] Ferramenta '{nome_ferramenta}' não reconhecida. Nenhuma ação foi executada."
 
 
@@ -47,6 +98,7 @@ def chamar_agente(
     client: Any,
     agente_config: Dict[str, Any],
     messages_for_api: List[Dict[str, Any]],
+    tenant_id: str,
     estilo_croqui: str = ESTILO_ILUSTRACAO
 ) -> Tuple[Optional[str], Optional[str], bool, Optional[Dict[str, Any]]]:
     """Chama a API da Groq com suporte a tool calling quando o agente tiver tools.
@@ -133,7 +185,7 @@ def chamar_agente(
             }
             return None, None, False, pendente_dados
 
-        # Para outras ferramentas (ex: web_search), executa normalmente
+        # Para outras ferramentas (ex: buscar_tendencias_web), executa normalmente
         messages_for_api.append({
             "role": "assistant",
             "content": message.content or "",
@@ -155,7 +207,7 @@ def chamar_agente(
                 argumentos = json.loads(tool_call.function.arguments)
             except json.JSONDecodeError:
                 argumentos = {}
-            resultado = executar_ferramenta_local(tool_call.function.name, argumentos, estilo_croqui)
+            resultado = executar_ferramenta_local(tool_call.function.name, argumentos, tenant_id, estilo_croqui)
 
             if resultado.startswith("https://image.pollinations.ai"):
                 imagem_url = resultado
