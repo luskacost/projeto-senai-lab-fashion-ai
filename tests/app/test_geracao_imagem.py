@@ -5,7 +5,34 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from geracao_imagem import buscar_tendencias_web, chamar_agente, executar_ferramenta_local
+from geracao_imagem import buscar_tendencias_web, chamar_agente, chamar_api_geracao_imagem, executar_ferramenta_local
+
+
+def _mock_client_dalle(url: str = "https://oaidalleapiprodscus.blob.core.windows.net/fake.png") -> MagicMock:
+    """Cria um client mockado cujo client.images.generate(...) retorna uma URL de imagem, no
+    mesmo formato de resposta usado pela API de imagens da OpenAI (DALL-E 3)."""
+    mock_client = MagicMock()
+    mock_client.images.generate.return_value = MagicMock(data=[MagicMock(url=url)])
+    return mock_client
+
+
+class TestChamarApiGeracaoImagem(unittest.TestCase):
+    """Fase 9, Bloco A: geração de imagem migrou do Pollinations (URL local, sem chamada real)
+    para DALL-E 3 (chamada síncrona de verdade à API da OpenAI)."""
+
+    def test_sucesso_retorna_url_da_resposta(self):
+        mock_client = _mock_client_dalle("https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
+        url = chamar_api_geracao_imagem(mock_client, "vestido midi floral", "senai_labfashion")
+        self.assertEqual(url, "https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
+        mock_client.images.generate.assert_called_once()
+        self.assertEqual(mock_client.images.generate.call_args.kwargs["model"], "dall-e-3")
+        self.assertEqual(mock_client.images.generate.call_args.kwargs["prompt"], "vestido midi floral")
+
+    def test_falha_na_api_retorna_none_sem_levantar_excecao(self):
+        mock_client = MagicMock()
+        mock_client.images.generate.side_effect = Exception("content_policy_violation")
+        url = chamar_api_geracao_imagem(mock_client, "prompt qualquer", "senai_labfashion")
+        self.assertIsNone(url)
 
 
 class TestBuscarTendenciasWeb(unittest.TestCase):
@@ -72,14 +99,23 @@ class TestExecutarFerramentaLocal(unittest.TestCase):
     """Confirma que o dispatcher de ferramentas continua funcionando para os 3 casos (regressão)."""
 
     def test_ferramenta_desconhecida_retorna_erro(self):
-        resultado = executar_ferramenta_local("ferramenta_inexistente", {}, "senai_labfashion")
+        resultado = executar_ferramenta_local(MagicMock(), "ferramenta_inexistente", {}, "senai_labfashion")
         self.assertIn("não reconhecida", resultado)
 
     def test_gerar_imagem_croqui_continua_funcionando(self):
+        mock_client = _mock_client_dalle("https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
         resultado = executar_ferramenta_local(
-            "gerar_imagem_croqui", {"prompt_visual": "vestido midi floral"}, "senai_labfashion"
+            mock_client, "gerar_imagem_croqui", {"prompt_visual": "vestido midi floral"}, "senai_labfashion"
         )
-        self.assertTrue(resultado.startswith("https://image.pollinations.ai/prompt/"))
+        self.assertEqual(resultado, "https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
+
+    def test_gerar_imagem_croqui_com_falha_retorna_mensagem_de_erro(self):
+        mock_client = MagicMock()
+        mock_client.images.generate.side_effect = Exception("falha na API")
+        resultado = executar_ferramenta_local(
+            mock_client, "gerar_imagem_croqui", {"prompt_visual": "vestido midi floral"}, "senai_labfashion"
+        )
+        self.assertIn("[Erro]", resultado)
 
     @patch("geracao_imagem.obter_secret_tenant", return_value="chave-tavily-fake")
     @patch("geracao_imagem.requests.post")
@@ -90,7 +126,7 @@ class TestExecutarFerramentaLocal(unittest.TestCase):
         mock_post.return_value = mock_resposta
 
         resultado = executar_ferramenta_local(
-            "buscar_tendencias_web", {"query": "tendências outono"}, "senai_labfashion"
+            MagicMock(), "buscar_tendencias_web", {"query": "tendências outono"}, "senai_labfashion"
         )
         self.assertIn("https://x.com", resultado)
 

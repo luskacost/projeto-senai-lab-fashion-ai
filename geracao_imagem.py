@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Geração de imagens de croqui (Pollinations.ai) e orquestração de tool calling do Groq.
+"""Geração de imagens de croqui (DALL-E 3, OpenAI) e orquestração de tool calling.
 
 Extraído de app.py para ser reaproveitado pela API sem depender do Streamlit. As duas únicas
 dependências de st.session_state existentes na versão original (estilo_croqui) viraram
@@ -7,11 +7,11 @@ parâmetros explícitos.
 """
 
 import json
-import urllib.parse
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from logger_config import obter_logger
 from rag_config import OPENAI_TEXT_MODEL
 from tenant_config import obter_secret_tenant
 
@@ -30,18 +30,31 @@ FERRAMENTAS_COM_CONFIRMACAO = {"gerar_imagem_croqui", "gerar_ficha_tecnica"}
 
 
 # IMPORTANTE: validar_prompt_imagem() (moderacao.py) deve sempre rodar antes desta função,
-# independente do provedor de imagem usado (Pollinations, DALL-E, Gemini, etc.).
-def chamar_api_geracao_imagem(prompt_visual: str, seed: Optional[int] = None) -> str:
-    """Retorna a URL de uma imagem gerada pela Pollinations.ai a partir do prompt.
+# independente do provedor de imagem usado.
+def chamar_api_geracao_imagem(client: Any, prompt_visual: str, tenant_id: str, tamanho: str = "1024x1792") -> Optional[str]:
+    """Gera uma imagem via DALL-E 3 (OpenAI) a partir do prompt e retorna a URL temporária da
+    imagem gerada (hospedada pela OpenAI, válida por cerca de 1h) -- ou None se a geração falhar
+    (ex: rejeitada pelo filtro de conteúdo da própria OpenAI, erro de rede/quota).
 
-    `seed` é opcional -- passar o mesmo seed para dois prompts relacionados (ex: frente/costas
-    do mesmo croqui) ajuda a Pollinations a gerar imagens visualmente mais consistentes entre si.
+    Substituiu o Pollinations.ai (Fase 9/Bloco A): diferente daquele provedor, a geração de fato
+    acontece nesta chamada (síncrona) -- não é mais adiada para o navegador carregar a URL depois.
+    `tamanho` default é retrato (1024x1792), mais próximo do enquadramento de figurino de moda
+    que o antigo 512x768. Não há parâmetro de seed: nenhuma versão do DALL-E expõe controle de
+    determinismo na API pública -- para consistência entre frente/costas do Desenho Técnico,
+    contamos só com prompts bem descritivos (ver chamadas em api/main.py), sem garantia visual.
     """
-    prompt_encoded = urllib.parse.quote(prompt_visual)
-    url = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=512&height=768&nologo=true"
-    if seed is not None:
-        url += f"&seed={seed}"
-    return url
+    try:
+        resposta = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt_visual,
+            size=tamanho,
+            quality="standard",
+            n=1,
+        )
+        return resposta.data[0].url
+    except Exception as e:
+        obter_logger(tenant_id).error(f"Falha ao gerar imagem via DALL-E 3: {e}", exc_info=True)
+        return None
 
 
 def buscar_tendencias_web(query: str, tenant_id: str) -> Tuple[str, List[Dict[str, str]]]:
@@ -97,6 +110,7 @@ def buscar_tendencias_web(query: str, tenant_id: str) -> Tuple[str, List[Dict[st
 
 
 def executar_ferramenta_local(
+    client: Any,
     nome_ferramenta: str,
     argumentos: Dict[str, Any],
     tenant_id: str,
@@ -111,7 +125,8 @@ def executar_ferramenta_local(
         prompt_visual = argumentos.get("prompt_visual", "")
         if estilo_croqui == ESTILO_TECNICO:
             prompt_visual = f"{prompt_visual}{SUFIXO_TECNICO}, front view"
-        return chamar_api_geracao_imagem(prompt_visual)
+        url = chamar_api_geracao_imagem(client, prompt_visual, tenant_id)
+        return url if url else "[Erro] Falha ao gerar a imagem. Tente novamente ou reformule a descrição."
     if nome_ferramenta == "buscar_tendencias_web":
         texto, _fontes = buscar_tendencias_web(argumentos.get("query", ""), tenant_id)
         return texto
@@ -250,9 +265,9 @@ def chamar_agente(
                 resultado, fontes_tool = buscar_tendencias_web(argumentos.get("query", ""), tenant_id)
                 fontes_busca_web.extend(fontes_tool)
             else:
-                resultado = executar_ferramenta_local(tool_call.function.name, argumentos, tenant_id, estilo_croqui)
+                resultado = executar_ferramenta_local(client, tool_call.function.name, argumentos, tenant_id, estilo_croqui)
 
-            if resultado.startswith("https://image.pollinations.ai"):
+            if isinstance(resultado, str) and resultado.startswith("http"):
                 imagem_url = resultado
 
             messages_for_api.append({

@@ -9,7 +9,6 @@ têm lógica implementada (ver roadmap: cada um é implementado em uma sessão f
 Rodar localmente: uvicorn api.main:app --reload
 """
 
-import hashlib
 import hmac
 import io
 import secrets
@@ -472,16 +471,16 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
                     )
                 )
 
-        # Seed derivado do prompt_vis (não do prompt final, que já muda por vista) para que
-        # frente e costas do mesmo croqui usem o mesmo seed -- gera imagens mais consistentes
-        # entre si na Pollinations do que dois seeds aleatórios independentes.
-        seed_compartilhado = int(hashlib.sha256(prompt_vis.encode("utf-8")).hexdigest(), 16) % (2**31)
-        res_frente = chamar_api_geracao_imagem(prompt_frente, seed=seed_compartilhado)
-        res_costas = chamar_api_geracao_imagem(prompt_costas, seed=seed_compartilhado)
-        if res_frente.startswith("https://image.pollinations.ai"):
+        # DALL-E (nenhuma versão) não expõe parâmetro de seed na API pública -- diferente do
+        # Pollinations, não há como forçar as duas gerações a saírem visualmente correlacionadas.
+        # Os dois prompts já compartilham a mesma descrição detalhada da peça (prompt_vis), o que
+        # ajuda o DALL-E a manter alguma consistência, mas sem garantia.
+        res_frente = chamar_api_geracao_imagem(client, prompt_frente, payload.tenant_id)
+        res_costas = chamar_api_geracao_imagem(client, prompt_costas, payload.tenant_id)
+        if res_frente:
             imagem_url_gerada = res_frente
             incrementar_uso(payload.tenant_id, "imagens")
-        if res_costas.startswith("https://image.pollinations.ai"):
+        if res_costas:
             imagem_url_costas_gerada = res_costas
             incrementar_uso(payload.tenant_id, "imagens")
         # Não repassa as URLs das imagens pro modelo no resultado da tool -- ele não precisa delas
@@ -497,8 +496,8 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
         else:
             resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados: frente ({frente_ok}), costas ({costas_ok})."
     else:
-        resultado_ferramenta = executar_ferramenta_local("gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
-        if resultado_ferramenta.startswith("https://image.pollinations.ai"):
+        resultado_ferramenta = executar_ferramenta_local(client, "gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
+        if resultado_ferramenta.startswith("http"):
             imagem_url_gerada = resultado_ferramenta
             incrementar_uso(payload.tenant_id, "imagens")
 

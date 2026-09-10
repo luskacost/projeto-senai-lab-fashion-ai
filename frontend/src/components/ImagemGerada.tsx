@@ -1,24 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Loader2, RefreshCw } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-
-// Pollinations.ai retorna a mesma imagem para a mesma URL (cache por prompt). Trocar/adicionar
-// o parâmetro "seed" força uma imagem nova para o mesmo prompt -- é assim que "Gerar variação"
-// funciona sem precisar de nenhuma chamada ao backend.
-function comNovoSeed(src: string): string {
-  try {
-    const url = new URL(src);
-    url.searchParams.set("seed", String(Math.floor(Math.random() * 1_000_000_000)));
-    return url.toString();
-  } catch {
-    return src;
-  }
-}
 
 export default function ImagemGerada({ src, alt }: { src: string; alt: string }) {
   const [srcAtual, setSrcAtual] = useState(src);
@@ -29,11 +16,6 @@ export default function ImagemGerada({ src, alt }: { src: string; alt: string })
     setSrcAtual(src);
     setCarregada(false);
   }, [src]);
-
-  function gerarVariacao() {
-    setCarregada(false);
-    setSrcAtual((atual) => comNovoSeed(atual));
-  }
 
   async function baixarImagem() {
     setBaixando(true);
@@ -74,10 +56,6 @@ export default function ImagemGerada({ src, alt }: { src: string; alt: string })
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={srcAtual} alt={alt} className="h-auto max-h-[70vh] w-full rounded-lg object-contain" />
         <div className="flex justify-center gap-2 pb-1">
-          <Button variant="outline" size="sm" onClick={gerarVariacao}>
-            <RefreshCw className="size-4" />
-            Gerar variação
-          </Button>
           <Button variant="outline" size="sm" onClick={baixarImagem} disabled={baixando}>
             {baixando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
             Baixar imagem
