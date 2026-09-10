@@ -1,0 +1,41 @@
+# Exemplo de reverse proxy Nginx para deploy na VPS (Fase 9/Bloco C).
+#
+# Roteia um único domínio público pros dois serviços do docker-compose.yml: o frontend Next.js
+# (porta 3000) fica na raiz, e a API FastAPI (porta 8000) fica sob o prefixo /api/. Ajusta o
+# NEXT_PUBLIC_API_URL (build arg do frontend, ver frontend/Dockerfile) pra "https://SEU_DOMINIO/api"
+# e o CORS_ALLOWED_ORIGINS do backend (ver docker-compose.yml/.env) pra "https://SEU_DOMINIO"
+# nesse cenário.
+#
+# Copie este arquivo pra /etc/nginx/sites-available/senailabfashion, ajuste SEU_DOMINIO,
+# rode certbot pra TLS (Let's Encrypt) e habilite com:
+#   ln -s /etc/nginx/sites-available/senailabfashion /etc/nginx/sites-enabled/
+
+server {
+    listen 80;
+    server_name SEU_DOMINIO;
+
+    # Frontend (Next.js)
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Backend (FastAPI) -- prefixo /api/, removido antes de repassar pro Uvicorn
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Uploads de documentos/planilhas -- acompanha LIMITE_UPLOAD_BYTES (api/main.py, 20MB)
+        client_max_body_size 25M;
+    }
+}

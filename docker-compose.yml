@@ -12,6 +12,10 @@ services:
       - ./logs:/app/logs
     env_file:
       - .env
+    environment:
+      # Lista separada por vírgula das origens que podem chamar a API (ver api/main.py) --
+      # default cobre só desenvolvimento local. Sobrepõe o que estiver em .env se ambos definirem.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
     restart: unless-stopped
 
   frontend:

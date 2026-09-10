@@ -11,6 +11,7 @@ Rodar localmente: uvicorn api.main:app --reload
 
 import hmac
 import io
+import os
 import secrets
 import time
 from datetime import datetime
@@ -80,11 +81,17 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# CORS liberado para o front-end React/Next.js em desenvolvimento local (Fase 4).
-# Restringir para o(s) domínio(s) reais de produção quando o front-end for implantado.
+# CORS configurável por variável de ambiente (Fase 9/Bloco C) -- antes era hardcoded pra
+# http://localhost:3000, exigindo mudar código+redeploy pra apontar pra um domínio real de
+# produção. CORS_ALLOWED_ORIGINS aceita uma lista separada por vírgula (ex:
+# "https://labfashion.senaigoias.com.br,https://outro-dominio.com"); sem a variável definida,
+# mantém o comportamento de sempre (só localhost:3000, uso em desenvolvimento local).
+_origens_cors = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
+ORIGENS_PERMITIDAS = [origem.strip() for origem in _origens_cors.split(",") if origem.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ORIGENS_PERMITIDAS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
