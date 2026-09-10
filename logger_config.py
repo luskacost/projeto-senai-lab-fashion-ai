@@ -10,7 +10,13 @@ de erro e stack traces do sistema) são registrados.
 
 import os
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
+
+# Fase 9/Bloco E: nível configurável por variável de ambiente (default INFO, igual ao
+# comportamento anterior) -- útil para baixar pra DEBUG num ambiente de investigação sem
+# precisar editar código, ou subir pra WARNING em produção pra reduzir volume de log.
+NIVEL_LOG = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 
 
 class TenantFormatter(logging.Formatter):
@@ -42,11 +48,14 @@ _logger_inicializado = False
 def _configurar_logger_base() -> logging.Logger:
     global _logger_inicializado
     logger = logging.getLogger("labfashion_ia")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(NIVEL_LOG)
 
     if not _logger_inicializado:
         os.makedirs("logs", exist_ok=True)
         caminho_log = os.path.join("logs", "app.log")
+
+        formato = "%(asctime)s | %(levelname)s | tenant=%(tenant_id)s | %(message)s"
+        formatter = TenantFormatter(formato, datefmt="%Y-%m-%d %H:%M:%S")
 
         # Configura rotação automática (5MB por arquivo, mantém até 5 backups antigos)
         file_handler = RotatingFileHandler(
@@ -55,15 +64,20 @@ def _configurar_logger_base() -> logging.Logger:
             backupCount=5,
             encoding="utf-8"
         )
-        file_handler.setLevel(logging.INFO)
-
-        formato = "%(asctime)s | %(levelname)s | tenant=%(tenant_id)s | %(message)s"
-        formatter = TenantFormatter(formato, datefmt="%Y-%m-%d %H:%M:%S")
+        file_handler.setLevel(NIVEL_LOG)
         file_handler.setFormatter(formatter)
+
+        # Handler de stdout (Fase 9/Bloco E): essencial pra rodar num contêiner/servidor real,
+        # onde o supervisor de processo/orquestrador (Docker, systemd, etc.) coleta logs via
+        # stdout/stderr -- só o arquivo local não seria visível nessas ferramentas.
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        stdout_handler.setLevel(NIVEL_LOG)
+        stdout_handler.setFormatter(formatter)
 
         # Evita duplicar handlers se a função for chamada mais de uma vez
         if not logger.handlers:
             logger.addHandler(file_handler)
+            logger.addHandler(stdout_handler)
 
         _logger_inicializado = True
 
