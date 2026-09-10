@@ -412,3 +412,163 @@ registrar(Ferramenta(
     obrigatorios=["query"],
     handler=_handler_buscar_tendencias_web,
 ))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FERRAMENTAS INTERNAS NOVAS (Fase 10, Bloco A, Task 2)
+#
+# Antes destas ferramentas, cada capacidade abaixo só existia presa a um modo específico: o RAG
+# só rodava no modo "Base de Conhecimento", o resumo de planilha só no modo "Análise de Dados", e
+# os contatos das unidades SENAI só existiam no frontend (ContatoSenai.tsx), fora do alcance do
+# LLM -- se perguntassem "qual o telefone da unidade de Catalão?" em qualquer outro modo, o
+# modelo não tinha como saber. Como tools, qualquer modo que as declare pode combiná-las entre si
+# e com o web_search (ex: cruzar o resumo da planilha da empresa com uma tendência de mercado
+# pesquisada na web, numa única resposta).
+#
+# Nenhuma delas recebe tenant_id/conversation_id do modelo -- vêm sempre do ContextoExecucao (ver
+# nota de segurança no topo do módulo).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _handler_buscar_documentos_internos(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
+    """Busca semântica na base de conhecimento (RAG) indexada para o tenant.
+
+    Reaproveita o mesmo pipeline de busca híbrida do modo "Base de Conhecimento"
+    (buscar_contexto_relevante) e a mesma formatação de prompt com citação de fonte
+    (montar_prompt_final) -- não há um pipeline de busca "para tools" separado do pipeline
+    original, só um novo consumidor dele.
+    """
+    from rag_manager import buscar_contexto_relevante, montar_prompt_final
+
+    query = argumentos.get("query", "")
+    chunks = buscar_contexto_relevante(contexto.tenant_id, query, top_k=10, conversation_id=contexto.conversation_id)
+
+    if not chunks:
+        return ResultadoFerramenta(
+            conteudo="Nenhum trecho relevante encontrado na base de documentos para essa consulta.",
+            dados_extras={"trechos": [], "fontes": []},
+        )
+
+    prompt_com_contexto, fontes = montar_prompt_final(chunks, query)
+    return ResultadoFerramenta(
+        conteudo=prompt_com_contexto,
+        dados_extras={"trechos": chunks, "fontes": sorted(fontes)},
+    )
+
+
+def _handler_listar_documentos_disponiveis(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
+    """Lista os nomes dos documentos indexados para o tenant -- barata (não gera embeddings nem
+    chama o LLM), útil para o modelo decidir se vale consultar a base antes de pesquisar na web."""
+    from rag_manager import listar_documentos_indexados
+
+    documentos = listar_documentos_indexados(contexto.tenant_id)
+    if not documentos:
+        return ResultadoFerramenta(conteudo="Nenhum documento indexado na base de conhecimento deste tenant.")
+
+    lista = "\n".join(f"- {nome}" for nome in documentos)
+    return ResultadoFerramenta(conteudo=f"Documentos indexados na base de conhecimento:\n{lista}")
+
+
+def _handler_consultar_resumo_planilha(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
+    """Devolve o resumo estatístico da planilha que o usuário enviou nesta conversa (se houver).
+
+    Só existe resumo se POST /planilha/upload já tiver sido chamado para este
+    tenant_id + conversation_id (ver analise_dados.salvar_resumo_estatistico) -- os dados brutos
+    da planilha nunca chegam ao modelo, só o resumo estruturado, mesmo princípio de groundedness
+    já usado no modo "Análise de Dados".
+    """
+    from analise_dados import carregar_resumo_estatistico
+
+    if not contexto.conversation_id:
+        return ResultadoFerramenta(conteudo="Não há planilha associada a esta conversa.")
+
+    resumo = carregar_resumo_estatistico(contexto.tenant_id, contexto.conversation_id)
+    if not resumo:
+        return ResultadoFerramenta(
+            conteudo="Nenhuma planilha foi enviada nesta conversa ainda. Peça ao usuário para fazer o upload primeiro."
+        )
+
+    return ResultadoFerramenta(conteudo=json.dumps(resumo, ensure_ascii=False, default=str))
+
+
+def _handler_consultar_unidades_senai(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
+    """Consulta as unidades/contatos do SENAI Goiás, opcionalmente filtrando por cidade ou nome.
+
+    Dado estático (contatos_senai.py, cópia server-side do que o frontend já exibe em
+    ContatoSenai.tsx) -- não depende de busca na web nem de memória do modelo, então nunca fica
+    desatualizado por alucinação.
+    """
+    from contatos_senai import buscar_unidades
+
+    termo = argumentos.get("termo")
+    unidades = buscar_unidades(termo)
+    if not unidades:
+        return ResultadoFerramenta(
+            conteudo=f"Nenhuma unidade do SENAI encontrada para o termo '{termo}'. Sugira a Central de Atendimento (4002-6213 em Goiânia, 0800 642 1313 nas demais localidades)."
+        )
+
+    blocos = []
+    for u in unidades:
+        linha = f"- {u['nome']}: {u['endereco']} | Tel: {u['telefone']}"
+        if u.get("email"):
+            linha += f" | E-mail: {u['email']}"
+        blocos.append(linha)
+
+    return ResultadoFerramenta(conteudo="\n".join(blocos), dados_extras={"unidades": unidades})
+
+
+registrar(Ferramenta(
+    nome="buscar_documentos_internos",
+    descricao=(
+        "Busca semântica nos documentos internos indexados na base de conhecimento do tenant "
+        "(apostilas, manuais, fichas técnicas). Use quando o usuário perguntar sobre material "
+        "interno da empresa em vez de conhecimento geral ou informação da web."
+    ),
+    propriedades={
+        "query": {
+            "type": "string",
+            "description": "Pergunta ou termos de busca objetivos sobre o conteúdo dos documentos internos",
+        },
+    },
+    obrigatorios=["query"],
+    handler=_handler_buscar_documentos_internos,
+))
+
+registrar(Ferramenta(
+    nome="listar_documentos_disponiveis",
+    descricao=(
+        "Lista os nomes dos documentos já indexados na base de conhecimento deste tenant, sem "
+        "buscar conteúdo. Use antes de buscar_documentos_internos se quiser confirmar que existe "
+        "material indexado."
+    ),
+    propriedades={},
+    obrigatorios=[],
+    handler=_handler_listar_documentos_disponiveis,
+))
+
+registrar(Ferramenta(
+    nome="consultar_resumo_planilha",
+    descricao=(
+        "Consulta o resumo estatístico (totais, médias, top/bottom 10) da planilha que o usuário "
+        "enviou nesta conversa. Use quando a pergunta envolver dados numéricos da empresa "
+        "(vendas, estoque, produção) enviados via upload."
+    ),
+    propriedades={},
+    obrigatorios=[],
+    handler=_handler_consultar_resumo_planilha,
+))
+
+registrar(Ferramenta(
+    nome="consultar_unidades_senai",
+    descricao=(
+        "Consulta endereço, telefone e e-mail das unidades do SENAI Goiás. Use quando o usuário "
+        "perguntar onde fica, como entrar em contato, ou pedir dados de uma unidade específica."
+    ),
+    propriedades={
+        "termo": {
+            "type": "string",
+            "description": "Cidade, bairro ou nome (parcial) da unidade a filtrar. Omitido, lista todas.",
+        },
+    },
+    obrigatorios=[],
+    handler=_handler_consultar_unidades_senai,
+))
