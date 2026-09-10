@@ -2,19 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { Download, Loader2 } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 export default function ImagemGerada({ src, alt }: { src: string; alt: string }) {
   const [srcAtual, setSrcAtual] = useState(src);
-  const [carregada, setCarregada] = useState(false);
   const [baixando, setBaixando] = useState(false);
 
+  // Toda imagem gerada hoje já chega como data URI (base64 embutido no próprio payload da
+  // API, Fase 9/Bloco A -- gpt-image-1 não retorna URL) -- não há uma busca de rede separada
+  // pra "aguardar" como fazia sentido antigamente com a URL hotlinkada do Pollinations, então
+  // não há skeleton de carregamento nem onLoad: a imagem já está disponível assim que renderiza.
   useEffect(() => {
     setSrcAtual(src);
-    setCarregada(false);
   }, [src]);
 
   async function baixarImagem() {
@@ -42,14 +43,8 @@ export default function ImagemGerada({ src, alt }: { src: string; alt: string })
   return (
     <Dialog>
       <DialogTrigger className="relative block aspect-[2/3] w-full cursor-pointer overflow-hidden rounded-lg border-0 bg-transparent p-0 appearance-none focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        {!carregada && <Skeleton className="absolute inset-0 rounded-lg" />}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={srcAtual}
-          alt={alt}
-          onLoad={() => setCarregada(true)}
-          className={`h-full w-full object-cover transition-opacity duration-300 ${carregada ? "opacity-100" : "opacity-0"}`}
-        />
+        <img src={srcAtual} alt={alt} className="h-full w-full object-cover" />
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto p-2">
         <DialogTitle className="sr-only">{alt}</DialogTitle>
