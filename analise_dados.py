@@ -347,7 +347,7 @@ def responder_pergunta_sobre_dados(
     """
     logger = obter_logger(tenant_id)
     if not client:
-        raise ValueError("Cliente da API Groq não fornecido ou inválido.")
+        raise ValueError("Cliente da API OpenAI não fornecido ou inválido.")
 
     if not resumo_estatistico:
         return "Nenhum resumo de dados foi fornecido para análise. Por favor, faça o upload de uma planilha válida primeiro."

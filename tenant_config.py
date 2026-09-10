@@ -371,7 +371,7 @@ def obter_secret_tenant(tenant_id: str, chave: str, default: str = "") -> str:
 
     1. Se rodando dentro do Streamlit, tenta obter de st.secrets[tenant_id][chave].
     2. Fallback: tenta obter da variável de ambiente {TENANT_ID}_{CHAVE} em maiúsculas
-       (ex: SENAI_LABFASHION_GROQ_API_KEY) — único caminho disponível fora do Streamlit (ex: API).
+       (ex: SENAI_LABFASHION_OPENAI_API_KEY) — único caminho disponível fora do Streamlit (ex: API).
     3. Retorna 'default' se não encontrada em nenhuma fonte.
     """
     try:

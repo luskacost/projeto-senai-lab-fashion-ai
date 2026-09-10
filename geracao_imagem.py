@@ -153,7 +153,7 @@ def chamar_agente(
     tenant_id: str,
     estilo_croqui: str = ESTILO_ILUSTRACAO
 ) -> Tuple[Optional[str], Optional[str], bool, Optional[Dict[str, Any]], List[Dict[str, str]]]:
-    """Chama a API da Groq com suporte a tool calling quando o agente tiver tools.
+    """Chama a API da OpenAI com suporte a tool calling quando o agente tiver tools.
 
     Se a ferramenta 'gerar_imagem_croqui' for detectada, retorna um sinal de confirmação
     pendente (pendente_dados) contendo os argumentos e o ID da chamada para aprovação prévia

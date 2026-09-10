@@ -167,7 +167,7 @@ class TestAnaliseDados(unittest.TestCase):
         self.assertEqual(resumo["agregacoes"], {})
 
     def test_responder_pergunta_sobre_dados_mock(self):
-        """Testa o fluxo da função responder_pergunta_sobre_dados com cliente mock da Groq."""
+        """Testa o fluxo da função responder_pergunta_sobre_dados com cliente mock da OpenAI."""
         mock_client = MagicMock()
         mock_choice = MagicMock()
         mock_choice.message.content = "Os produtos que mais venderam foram: 1º Vestido Midi (33 unidades, R$ 5.940,00), seguido por Calça Alfaiataria (12 unidades, R$ 2.640,00) e Camisa Linho (12 unidades, R$ 1.800,00)."

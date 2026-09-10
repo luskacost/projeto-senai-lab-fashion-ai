@@ -148,7 +148,7 @@ class TestExecutarFerramentaLocal(unittest.TestCase):
 
 
 class TestChamarAgenteComBuscaWeb(unittest.TestCase):
-    """Fluxo completo de tool-calling (2 chamadas ao Groq) com a tool buscar_tendencias_web."""
+    """Fluxo completo de tool-calling (2 chamadas ao client) com a tool buscar_tendencias_web."""
 
     @patch("geracao_imagem.obter_secret_tenant", return_value="chave-tavily-fake")
     @patch("geracao_imagem.requests.post")

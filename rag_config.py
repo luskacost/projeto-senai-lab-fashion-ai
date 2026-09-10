@@ -8,15 +8,10 @@ reranking, diversidade e observabilidade.
 import os
 from typing import Dict, Any
 
-# Modelo Groq usado em todas as chamadas de geração (chat, croqui, análise de dados).
-# Centralizado aqui para evitar divergência entre os pontos de chamada em app.py.
-# Fase 9/Bloco A: sendo substituído progressivamente por OPENAI_TEXT_MODEL -- GROQ_MODEL
-# permanece até o Groq ser removido de vez (Task 17), para não quebrar pontos de chamada
-# ainda não migrados no meio do caminho.
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
-
-# Modelo OpenAI que substitui o Groq em todas as chamadas de texto (chat, moderação,
-# tool-calling de croqui/tendências, síntese do RAG) -- ver geracao_imagem.py/moderacao.py.
+# Modelo OpenAI usado em todas as chamadas de texto (chat, moderação, tool-calling de
+# croqui/tendências, síntese do RAG) -- ver geracao_imagem.py/moderacao.py. Centralizado aqui
+# para evitar divergência entre os pontos de chamada. Substituiu o Groq de vez na Fase 9/Bloco A
+# (Task 17) -- validado manualmente contra a API real em todos os modos antes da remoção.
 OPENAI_TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o")
 
 

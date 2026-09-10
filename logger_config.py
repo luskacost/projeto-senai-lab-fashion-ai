@@ -2,7 +2,7 @@
 """Módulo de configuração centralizada de logging estruturado para o Senai LabFashion IA.
 
 SEGURANÇA E PRIVACIDADE DE DADOS:
-Nenhuma chave de API (ex: GROQ_API_KEY), senha de administração (ex: ADMIN_PASSWORD) ou conteúdo
+Nenhuma chave de API (ex: OPENAI_API_KEY), senha de administração (ex: ADMIN_PASSWORD) ou conteúdo
 integral/bruto de prompts digitados pelos usuários deve ser gravado em log.
 Apenas metadados operacionais (tenant_id, modo de IA, tipo de evento de negócio, mensagens técnicas
 de erro e stack traces do sistema) são registrados.
