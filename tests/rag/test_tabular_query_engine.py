@@ -8,11 +8,13 @@ isolamento multi-tenant, ciclo de vida (reindexação e remoção) e não-regres
 
 import io
 import os
+import shutil
 import unittest
 from typing import Any, Dict, List
 
 import document_extractors
 import rag_manager
+from .fixtures_prioridades_rag import indexar_fixtures_prioridades, remover_fixtures_prioridades
 from rag_config import RAG_CONFIG
 import tabular_query_engine
 from tabular_query_engine import (
@@ -39,6 +41,33 @@ class TestTabularQueryEngine(unittest.TestCase):
     """Testes Unitários e de Integração do Motor de Consultas Tabulares."""
 
     TENANT_TESTE = "tenant_test_tabular"
+
+    # Tenant de teste dedicado com fixtures sintéticas próprias (ver fixtures_prioridades_rag.py),
+    # usado só pelos testes de não-regressão Q/R/S/T abaixo -- antes usavam o tenant real
+    # "senai_labfashion", assumindo conteúdo pré-indexado localmente que nunca esteve sob controle
+    # de versão, o que quebrava numa máquina/CI limpa. Tenant separado de TENANT_TESTE para não
+    # interferir nos arquivos que os demais testes desta classe adicionam/removem por teste.
+    TENANT_REGRESSAO = "teste_prioridades_tabular"
+
+    @classmethod
+    def setUpClass(cls):
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_REGRESSAO)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        cls.pdf_temp_path = "temp_manual_tecnico_tabular_engine.pdf"
+        indexar_fixtures_prioridades(cls.TENANT_REGRESSAO, cls.pdf_temp_path)
+
+    @classmethod
+    def tearDownClass(cls):
+        remover_fixtures_prioridades(cls.TENANT_REGRESSAO)
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_REGRESSAO)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        if os.path.exists(cls.pdf_temp_path):
+            try:
+                os.remove(cls.pdf_temp_path)
+            except Exception:
+                pass
 
     def setUp(self):
         # Garante limpeza inicial do tenant de teste
@@ -386,24 +415,24 @@ class TestTabularQueryEngine(unittest.TestCase):
 
     def test_q_fallback_rag_pergunta_conceitual(self):
         """TESTE Q: Pergunta conceitual em PDF faz fallback para o RAG vetorial sem acionar motor tabular."""
-        plano = detectar_e_planejar_consulta_tabular("Qual é a gramatura do tecido M518?", "senai_labfashion")
+        plano = detectar_e_planejar_consulta_tabular("Qual é a gramatura do tecido M518?", self.TENANT_REGRESSAO)
         self.assertIsNone(plano)
 
     def test_r_retrocompatibilidade_pdf(self):
         """TESTE R: Consultas em PDF continuam recuperando evidências exatas."""
-        res = rag_manager.buscar_contexto_relevante("senai_labfashion", "Qual é a largura do tecido da camisa jeans?", final_k=3)
+        res = rag_manager.buscar_contexto_relevante(self.TENANT_REGRESSAO, "Qual é a largura do tecido da camisa jeans?", final_k=3)
         self.assertTrue(len(res) > 0)
         self.assertTrue(any("172" in c["texto"] for c in res))
 
     def test_s_nao_regressao_prioridade_1(self):
         """TESTE S: Não-regressão da Prioridade 1 (Reranker, N-grams, Cia Militar)."""
-        res = rag_manager.buscar_contexto_relevante("senai_labfashion", "Quem é responsável por atender a empresa Cia Militar?", final_k=3)
+        res = rag_manager.buscar_contexto_relevante(self.TENANT_REGRESSAO, "Quem é responsável por atender a empresa Cia Militar?", final_k=3)
         self.assertTrue(len(res) > 0)
         self.assertTrue(any("Morgana" in c["texto"] for c in res))
 
     def test_t_nao_regressao_prioridade_2(self):
         """TESTE T: Não-regressão da Prioridade 2 (Semantic Enrichment [VALOR_NEGATIVO])."""
-        res = rag_manager.buscar_contexto_relevante("senai_labfashion", "Existe algum lançamento com valor negativo?", final_k=3)
+        res = rag_manager.buscar_contexto_relevante(self.TENANT_REGRESSAO, "Existe algum lançamento com valor negativo?", final_k=3)
         self.assertTrue(len(res) > 0)
         textos = [c["texto"] for c in res]
         self.assertTrue(any("-150" in t or "[VALOR_NEGATIVO]" in t for t in textos))

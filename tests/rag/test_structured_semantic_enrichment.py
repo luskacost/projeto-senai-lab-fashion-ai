@@ -6,6 +6,7 @@ preservação de metadados, compatibilidade com múltiplos formatos e isolamento
 
 import io
 import os
+import shutil
 import unittest
 from typing import Dict, Any, List
 
@@ -20,12 +21,36 @@ from semantic_enrichment import (
     _formatar_data_legivel,
     _parse_numero_generico
 )
+from .fixtures_prioridades_rag import indexar_fixtures_prioridades, remover_fixtures_prioridades
 
 
 class TestStructuredSemanticEnrichment(unittest.TestCase):
     """Testes Automatizados para a Prioridade 2 - Enriquecimento Semântico."""
 
-    TENANT_TESTE = "senai_labfashion"
+    # Tenant de teste dedicado com fixtures sintéticas próprias (ver fixtures_prioridades_rag.py)
+    # -- antes usava o tenant real "senai_labfashion", assumindo conteúdo pré-indexado localmente
+    # que nunca esteve sob controle de versão, o que quebrava numa máquina/CI limpa.
+    TENANT_TESTE = "teste_prioridades_enriquecimento"
+
+    @classmethod
+    def setUpClass(cls):
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_TESTE)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        cls.pdf_temp_path = "temp_manual_tecnico_enriquecimento.pdf"
+        indexar_fixtures_prioridades(cls.TENANT_TESTE, cls.pdf_temp_path)
+
+    @classmethod
+    def tearDownClass(cls):
+        remover_fixtures_prioridades(cls.TENANT_TESTE)
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_TESTE)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        if os.path.exists(cls.pdf_temp_path):
+            try:
+                os.remove(cls.pdf_temp_path)
+            except Exception:
+                pass
 
     def test_a_valor_negativo(self):
         """TESTE A: valor: -150.00 gera [VALOR_NEGATIVO], preserva o dado e é recuperável."""
