@@ -80,7 +80,6 @@ export async function enviarMensagemChat(params: {
 export interface ConfirmarCroquiResponse {
   resposta: string;
   imagem_url: string | null;
-  imagem_url_costas: string | null;
 }
 
 export async function confirmarCroqui(
@@ -151,7 +150,6 @@ export interface MensagemConversa {
   fontes_consultadas?: string[];
   trechos_consultados?: ChunkConsultado[];
   imagem_url?: string | null;
-  imagem_url_costas?: string | null;
   arquivo_anexado?: ArquivoAnexado | null;
 }
 

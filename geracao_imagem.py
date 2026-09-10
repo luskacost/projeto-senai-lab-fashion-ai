@@ -17,7 +17,8 @@ from tenant_config import obter_secret_tenant
 
 SUFIXO_TECNICO = (
     ", fashion technical flat sketch, vector line art style, black and white line drawing, "
-    "no human body, no color rendering, garment schematic, white background, technical fashion illustration"
+    "no human body, no color rendering, garment schematic, white background, technical fashion "
+    "illustration, front view and back view shown together side by side in the same image"
 )
 
 ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda"
@@ -137,7 +138,7 @@ def executar_ferramenta_local(
     if nome_ferramenta == "gerar_imagem_croqui":
         prompt_visual = argumentos.get("prompt_visual", "")
         if estilo_croqui == ESTILO_TECNICO:
-            prompt_visual = f"{prompt_visual}{SUFIXO_TECNICO}, front view"
+            prompt_visual = f"{prompt_visual}{SUFIXO_TECNICO}"
         url = chamar_api_geracao_imagem(client, prompt_visual, tenant_id)
         return url if url else "[Erro] Falha ao gerar a imagem. Tente novamente ou reformule a descrição."
     if nome_ferramenta == "buscar_tendencias_web":

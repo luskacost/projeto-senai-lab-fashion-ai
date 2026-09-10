@@ -429,8 +429,7 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
     if not payload.confirmado:
         return {
             "resposta": "Entendido! Por favor, reescreva seu pedido com mais detalhes sobre como você gostaria que fosse o croqui.",
-            "imagem_url": None,
-            "imagem_url_costas": None
+            "imagem_url": None
         }
 
     api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
@@ -454,55 +453,40 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 
     config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
     limite_img = config.get("limite_imagens_dia", 30)
-    qtd_necessaria = 2 if (estilo == ESTILO_TECNICO or eh_ficha_tecnica) else 1
-    if not verificar_limite(payload.tenant_id, "imagens", limite_img, quantidade_necessaria=qtd_necessaria):
+    if not verificar_limite(payload.tenant_id, "imagens", limite_img, quantidade_necessaria=1):
         raise HTTPException(status_code=429, detail="Limite diário de geração de imagens atingido. Novas gerações estarão disponíveis amanhã.")
 
     imagem_url_gerada = None
-    imagem_url_costas_gerada = None
 
     if estilo == ESTILO_TECNICO or eh_ficha_tecnica:
-        prompt_frente = f"{prompt_vis}{SUFIXO_TECNICO}, front view"
-        prompt_costas = f"{prompt_vis}{SUFIXO_TECNICO}, back view"
+        # Uma única imagem mostrando frente e costas lado a lado -- testes manuais mostraram que
+        # o modelo de imagem já desenha as duas vistas numa imagem só quando o prompt pede um
+        # "flat sketch" técnico (ver SUFIXO_TECNICO), então gerar frente/costas como duas chamadas
+        # separadas só produzia imagens praticamente idênticas (sem seed, sem garantia de
+        # correlação real entre elas -- ver Task 15). Removido o desdobramento em duas imagens.
+        prompt_final = f"{prompt_vis}{SUFIXO_TECNICO}"
+        resultado_mod_final = validar_prompt_imagem(client, prompt_final, payload.tenant_id)
+        if not resultado_mod_final.get("aprovado", False):
+            raise HTTPException(
+                status_code=422,
+                detail=resultado_mod_final.get("motivo", "O pedido contém elementos fora do escopo de moda e vestuário.")
+            )
 
-        # Modera os dois prompts finais individualmente (não só o prompt_vis base acima) --
-        # são eles, com os sufixos técnicos já aplicados, que de fato chegam ao provedor de
-        # imagem. Hoje ambos derivam do mesmo prompt_vis já aprovado, mas validar o texto final
-        # de cada vista fecha o gap para qualquer mudança futura que os faça divergir.
-        for prompt_final, rotulo in ((prompt_frente, "frente"), (prompt_costas, "costas")):
-            resultado_mod_vista = validar_prompt_imagem(client, prompt_final, payload.tenant_id)
-            if not resultado_mod_vista.get("aprovado", False):
-                raise HTTPException(
-                    status_code=422,
-                    detail=resultado_mod_vista.get(
-                        "motivo", f"O pedido contém elementos fora do escopo de moda e vestuário (vista de {rotulo})."
-                    )
-                )
-
-        # DALL-E (nenhuma versão) não expõe parâmetro de seed na API pública -- diferente do
-        # Pollinations, não há como forçar as duas gerações a saírem visualmente correlacionadas.
-        # Os dois prompts já compartilham a mesma descrição detalhada da peça (prompt_vis), o que
-        # ajuda o DALL-E a manter alguma consistência, mas sem garantia.
-        res_frente = chamar_api_geracao_imagem(client, prompt_frente, payload.tenant_id)
-        res_costas = chamar_api_geracao_imagem(client, prompt_costas, payload.tenant_id)
-        if res_frente:
-            imagem_url_gerada = res_frente
+        res_imagem = chamar_api_geracao_imagem(client, prompt_final, payload.tenant_id)
+        if res_imagem:
+            imagem_url_gerada = res_imagem
             incrementar_uso(payload.tenant_id, "imagens")
-        if res_costas:
-            imagem_url_costas_gerada = res_costas
-            incrementar_uso(payload.tenant_id, "imagens")
-        # Não repassa as URLs das imagens pro modelo no resultado da tool -- ele não precisa delas
-        # pra nada (a interface já exibe as imagens sozinha) e incluí-las aqui só convida o modelo
-        # a reproduzi-las na resposta em texto, duplicando as imagens como link feio na conversa.
-        frente_ok = "sucesso" if imagem_url_gerada else "falhou"
-        costas_ok = "sucesso" if imagem_url_costas_gerada else "falhou"
+        # Não repassa a URL/data URI da imagem pro modelo no resultado da tool -- ele não precisa
+        # dela pra nada (a interface já exibe a imagem sozinha) e incluí-la aqui só convida o
+        # modelo a reproduzi-la na resposta em texto.
+        sucesso_txt = "sucesso" if imagem_url_gerada else "falhou"
         if eh_ficha_tecnica:
             resultado_ferramenta = (
-                f"Ficha técnica gerada: desenho técnico de frente ({frente_ok}) e de costas ({costas_ok}). "
+                f"Desenho técnico gerado ({sucesso_txt}, mostrando frente e costas na mesma imagem). "
                 f"Agora monte a tabela markdown estruturada de medidas/materiais/aviamentos conforme instruído."
             )
         else:
-            resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados: frente ({frente_ok}), costas ({costas_ok})."
+            resultado_ferramenta = f"Desenho técnico vetorial 2D gerado ({sucesso_txt}, mostrando frente e costas na mesma imagem)."
     else:
         resultado_bruto = executar_ferramenta_local(client, "gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
         if eh_imagem_gerada(resultado_bruto):
@@ -532,8 +516,7 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 
     return {
         "resposta": texto_final,
-        "imagem_url": imagem_url_gerada,
-        "imagem_url_costas": imagem_url_costas_gerada
+        "imagem_url": imagem_url_gerada
     }
 
 

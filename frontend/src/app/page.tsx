@@ -366,7 +366,6 @@ export default function ChatPage() {
           mode: "Gerador de Croqui",
           tenant_id: TENANT_ID,
           imagem_url: resultado.imagem_url,
-          imagem_url_costas: resultado.imagem_url_costas,
         },
       ];
       setMensagens(mensagensFinais);
@@ -534,23 +533,10 @@ export default function ChatPage() {
                   m.content
                 )}
 
-                {m.imagem_url && m.imagem_url_costas ? (
-                  <div className="mt-2 grid grid-cols-2 gap-2 max-w-xs">
-                    <div className="space-y-1">
-                      <ImagemGerada src={m.imagem_url} alt="Vista frontal (desenho técnico)" />
-                      <p className="text-center text-xs text-muted-foreground">Frente</p>
-                    </div>
-                    <div className="space-y-1">
-                      <ImagemGerada src={m.imagem_url_costas} alt="Vista traseira (desenho técnico)" />
-                      <p className="text-center text-xs text-muted-foreground">Costas</p>
-                    </div>
+                {m.imagem_url && (
+                  <div className="mt-2 w-48">
+                    <ImagemGerada src={m.imagem_url} alt="Croqui gerado pela IA" />
                   </div>
-                ) : (
-                  m.imagem_url && (
-                    <div className="mt-2 w-48">
-                      <ImagemGerada src={m.imagem_url} alt="Croqui gerado pela IA" />
-                    </div>
-                  )
                 )}
 
                 {m.fontes_consultadas && m.fontes_consultadas.length > 0 && (
