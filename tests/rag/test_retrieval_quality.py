@@ -4,6 +4,7 @@ Valida os critérios da Prioridade 1: eliminação de contaminação e preserva�
 """
 
 import os
+import shutil
 import unittest
 from typing import Dict, Any, List
 
@@ -11,12 +12,36 @@ from rag_config import RAG_CONFIG
 import rag_manager
 from query_engine import analisar_query_completa
 from reranker import HeuristicReranker, CandidateChunk, selecionar_com_cobertura_e_diversidade
+from .fixtures_prioridades_rag import indexar_fixtures_prioridades, remover_fixtures_prioridades
 
 
 class TestRetrievalQualityAndTopK(unittest.TestCase):
     """Bateria de testes automatizados para validar a Prioridade 1 de Retrieval."""
 
-    TENANT_TESTE = "senai_labfashion"
+    # Tenant de teste dedicado com fixtures sintéticas próprias (ver fixtures_prioridades_rag.py)
+    # -- antes usava o tenant real "senai_labfashion", assumindo conteúdo pré-indexado localmente
+    # que nunca esteve sob controle de versão, o que quebrava numa máquina/CI limpa.
+    TENANT_TESTE = "teste_prioridades_retrieval"
+
+    @classmethod
+    def setUpClass(cls):
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_TESTE)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        cls.pdf_temp_path = "temp_manual_tecnico_retrieval_quality.pdf"
+        indexar_fixtures_prioridades(cls.TENANT_TESTE, cls.pdf_temp_path)
+
+    @classmethod
+    def tearDownClass(cls):
+        remover_fixtures_prioridades(cls.TENANT_TESTE)
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_TESTE)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        if os.path.exists(cls.pdf_temp_path):
+            try:
+                os.remove(cls.pdf_temp_path)
+            except Exception:
+                pass
 
     def test_a_pool_inicial_amplo_configurado(self):
         """TESTE A: Verifica que a busca inicial utiliza pool configurável maior que o final_k."""
@@ -35,7 +60,7 @@ class TestRetrievalQualityAndTopK(unittest.TestCase):
         fontes = [r["fonte"] for r in resultados]
         
         self.assertTrue(any("cia militar" in t for t in textos), "Chunk contendo 'cia militar' deve estar presente no top-k final.")
-        self.assertIn("empresas_consultores.xlsx", fontes, "Planilha empresas_consultores.xlsx deve estar entre as fontes.")
+        self.assertIn("empresas_consultores.csv", fontes, "Planilha empresas_consultores.csv deve estar entre as fontes.")
 
     def test_c_remocao_de_resultado_irrelevante_por_threshold_relativo(self):
         """TESTE C: Verifica que chunks com score muito inferior ao melhor candidato são descartados."""
@@ -82,7 +107,7 @@ class TestRetrievalQualityAndTopK(unittest.TestCase):
         resultados = rag_manager.buscar_contexto_relevante(self.TENANT_TESTE, query, final_k=5)
         
         self.assertTrue(len(resultados) > 0)
-        self.assertIn("empresas_consultores.xlsx", [r["fonte"] for r in resultados])
+        self.assertIn("empresas_consultores.csv", [r["fonte"] for r in resultados])
         self.assertTrue(any("Isabella" in r["texto"] for r in resultados))
 
     def test_f_anti_alucinacao_preservada(self):

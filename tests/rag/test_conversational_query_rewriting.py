@@ -8,9 +8,11 @@ persistência no disco, integração com RAG vetorial e Tabular Engine, e testes
 
 import io
 import os
+import shutil
 import unittest
 from typing import Any, Dict, List
 
+from .fixtures_prioridades_rag import indexar_fixtures_prioridades, remover_fixtures_prioridades
 import conversational_query
 from conversational_query import (
     ConversationEntity,
@@ -39,6 +41,32 @@ class TestConversationalQueryRewriting(unittest.TestCase):
     CONV_1 = "conv_suite_1"
     CONV_2 = "conv_suite_2"
 
+    # Tenant de teste dedicado com fixtures sintéticas próprias (ver fixtures_prioridades_rag.py)
+    # -- os testes N/O/S/T/U usavam antes o tenant real "senai_labfashion", assumindo conteúdo
+    # pré-indexado localmente que nunca esteve sob controle de versão (quebrava numa máquina/CI
+    # limpa). TENANT_A/TENANT_B continuam intactos para os demais testes desta classe.
+    TENANT_RAG_FIXTURE = "teste_prioridades_conv"
+
+    @classmethod
+    def setUpClass(cls):
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_RAG_FIXTURE)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        cls.pdf_temp_path = "temp_manual_tecnico_conv_rewriting.pdf"
+        indexar_fixtures_prioridades(cls.TENANT_RAG_FIXTURE, cls.pdf_temp_path)
+
+    @classmethod
+    def tearDownClass(cls):
+        remover_fixtures_prioridades(cls.TENANT_RAG_FIXTURE)
+        caminho_chroma = os.path.join("tenant_data", "chroma", cls.TENANT_RAG_FIXTURE)
+        if os.path.exists(caminho_chroma):
+            shutil.rmtree(caminho_chroma, ignore_errors=True)
+        if os.path.exists(cls.pdf_temp_path):
+            try:
+                os.remove(cls.pdf_temp_path)
+            except Exception:
+                pass
+
     def setUp(self):
         # Limpeza inicial do tenant de teste
         rag_manager.remover_documento(self.TENANT_A, "empresas_teste.csv")
@@ -46,7 +74,7 @@ class TestConversationalQueryRewriting(unittest.TestCase):
         dir_conv = conversational_query.DIRETORIO_MEMORIA_CONVERSAS
         if os.path.exists(dir_conv):
             for fname in os.listdir(dir_conv):
-                if fname.startswith((self.TENANT_A, self.TENANT_B, "senai_labfashion_conv")):
+                if fname.startswith((self.TENANT_A, self.TENANT_B, self.TENANT_RAG_FIXTURE)):
                     try:
                         os.remove(os.path.join(dir_conv, fname))
                     except Exception:
@@ -308,7 +336,7 @@ class TestConversationalQueryRewriting(unittest.TestCase):
     def test_n_fallback_rag_vetorial(self):
         """TESTE N: Pergunta reescrita sem intenção tabular segue para a busca vetorial."""
         registrar_turno_conversacional(
-            "senai_labfashion", self.CONV_1,
+            self.TENANT_RAG_FIXTURE, self.CONV_1,
             user_query="Qual é a gramatura do tecido M518?",
             rewritten_query=None,
             assistant_answer="128 g/m²",
@@ -317,7 +345,7 @@ class TestConversationalQueryRewriting(unittest.TestCase):
         )
 
         res_chunks = rag_manager.buscar_contexto_relevante(
-            "senai_labfashion",
+            self.TENANT_RAG_FIXTURE,
             "E a composição?",
             conversation_id=self.CONV_1,
             final_k=2
@@ -332,7 +360,7 @@ class TestConversationalQueryRewriting(unittest.TestCase):
     def test_o_query_reescrita_para_tabular_engine(self):
         """TESTE O: Query reescrita 'Quais outras empresas a consultora Morgana atende?' aciona o Tabular Engine."""
         registrar_turno_conversacional(
-            "senai_labfashion", self.CONV_1,
+            self.TENANT_RAG_FIXTURE, self.CONV_1,
             user_query="Quem atende Cia Militar?",
             rewritten_query=None,
             assistant_answer="Morgana",
@@ -342,7 +370,7 @@ class TestConversationalQueryRewriting(unittest.TestCase):
         )
 
         res_chunks = rag_manager.buscar_contexto_relevante(
-            "senai_labfashion",
+            self.TENANT_RAG_FIXTURE,
             "Quais outras empresas ela atende?",
             conversation_id=self.CONV_1,
             final_k=2
@@ -406,20 +434,20 @@ class TestConversationalQueryRewriting(unittest.TestCase):
 
     def test_s_nao_regressao_prioridade_1(self):
         """TESTE S: Não-regressão da Prioridade 1 (Precision retrieval e Reranking)."""
-        res = rag_manager.buscar_contexto_relevante("senai_labfashion", "Quem é responsável por atender a empresa Cia Militar?", final_k=3)
+        res = rag_manager.buscar_contexto_relevante(self.TENANT_RAG_FIXTURE, "Quem é responsável por atender a empresa Cia Militar?", final_k=3)
         self.assertTrue(len(res) > 0)
         self.assertTrue(any("Morgana" in c["texto"] for c in res))
 
     def test_t_nao_regressao_prioridade_2(self):
         """TESTE T: Não-regressão da Prioridade 2 (Semantic Enrichment [VALOR_NEGATIVO])."""
-        res = rag_manager.buscar_contexto_relevante("senai_labfashion", "Existe algum lançamento com valor negativo?", final_k=3)
+        res = rag_manager.buscar_contexto_relevante(self.TENANT_RAG_FIXTURE, "Existe algum lançamento com valor negativo?", final_k=3)
         self.assertTrue(len(res) > 0)
         textos = [c["texto"] for c in res]
         self.assertTrue(any("-150" in t or "[VALOR_NEGATIVO]" in t for t in textos))
 
     def test_u_nao_regressao_prioridade_3(self):
         """TESTE U: Não-regressão da Prioridade 3 (Tabular Query Engine determinístico)."""
-        res = rag_manager.buscar_contexto_relevante("senai_labfashion", "Quantas empresas cada consultor atende?", final_k=3)
+        res = rag_manager.buscar_contexto_relevante(self.TENANT_RAG_FIXTURE, "Quantas empresas cada consultor atende?", final_k=3)
         self.assertTrue(len(res) > 0)
         self.assertEqual(res[0].get("tipo_arquivo"), "tabular")
         self.assertIn("GROUP_COUNT", res[0].get("rotulo_unidade"))
