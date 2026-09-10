@@ -152,6 +152,7 @@ class TestConfirmacaoObrigatoria(unittest.TestCase):
         self.assertEqual(pendente["tool_call_id"], "call_1")
         self.assertIn("function_call_item", pendente)
         self.assertIn("input_previo", pendente)
+        self.assertEqual(pendente["instructions"], "instrucoes")
 
 
 class TestRetomarAposConfirmacao(unittest.TestCase):

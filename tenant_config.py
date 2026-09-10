@@ -97,52 +97,12 @@ Recuse perguntas fora do escopo educadamente.""",
                     "referência/exemplo e precisam ser ajustados conforme a grade de tamanho real da empresa -- nunca "
                     "apresente um número inventado como se fosse um dado confirmado."
                 ),
-                "tools": [{
-                    "type": "function",
-                    "function": {
-                        "name": "gerar_imagem_croqui",
-                        "description": "Gera uma imagem de croqui de moda a partir de um prompt visual em inglês e um resumo simples em português para confirmação do usuário",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "prompt_visual": {
-                                    "type": "string",
-                                    "description": "Descrição detalhada do croqui em inglês: pose, silhueta, cores, tecido, fundo"
-                                },
-                                "resumo_confirmacao": {
-                                    "type": "string",
-                                    "description": "Frase curta em português simples, sem jargões técnicos, descrevendo a peça para confirmação do usuário (ex: 'Um vestido midi floral, visto de frente')"
-                                }
-                            },
-                            "required": ["prompt_visual", "resumo_confirmacao"]
-                        }
-                    }
-                }, {
-                    "type": "function",
-                    "function": {
-                        "name": "gerar_ficha_tecnica",
-                        "description": (
-                            "Gera uma ficha técnica de moda completa: desenho técnico (frente e costas) mais uma tabela "
-                            "estruturada de medidas, materiais e aviamentos, a partir da descrição de uma peça. Use em vez "
-                            "de gerar_imagem_croqui quando o usuário pedir explicitamente uma ficha técnica, medidas, "
-                            "materiais ou aviamentos -- não apenas um desenho."
-                        ),
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "prompt_visual": {
-                                    "type": "string",
-                                    "description": "Descrição detalhada da peça em inglês: pose, silhueta, cores, tecido, fundo"
-                                },
-                                "resumo_confirmacao": {
-                                    "type": "string",
-                                    "description": "Frase curta em português simples confirmando que o usuário quer uma FICHA TÉCNICA completa (desenho + tabela de dados) da peça descrita, não só o desenho (ex: 'Uma ficha técnica completa de um vestido midi floral, com desenho técnico e tabela de medidas')"
-                                }
-                            },
-                            "required": ["prompt_visual", "resumo_confirmacao"]
-                        }
-                    }
-                }],
+                # Schemas completos (nome, descrição, parâmetros) saíram daqui na Fase 10 -- vivem
+                # agora só no registry (agente_ferramentas.py), fonte única de verdade que
+                # também sabe executar cada uma. Aqui só o nome, para o motor do agente
+                # (agente_openai.py) resolver o schema certo (ver ContextoExecucao/_chat_via_agente
+                # em api/main.py).
+                "tools": ["gerar_imagem_croqui", "gerar_ficha_tecnica"],
                 "validade_cache_horas": 0,
             },
             "Tendências": {
@@ -158,23 +118,8 @@ Recuse perguntas fora do escopo educadamente.""",
                     "cada fonte usada (ex: 'Segundo [URL]...'). Se a busca não retornar nada relevante, diga "
                     "claramente que não encontrou informação atual sobre o assunto em vez de inventar."
                 ),
-                "tools": [{
-                    "type": "function",
-                    "function": {
-                        "name": "buscar_tendencias_web",
-                        "description": "Busca informações atuais na web (notícias, artigos, previsões de mercado) sobre tendências de moda, cores, coleções e comportamento de consumo.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string",
-                                    "description": "Termos de busca objetivos e específicos, em português ou inglês (ex: 'cores tendência primavera verão 2027 Pantone')"
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    }
-                }],
+                # Ver nota na Task acima ("Gerador de Croqui") sobre schemas terem saído daqui.
+                "tools": ["buscar_tendencias_web"],
                 "validade_cache_horas": 24,
             },
             "Análise de Dados": {

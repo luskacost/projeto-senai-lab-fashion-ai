@@ -39,9 +39,8 @@ FLUXO DE CONFIRMAÇÃO (gerar_imagem_croqui/gerar_ficha_tecnica), preservado:
 """
 
 import json
-import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from agente_ferramentas import ContextoExecucao, executar_ferramenta, exige_confirmacao, schemas_para
 from logger_config import obter_logger
@@ -242,6 +241,12 @@ def chamar_agente(
                 "estilo_croqui": contexto.estilo_croqui,
                 "input_previo": input_atual,
                 "function_call_item": _serializar_item(call_confirmacao),
+                # As instructions (prompt de sistema) usadas nesta chamada -- precisam ser as
+                # MESMAS na retomada (retomar_apos_confirmacao), inclusive com qualquer contexto
+                # de perfil_usuario já embutido nelas. Recalculá-las do zero no momento da
+                # confirmação arriscaria divergir (ex: perda do perfil, que não trafega no
+                # payload de /chat/croqui/confirmar).
+                "instructions": instructions,
             }
             return RespostaAgente(pendente_confirmacao=pendente, fontes=fontes, usou_web_search=usou_web_search)
 

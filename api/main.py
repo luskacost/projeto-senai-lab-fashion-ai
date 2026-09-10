@@ -58,15 +58,9 @@ from analise_dados import (
 )
 from moderacao import validar_prompt_imagem
 from usage_tracker import incrementar_uso, verificar_limite
-from geracao_imagem import (
-    ESTILO_ILUSTRACAO,
-    ESTILO_TECNICO,
-    SUFIXO_TECNICO,
-    chamar_api_geracao_imagem,
-    eh_imagem_gerada,
-    executar_ferramenta_local,
-    chamar_agente
-)
+from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
+from agente_ferramentas import ContextoExecucao, executar_ferramenta
+from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
 
 try:
     # pyrefly: ignore [missing-import]
@@ -298,40 +292,50 @@ def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[
 
 
 def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:
-    """Modos baseados em agente com tool calling (OpenAI): Gerador de Croqui, Consultor de Estilo,
-    Professor Técnico e Tendências.
+    """Modos baseados em agente com tool calling (Responses API, Fase 10): Gerador de Croqui,
+    Consultor de Estilo, Professor Técnico, Engenharia Têxtil, Tendências e Assistente Geral.
 
-    A função é agnóstica ao modo -- chamar_agente() só usa as "tools" configuradas para o modo
-    em questão (None para Consultor de Estilo/Professor Técnico, buscar_tendencias_web para Tendências,
-    a função gerar_imagem_croqui para Gerador de Croqui). Só o Gerador de Croqui de fato aciona
-    o fluxo de confirmação abaixo (pendente_confirmacao), pois é o único modo com essa tool.
+    A função é agnóstica ao modo -- só repassa a lista de nomes de ferramentas configurada para
+    o modo (config["modos"][payload.modo]["tools"], nomes do registry em agente_ferramentas.py;
+    None para modos sem tool) e a flag usar_web_search (habilitada por modo na Fase 10, Bloco C).
+    Só o Gerador de Croqui de fato aciona o fluxo de confirmação abaixo (pendente_confirmacao),
+    pois gerar_imagem_croqui/gerar_ficha_tecnica são as únicas ferramentas marcadas
+    exige_confirmacao=True no registry.
 
-    Quando o modelo decide chamar a ferramenta gerar_imagem_croqui, a geração da imagem em si
-    NÃO ocorre aqui -- retorna pendente_confirmacao para o front-end exibir a confirmação
-    ("Entendi que você quer: ...") antes de gastar uma chamada de geração de imagem. A
-    confirmação/cancelamento é feita em POST /chat/croqui/confirmar.
+    Quando o modelo decide chamar uma dessas ferramentas, a execução (custo real de geração de
+    imagem) NÃO ocorre aqui -- retorna pendente_confirmacao para o front-end exibir a confirmação
+    ("Entendi que você quer: ...") antes de gastar a chamada. A confirmação/cancelamento é feita
+    em POST /chat/croqui/confirmar.
     """
     estilo = payload.estilo_croqui or ESTILO_ILUSTRACAO
-    custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario, estilo)
-
-    messages_for_api: List[Dict[str, str]] = [{"role": "system", "content": custom_prompt}]
-    if payload.historico:
-        for m in payload.historico:
-            role = "assistant" if m.role in ("assistant", "IA") else m.role
-            messages_for_api.append({"role": role, "content": m.content})
-    else:
-        messages_for_api.append({"role": "user", "content": payload.mensagem})
+    instructions = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario, estilo)
+    input_items = montar_input_historico(payload.mensagem, payload.historico)
 
     api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
     client = OpenAI(api_key=api_key)
 
-    texto, imagem_url, usou_fallback, pendente, fontes_busca_web = chamar_agente(
-        client, config["modos"][payload.modo], messages_for_api, payload.tenant_id, estilo
+    modo_cfg = config["modos"][payload.modo]
+    contexto = ContextoExecucao(
+        tenant_id=payload.tenant_id,
+        conversation_id=payload.conversation_id,
+        perfil_usuario=payload.perfil_usuario,
+        estilo_croqui=estilo,
+        client=client,
     )
 
-    if pendente:
+    resultado = chamar_agente(
+        client,
+        instructions,
+        modo_cfg.get("tools"),
+        input_items,
+        contexto,
+        usar_web_search=modo_cfg.get("usar_web_search", False),
+    )
+
+    if resultado.pendente_confirmacao:
+        pendente = dict(resultado.pendente_confirmacao)
         pendente["modo"] = payload.modo
         return {
             "resposta": None,
@@ -341,13 +345,18 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
             "trechos_consultados": []
         }
 
+    # fontes_consultadas/trechos_consultados unificam citações do web_search nativo (título +
+    # URL) e de tools que devolvem "fontes" em dados_extras (ex: buscar_tendencias_web) -- mesmo
+    # contrato que o modo "Base de Conhecimento" já usa, então o front-end exibe as duas
+    # igualmente sem precisar saber a origem.
     return {
-        "resposta": texto,
-        "imagem_url": imagem_url,
+        "resposta": resultado.texto,
+        "imagem_url": resultado.imagem_url,
         "pendente_confirmacao": None,
-        "fontes_consultadas": [f["titulo"] for f in fontes_busca_web],
+        "fontes_consultadas": [f["titulo"] for f in resultado.fontes if f.get("titulo")],
         "trechos_consultados": [
-            {"fonte": f["titulo"], "texto": f"{f['trecho']}\n\nURL: {f['url']}"} for f in fontes_busca_web
+            {"fonte": f["titulo"], "texto": f"{f['trecho']}\n\nURL: {f['url']}" if f.get("url") else f["trecho"]}
+            for f in resultado.fontes
         ]
     }
 
@@ -456,14 +465,13 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
     if not verificar_limite(payload.tenant_id, "imagens", limite_img, quantidade_necessaria=1):
         raise HTTPException(status_code=429, detail="Limite diário de geração de imagens atingido. Novas gerações estarão disponíveis amanhã.")
 
-    imagem_url_gerada = None
-
+    # Segunda moderação sobre o prompt JÁ com o sufixo técnico (SUFIXO_TECNICO): a que roda acima
+    # (resultado_mod) só avalia o texto que o modelo produziu; esta cobre também o texto fixo que
+    # o próprio sistema acrescenta antes de gerar (mesmo texto que o handler da ferramenta, mais
+    # abaixo, vai reconstruir por conta própria para a chamada real de geração -- duplicar essa
+    # concatenação aqui é o preço de manter a checagem de moderação exatamente sobre o prompt
+    # final, sem precisar que o registry exponha um hook só para isso).
     if estilo == ESTILO_TECNICO or eh_ficha_tecnica:
-        # Uma única imagem mostrando frente e costas lado a lado -- testes manuais mostraram que
-        # o modelo de imagem já desenha as duas vistas numa imagem só quando o prompt pede um
-        # "flat sketch" técnico (ver SUFIXO_TECNICO), então gerar frente/costas como duas chamadas
-        # separadas só produzia imagens praticamente idênticas (sem seed, sem garantia de
-        # correlação real entre elas -- ver Task 15). Removido o desdobramento em duas imagens.
         prompt_final = f"{prompt_vis}{SUFIXO_TECNICO}"
         resultado_mod_final = validar_prompt_imagem(client, prompt_final, payload.tenant_id)
         if not resultado_mod_final.get("aprovado", False):
@@ -472,47 +480,16 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
                 detail=resultado_mod_final.get("motivo", "O pedido contém elementos fora do escopo de moda e vestuário.")
             )
 
-        res_imagem = chamar_api_geracao_imagem(client, prompt_final, payload.tenant_id)
-        if res_imagem:
-            imagem_url_gerada = res_imagem
-            incrementar_uso(payload.tenant_id, "imagens")
-        # Não repassa a URL/data URI da imagem pro modelo no resultado da tool -- ele não precisa
-        # dela pra nada (a interface já exibe a imagem sozinha) e incluí-la aqui só convida o
-        # modelo a reproduzi-la na resposta em texto.
-        sucesso_txt = "sucesso" if imagem_url_gerada else "falhou"
-        if eh_ficha_tecnica:
-            resultado_ferramenta = (
-                f"Desenho técnico gerado ({sucesso_txt}, mostrando frente e costas na mesma imagem). "
-                f"Agora monte a tabela markdown estruturada de medidas/materiais/aviamentos conforme instruído."
-            )
-        else:
-            resultado_ferramenta = f"Desenho técnico vetorial 2D gerado ({sucesso_txt}, mostrando frente e costas na mesma imagem)."
-    else:
-        resultado_bruto = executar_ferramenta_local(client, "gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
-        if eh_imagem_gerada(resultado_bruto):
-            imagem_url_gerada = resultado_bruto
-            incrementar_uso(payload.tenant_id, "imagens")
-            # Mesmo cuidado do ramo técnico acima -- nunca repassar a data URI (bytes da imagem
-            # em base64, na casa de megabytes) pro modelo como conteúdo de mensagem.
-            resultado_ferramenta = "Imagem gerada com sucesso."
-        else:
-            resultado_ferramenta = resultado_bruto
+    nome_ferramenta = payload.pendente.get("nome_ferramenta", "gerar_imagem_croqui")
+    contexto = ContextoExecucao(tenant_id=payload.tenant_id, estilo_croqui=estilo, client=client)
+    resultado_ferramenta = executar_ferramenta(nome_ferramenta, payload.pendente.get("argumentos", {}), contexto)
 
-    msgs_api = list(payload.pendente.get("messages_for_api", []))
-    msgs_api.append(payload.pendente.get("assistant_message"))
-    msgs_api.append({
-        "role": "tool",
-        "tool_call_id": payload.pendente.get("tool_call_id"),
-        "content": str(resultado_ferramenta),
-    })
+    imagem_url_gerada = resultado_ferramenta.dados_extras.get("imagem_url")
+    if imagem_url_gerada:
+        incrementar_uso(payload.tenant_id, "imagens")
 
-    segunda_resposta = client.chat.completions.create(
-        messages=msgs_api,
-        model=OPENAI_TEXT_MODEL,
-        temperature=0.7,
-        max_tokens=2048,
-    )
-    texto_final = segunda_resposta.choices[0].message.content
+    instructions = payload.pendente.get("instructions", "")
+    texto_final = retomar_apos_confirmacao(client, instructions, payload.pendente, resultado_ferramenta.conteudo)
 
     return {
         "resposta": texto_final,
