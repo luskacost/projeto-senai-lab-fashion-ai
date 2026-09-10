@@ -1,69 +1,128 @@
-# SENAI Lab Fashion Assistant 👗👕
+# SENAI LabFashion IA
 
-Aplicação Streamlit multi-tenant para assistência e recomendação de moda, com suporte a customização dinâmica de marca por tenant e integração com Groq LLM.
+Assistente de IA para a indústria da moda, multi-tenant, com 7 modos especializados (consultoria
+de estilo, ensino técnico, geração de croquis/fichas técnicas, tendências, análise de dados,
+base de conhecimento documental via RAG, e um assistente generalista sem restrição de escopo).
+
+Arquitetura: **backend FastAPI** (Python) + **frontend Next.js** (React/TypeScript), separados --
+não é mais a aplicação Streamlit original (código preservado na tag git `pre-remocao-streamlit`,
+caso precise consultar).
 
 ---
 
-## 🐋 Como rodar com Docker
+## Arquitetura
 
-Para executar a aplicação em qualquer máquina sem a necessidade de instalar o Python ou gerenciar dependências manualmente:
+- **Backend:** FastAPI (`api/main.py`), expõe a API REST consumida pelo frontend.
+- **Frontend:** Next.js 16 / React, em `frontend/`.
+- **LLM (texto):** [OpenAI](https://platform.openai.com/) (`gpt-4o` por padrão) -- chat, moderação,
+  tool-calling (croqui/tendências) e síntese do RAG.
+- **Geração de imagem:** OpenAI `gpt-image-1` -- croquis e desenhos técnicos de moda.
+- **Busca web:** [Tavily](https://tavily.com/) -- busca real usada pelo modo Tendências.
+- **RAG / Base de Conhecimento:** [ChromaDB](https://www.trychroma.com/) (embutido, self-hosted)
+  + [Sentence-Transformers](https://www.sbert.net/) (`paraphrase-multilingual-MiniLM-L12-v2`,
+  100% local em CPU, sem custo de API para vetorização) para embeddings.
+- **Isolamento multi-tenant:** cada tenant tem seus próprios índices vetoriais
+  (`tenant_data/chroma/{tenant_id}/`), conversas, planilhas e configurações -- uma busca de um
+  tenant nunca retorna dados de outro.
 
-1. **Configurar as variáveis de ambiente:**
-   Copie o arquivo `.env.example` para `.env` e preencha as variáveis com as chaves reais (ex: `GROQ_API_KEY`):
+## Modos disponíveis
+
+| Modo | Descrição |
+|---|---|
+| Consultor de Estilo | Combinações, harmonia de cores, looks. |
+| Professor Técnico | Costura, modelagem, tecidos -- tom didático. |
+| Engenharia Têxtil | Normas técnicas (ABNT/ISO/AATCC/ASTM), ensaios de tecido, controle de qualidade -- tom técnico-industrial. |
+| Gerador de Croqui | Ilustração de moda ou Desenho Técnico (flat sketch); inclui geração de ficha técnica completa (desenho + tabela de medidas/materiais). |
+| Tendências | Análise de tendências com busca real na web (Tavily), cita fontes. |
+| Análise de Dados | Upload de planilha (CSV/XLSX/XLS), perguntas sobre os números -- só o resumo estatístico vai pro LLM, nunca o dado bruto. |
+| Base de Conhecimento | Pergunta sobre documentos indexados pelo tenant (RAG). |
+| Assistente Geral | Sem restrição de escopo a moda -- qualquer assunto. |
+
+---
+
+## Como rodar localmente (sem Docker)
+
+**Backend:**
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows (ver .venv/bin/activate no Linux/Mac)
+pip install -r requirements.txt
+cp .env.example .env            # preencha com suas chaves reais, ver seção abaixo
+uvicorn api.main:app --reload   # http://localhost:8000
+```
+
+**Frontend** (em outro terminal):
+```bash
+cd frontend
+npm install
+npm run dev                     # http://localhost:3000
+```
+
+Acesse `http://localhost:3000` no navegador.
+
+## Como rodar com Docker
+
+```bash
+cp .env.example .env            # preencha com suas chaves reais
+docker compose up --build
+```
+
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Backend (API): [http://localhost:8000](http://localhost:8000) -- healthcheck em `/health`
+
+Para deploy numa VPS com domínio próprio, ver `nginx.conf.example` (reverse proxy) e a seção
+"Deploy em produção" abaixo.
+
+## Variáveis de ambiente (`.env`)
+
+Copie `.env.example` para `.env` e preencha (convenção: `{TENANT_ID_MAIUSCULO}_{CHAVE}`):
+
+| Variável | Uso |
+|---|---|
+| `SENAI_LABFASHION_OPENAI_API_KEY` | Chat (GPT-4o), moderação, geração de imagem (gpt-image-1). |
+| `SENAI_LABFASHION_ADMIN_PASSWORD` | Senha do painel administrativo (`/admin`). |
+| `SENAI_LABFASHION_TAVILY_API_KEY` | Busca web do modo Tendências. |
+
+Variáveis adicionais (não vão no `.env`, são configuração de deploy):
+
+| Variável | Onde | Uso |
+|---|---|---|
+| `CORS_ALLOWED_ORIGINS` | Ambiente do backend | Lista separada por vírgula de origens permitidas. Default: só `http://localhost:3000`. |
+| `NEXT_PUBLIC_API_URL` | Build arg do frontend (`frontend/Dockerfile`) | URL pública da API, alcançável pelo navegador do usuário final. Embutida em tempo de build, não de execução. |
+| `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend. Default: `senai_labfashion`. |
+| `LOG_LEVEL` | Ambiente do backend | Nível de log (default `INFO`). |
+
+## Deploy em produção (VPS)
+
+1. `docker compose build` com os build args corretos do frontend (domínio público real):
    ```bash
-   cp .env.example .env
+   NEXT_PUBLIC_API_URL=https://seu-dominio.com/api docker compose build frontend
    ```
+2. Definir `CORS_ALLOWED_ORIGINS=https://seu-dominio.com` no `.env` do backend.
+3. `docker compose up -d`.
+4. Configurar um reverse proxy (Nginx) na frente dos dois serviços -- ver `nginx.conf.example`
+   (roteia `/` pro frontend, `/api/` pro backend) e configurar TLS (ex: Certbot/Let's Encrypt).
 
-2. **Iniciar o container via Docker Compose:**
-   Execute o comando abaixo para construir a imagem e subir o serviço:
-   ```bash
-   docker compose up --build
-   ```
+## Admin (`/admin`)
 
-3. **Acessar a aplicação:**
-   Abra o navegador em:
-   - **Tenant Padrão / Padrão:** [http://localhost:8501](http://localhost:8501)
-   - **Tenant Específico:** [http://localhost:8501/?tenant=nome_do_tenant](http://localhost:8501/?tenant=nome_do_tenant)
+O painel administrativo (upload/remoção de documentos da Base de Conhecimento) exige login com a
+senha configurada em `SENAI_LABFASHION_ADMIN_PASSWORD`. O login emite um token de sessão (válido
+por 4h) exigido pelo backend em toda rota administrativa -- bloqueio automático por 15 minutos
+após 5 tentativas de senha incorretas.
 
----
+## Testes
 
-## 📊 Logs e Diagnóstico
+```bash
+python -m unittest discover -s tests   # suíte completa do backend (RAG, tool-calling, etc.)
+cd frontend && npm run build           # valida o build de produção do frontend
+```
 
-O sistema utiliza logging estruturado para capturar eventos de negócio e exceções técnicas sem expor detalhes internos na interface do usuário:
+Um workflow de CI (`.github/workflows/ci.yml`) roda os dois automaticamente em todo push/PR.
 
-- **Localização dos arquivos de log:** `logs/app.log`
-- **Como visualizar em tempo real:**
-  ```bash
-  tail -f logs/app.log
-  ```
-- **Rotação automática:** O arquivo `app.log` é gerenciado via `RotatingFileHandler` (máximo de 5 MB por arquivo, mantendo até 5 arquivos históricos `app.log.1`, `app.log.2`, etc.).
-- **Privacidade:** Nenhuma chave de API, senha administrativa ou conteúdo de prompt do usuário é armazenado nos logs.
+## Logs e diagnóstico
 
----
-
----
-
-## 📚 RAG / Base de Conhecimento
-
-A aplicação conta com o modo **Base de Conhecimento** alimentado por RAG (*Retrieval-Augmented Generation*), permitindo que cada empresa faça upload de manuais, apostilas e fichas técnicas em PDF para que o assistente responda dúvidas citando as fontes exatas.
-
-### Arquitetura e Stack
-- **Banco Vetorial:** [ChromaDB](https://www.trychroma.com/) embutido e autogerenciado (*self-hosted*).
-- **Embeddings Locais:** [Sentence-Transformers](https://www.sbert.net/) com o modelo multilíngue `paraphrase-multilingual-MiniLM-L12-v2` (execução 100% local em CPU, sem custo de API para vetorização).
-- **Geração de Resposta:** [Groq API](https://groq.com/) com o modelo LLM do projeto, combinando o prompt do sistema com os trechos mais relevantes recuperados da busca semântica.
-- **Extração de Texto:** `pypdf` para leitura e particionamento dos PDFs em blocos (*chunks*) com sobreposição de contexto.
-
-### Isolamento Multi-tenant e Persistência
-- Os índices vetoriais de cada empresa são gravados no diretório `tenant_data/chroma/{tenant_id}/`.
-- O isolamento físico garante que uma busca realizada por um tenant **nunca** tenha acesso ou retorne documentos de outros tenants.
-- No Docker, o diretório `tenant_data/` é montado como volume persistente (`./tenant_data:/app/tenant_data`), garantindo que todos os documentos indexados persistam entre reinicializações do container.
-
-### Como o Administrador Adiciona Documentos
-1. Acesse o aplicativo e abra a aba **⚙️ Configurações**.
-2. Digite a senha de administrador do tenant para autenticar.
-3. Na seção **📚 Base de Conhecimento**, envie um ou mais arquivos PDF no campo de upload.
-4. Clique no botão **📥 Indexar documentos**. A barra de progresso exibirá a extração e a inserção vetorial no ChromaDB.
-5. Os materiais indexados ficarão listados na tela com a opção de remoção individual (**🗑️ Remover**) e imediatamente disponíveis para todos os usuários do tenant no modo **Base de Conhecimento**.
-
-
-
+- Logs vão tanto para stdout (essencial em containers) quanto para `logs/app.log`
+  (`RotatingFileHandler`, 5MB por arquivo, até 5 arquivos históricos).
+- Nível configurável via `LOG_LEVEL` (default `INFO`).
+- **Privacidade:** nenhuma chave de API, senha administrativa ou conteúdo bruto de prompt do
+  usuário é gravado em log.
