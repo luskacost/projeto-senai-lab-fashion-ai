@@ -29,31 +29,44 @@ ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)"
 FERRAMENTAS_COM_CONFIRMACAO = {"gerar_imagem_croqui", "gerar_ficha_tecnica"}
 
 
+PREFIXO_IMAGEM_GERADA = "data:image/png;base64,"
+
+
+def eh_imagem_gerada(valor: Any) -> bool:
+    """True se `valor` é uma imagem retornada por chamar_api_geracao_imagem (data URI base64)."""
+    return isinstance(valor, str) and valor.startswith(PREFIXO_IMAGEM_GERADA)
+
+
 # IMPORTANTE: validar_prompt_imagem() (moderacao.py) deve sempre rodar antes desta função,
 # independente do provedor de imagem usado.
-def chamar_api_geracao_imagem(client: Any, prompt_visual: str, tenant_id: str, tamanho: str = "1024x1792") -> Optional[str]:
-    """Gera uma imagem via DALL-E 3 (OpenAI) a partir do prompt e retorna a URL temporária da
-    imagem gerada (hospedada pela OpenAI, válida por cerca de 1h) -- ou None se a geração falhar
-    (ex: rejeitada pelo filtro de conteúdo da própria OpenAI, erro de rede/quota).
+def chamar_api_geracao_imagem(client: Any, prompt_visual: str, tenant_id: str, tamanho: str = "1024x1536") -> Optional[str]:
+    """Gera uma imagem via gpt-image-1 (OpenAI, sucessor do DALL-E 3 -- "dall-e-3" não existe mais
+    como model id na API) a partir do prompt e retorna uma data URI base64 (`data:image/png;base64,...`)
+    -- ou None se a geração falhar (ex: rejeitada pelo filtro de conteúdo da própria OpenAI, erro
+    de rede/quota).
 
-    Substituiu o Pollinations.ai (Fase 9/Bloco A): diferente daquele provedor, a geração de fato
-    acontece nesta chamada (síncrona) -- não é mais adiada para o navegador carregar a URL depois.
-    `tamanho` default é retrato (1024x1792), mais próximo do enquadramento de figurino de moda
-    que o antigo 512x768. Não há parâmetro de seed: nenhuma versão do DALL-E expõe controle de
-    determinismo na API pública -- para consistência entre frente/costas do Desenho Técnico,
+    Diferente do antigo Pollinations.ai (URL hotlinkada, sem geração real nesta chamada) e do que
+    se esperava do DALL-E 3 (URL temporária hospedada pela OpenAI), gpt-image-1 retorna os bytes
+    da imagem em base64 (`b64_json`), não uma URL -- por isso o retorno aqui é uma data URI, que
+    o `<img src>` do front-end consome nativamente sem nenhuma mudança. NUNCA repassar esse valor
+    de volta pro LLM como conteúdo de mensagem (é gigante em tokens) -- ver chamadas em
+    api/main.py e chamar_agente() abaixo, que só repassam um indicador curto de sucesso/falha.
+
+    `tamanho` default é retrato (1024x1536), mais próximo do enquadramento de figurino de moda que
+    o antigo 512x768. Não há parâmetro de seed: nenhuma versão do DALL-E/gpt-image expõe controle
+    de determinismo na API pública -- para consistência entre frente/costas do Desenho Técnico,
     contamos só com prompts bem descritivos (ver chamadas em api/main.py), sem garantia visual.
     """
     try:
         resposta = client.images.generate(
-            model="dall-e-3",
+            model="gpt-image-1",
             prompt=prompt_visual,
             size=tamanho,
-            quality="standard",
             n=1,
         )
-        return resposta.data[0].url
+        return PREFIXO_IMAGEM_GERADA + resposta.data[0].b64_json
     except Exception as e:
-        obter_logger(tenant_id).error(f"Falha ao gerar imagem via DALL-E 3: {e}", exc_info=True)
+        obter_logger(tenant_id).error(f"Falha ao gerar imagem via gpt-image-1: {e}", exc_info=True)
         return None
 
 
@@ -267,8 +280,11 @@ def chamar_agente(
             else:
                 resultado = executar_ferramenta_local(client, tool_call.function.name, argumentos, tenant_id, estilo_croqui)
 
-            if isinstance(resultado, str) and resultado.startswith("http"):
+            if eh_imagem_gerada(resultado):
                 imagem_url = resultado
+                # Nunca repassa a data URI (bytes da imagem em base64) pro modelo como conteúdo
+                # de mensagem -- é gigante em tokens e o modelo não precisa dela pra nada.
+                resultado = "Imagem gerada com sucesso."
 
             messages_for_api.append({
                 "role": "tool",

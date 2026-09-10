@@ -62,6 +62,7 @@ from geracao_imagem import (
     ESTILO_TECNICO,
     SUFIXO_TECNICO,
     chamar_api_geracao_imagem,
+    eh_imagem_gerada,
     executar_ferramenta_local,
     chamar_agente
 )
@@ -496,10 +497,15 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
         else:
             resultado_ferramenta = f"Desenhos técnicos vetoriais 2D gerados: frente ({frente_ok}), costas ({costas_ok})."
     else:
-        resultado_ferramenta = executar_ferramenta_local(client, "gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
-        if resultado_ferramenta.startswith("http"):
-            imagem_url_gerada = resultado_ferramenta
+        resultado_bruto = executar_ferramenta_local(client, "gerar_imagem_croqui", payload.pendente.get("argumentos", {}), payload.tenant_id, estilo)
+        if eh_imagem_gerada(resultado_bruto):
+            imagem_url_gerada = resultado_bruto
             incrementar_uso(payload.tenant_id, "imagens")
+            # Mesmo cuidado do ramo técnico acima -- nunca repassar a data URI (bytes da imagem
+            # em base64, na casa de megabytes) pro modelo como conteúdo de mensagem.
+            resultado_ferramenta = "Imagem gerada com sucesso."
+        else:
+            resultado_ferramenta = resultado_bruto
 
     msgs_api = list(payload.pendente.get("messages_for_api", []))
     msgs_api.append(payload.pendente.get("assistant_message"))

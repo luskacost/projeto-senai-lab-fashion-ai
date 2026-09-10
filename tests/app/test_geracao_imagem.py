@@ -5,34 +5,50 @@ import json
 import unittest
 from unittest.mock import MagicMock, patch
 
-from geracao_imagem import buscar_tendencias_web, chamar_agente, chamar_api_geracao_imagem, executar_ferramenta_local
+from geracao_imagem import (
+    buscar_tendencias_web,
+    chamar_agente,
+    chamar_api_geracao_imagem,
+    eh_imagem_gerada,
+    executar_ferramenta_local,
+    PREFIXO_IMAGEM_GERADA,
+)
+
+FAKE_B64 = "ZmFrZS1wbmctYnl0ZXM="  # base64 de "fake-png-bytes", só pra teste
 
 
-def _mock_client_dalle(url: str = "https://oaidalleapiprodscus.blob.core.windows.net/fake.png") -> MagicMock:
-    """Cria um client mockado cujo client.images.generate(...) retorna uma URL de imagem, no
-    mesmo formato de resposta usado pela API de imagens da OpenAI (DALL-E 3)."""
+def _mock_client_image(b64_json: str = FAKE_B64) -> MagicMock:
+    """Cria um client mockado cujo client.images.generate(...) retorna bytes base64, no mesmo
+    formato de resposta usado pelo gpt-image-1 (sucessor do DALL-E 3 na API da OpenAI --
+    "dall-e-3" não existe mais como model id)."""
     mock_client = MagicMock()
-    mock_client.images.generate.return_value = MagicMock(data=[MagicMock(url=url)])
+    mock_client.images.generate.return_value = MagicMock(data=[MagicMock(b64_json=b64_json)])
     return mock_client
 
 
 class TestChamarApiGeracaoImagem(unittest.TestCase):
     """Fase 9, Bloco A: geração de imagem migrou do Pollinations (URL local, sem chamada real)
-    para DALL-E 3 (chamada síncrona de verdade à API da OpenAI)."""
+    para gpt-image-1 (chamada síncrona de verdade à API da OpenAI, retorna base64 -- não URL)."""
 
-    def test_sucesso_retorna_url_da_resposta(self):
-        mock_client = _mock_client_dalle("https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
-        url = chamar_api_geracao_imagem(mock_client, "vestido midi floral", "senai_labfashion")
-        self.assertEqual(url, "https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
+    def test_sucesso_retorna_data_uri_com_base64_da_resposta(self):
+        mock_client = _mock_client_image(FAKE_B64)
+        resultado = chamar_api_geracao_imagem(mock_client, "vestido midi floral", "senai_labfashion")
+        self.assertEqual(resultado, PREFIXO_IMAGEM_GERADA + FAKE_B64)
+        self.assertTrue(eh_imagem_gerada(resultado))
         mock_client.images.generate.assert_called_once()
-        self.assertEqual(mock_client.images.generate.call_args.kwargs["model"], "dall-e-3")
+        self.assertEqual(mock_client.images.generate.call_args.kwargs["model"], "gpt-image-1")
         self.assertEqual(mock_client.images.generate.call_args.kwargs["prompt"], "vestido midi floral")
 
     def test_falha_na_api_retorna_none_sem_levantar_excecao(self):
         mock_client = MagicMock()
         mock_client.images.generate.side_effect = Exception("content_policy_violation")
-        url = chamar_api_geracao_imagem(mock_client, "prompt qualquer", "senai_labfashion")
-        self.assertIsNone(url)
+        resultado = chamar_api_geracao_imagem(mock_client, "prompt qualquer", "senai_labfashion")
+        self.assertIsNone(resultado)
+
+    def test_eh_imagem_gerada_rejeita_outros_valores(self):
+        self.assertFalse(eh_imagem_gerada(None))
+        self.assertFalse(eh_imagem_gerada("Imagem gerada com sucesso."))
+        self.assertFalse(eh_imagem_gerada("https://exemplo.com/nao-e-imagem-gerada.png"))
 
 
 class TestBuscarTendenciasWeb(unittest.TestCase):
@@ -103,11 +119,11 @@ class TestExecutarFerramentaLocal(unittest.TestCase):
         self.assertIn("não reconhecida", resultado)
 
     def test_gerar_imagem_croqui_continua_funcionando(self):
-        mock_client = _mock_client_dalle("https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
+        mock_client = _mock_client_image(FAKE_B64)
         resultado = executar_ferramenta_local(
             mock_client, "gerar_imagem_croqui", {"prompt_visual": "vestido midi floral"}, "senai_labfashion"
         )
-        self.assertEqual(resultado, "https://oaidalleapiprodscus.blob.core.windows.net/vestido.png")
+        self.assertEqual(resultado, PREFIXO_IMAGEM_GERADA + FAKE_B64)
 
     def test_gerar_imagem_croqui_com_falha_retorna_mensagem_de_erro(self):
         mock_client = MagicMock()
