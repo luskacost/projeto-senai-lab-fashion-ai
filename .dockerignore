@@ -10,15 +10,20 @@ __pycache__/
 # Virtual Environments
 venv/
 .venv/
-SenaiLabFashionAssitant/
 
-# Secrets and Tenant Specific Data
+# Secrets and Tenant Specific Data (montados via volume/env_file no docker-compose, não copiados
+# pra dentro da imagem)
 .env
-.streamlit/secrets.toml
 tenant_data/
-tenant_data/chroma/
 logs/
+
+# Frontend (imagem separada, ver frontend/Dockerfile)
+frontend/node_modules/
+frontend/.next/
 
 # IDE Configuration Files
 .vscode/
 .idea/
+
+# Ferramentas de análise/benchmark locais (nunca versionadas, ver .gitignore)
+scratch/

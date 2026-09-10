@@ -1,13 +1,27 @@
+# Fase 9/Bloco C: substitui o docker-compose.yml antigo, que só subia o container Streamlit
+# descontinuado. Agora sobe os dois serviços da arquitetura atual: backend (FastAPI) + frontend
+# (Next.js). Ver README.md para instruções de deploy e frontend/Dockerfile para a observação
+# importante sobre NEXT_PUBLIC_API_URL (precisa ser a URL pública alcançável pelo navegador).
 services:
-  app:
+  backend:
     build: .
     ports:
-      - "8501:8501"
+      - "8000:8000"
     volumes:
       - ./tenant_data:/app/tenant_data
       - ./logs:/app/logs
-      # Alternativa ao uso do arquivo .env via env_file:
-      # - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     env_file:
       - .env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_TENANT_ID: ${NEXT_PUBLIC_TENANT_ID:-senai_labfashion}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
     restart: unless-stopped

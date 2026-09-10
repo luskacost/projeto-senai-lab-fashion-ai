@@ -1,19 +1,22 @@
-FROM python:3.11-slim
+# Dockerfile do backend FastAPI (Fase 9/Bloco C) -- substitui o Dockerfile antigo, que ainda
+# rodava a aplicação Streamlit descontinuada (ver tag pre-remocao-streamlit).
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# Otimização de tamanho da imagem Docker:
-# O sentence-transformers depende de PyTorch (torch). Para evitar o download da versão pesada com suporte a CUDA (>2GB),
-# instalamos previamente a variante CPU-only do PyTorch (~150MB), reduzindo drasticamente o tamanho final da imagem.
+# Otimização de tamanho da imagem: sentence-transformers depende de PyTorch (torch). Instalar
+# antes a variante CPU-only (~150MB) evita baixar a build com suporte a CUDA (>2GB) que o
+# requirements.txt puxaria por padrão.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Copia e instala apenas as dependências para aproveitar o cache de camadas do Docker
+# Copia e instala só as dependências primeiro, pra aproveitar o cache de camadas do Docker
+# quando só o código da aplicação mudar (sem precisar reinstalar tudo de novo).
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia o restante do código da aplicação
 COPY . .
 
-EXPOSE 8501
+EXPOSE 8000
 
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
