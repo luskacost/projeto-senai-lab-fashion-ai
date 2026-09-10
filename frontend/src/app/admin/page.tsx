@@ -12,10 +12,13 @@ import { ArrowLeft, FileText, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
-const CHAVE_SESSAO_ADMIN = "labfashion_admin_ok";
+// Guarda o token de sessão de verdade (emitido por POST /admin/login e validado no backend em
+// cada rota administrativa, Fase 9/Bloco B) -- não é mais um "1" opaco que só escondia o botão
+// no front-end sem nenhuma checagem real do lado do servidor.
+const CHAVE_SESSAO_ADMIN = "labfashion_admin_token";
 
 export default function AdminPage() {
-  const [autorizado, setAutorizado] = useState(false);
+  const [tokenAdmin, setTokenAdmin] = useState<string | null>(null);
   const [senha, setSenha] = useState("");
   const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [validandoLogin, setValidandoLogin] = useState(false);
@@ -26,16 +29,29 @@ export default function AdminPage() {
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && window.sessionStorage.getItem(CHAVE_SESSAO_ADMIN) === "1") {
-      setAutorizado(true);
+    if (typeof window !== "undefined") {
+      const tokenSalvo = window.sessionStorage.getItem(CHAVE_SESSAO_ADMIN);
+      if (tokenSalvo) setTokenAdmin(tokenSalvo);
     }
   }, []);
 
   useEffect(() => {
-    if (autorizado) {
+    if (tokenAdmin) {
       recarregarDocumentos();
     }
-  }, [autorizado]);
+  }, [tokenAdmin]);
+
+  // Se o token expirou (ex: passou das 4h) ou foi revogado, qualquer chamada administrativa
+  // retorna 401 -- desloga de volta pra tela de login em vez de mostrar um erro confuso.
+  function tratarErroAdmin(e: unknown, mensagemPadrao: string) {
+    if (e instanceof ApiError && e.status === 401) {
+      window.sessionStorage.removeItem(CHAVE_SESSAO_ADMIN);
+      setTokenAdmin(null);
+      toast.error("Sessão de administrador expirada. Faça login novamente.");
+      return;
+    }
+    toast.error(e instanceof ApiError ? e.message : mensagemPadrao);
+  }
 
   async function recarregarDocumentos() {
     setCarregandoDocs(true);
@@ -54,10 +70,10 @@ export default function AdminPage() {
     setValidandoLogin(true);
     setErroLogin(null);
     try {
-      const ok = await adminLogin(TENANT_ID, senha);
-      if (ok) {
-        setAutorizado(true);
-        window.sessionStorage.setItem(CHAVE_SESSAO_ADMIN, "1");
+      const token = await adminLogin(TENANT_ID, senha);
+      if (token) {
+        setTokenAdmin(token);
+        window.sessionStorage.setItem(CHAVE_SESSAO_ADMIN, token);
       } else {
         setErroLogin("Senha incorreta.");
       }
@@ -70,32 +86,32 @@ export default function AdminPage() {
 
   async function enviarArquivo() {
     const arquivo = inputArquivoRef.current?.files?.[0];
-    if (!arquivo) return;
+    if (!arquivo || !tokenAdmin) return;
 
     setEnviando(true);
     try {
-      const resultado = await uploadDocumento(TENANT_ID, arquivo);
+      const resultado = await uploadDocumento(TENANT_ID, arquivo, tokenAdmin);
       toast.success(`"${resultado.nome_arquivo}" indexado com sucesso (${resultado.chunks_indexados} trechos).`);
       if (inputArquivoRef.current) inputArquivoRef.current.value = "";
       await recarregarDocumentos();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Falha ao enviar o arquivo.");
+      tratarErroAdmin(e, "Falha ao enviar o arquivo.");
     } finally {
       setEnviando(false);
     }
   }
 
   async function excluirDocumento(nome: string) {
-    if (!window.confirm(`Remover "${nome}" da Base de Conhecimento?`)) return;
+    if (!tokenAdmin || !window.confirm(`Remover "${nome}" da Base de Conhecimento?`)) return;
     try {
-      await deletarDocumento(TENANT_ID, nome);
+      await deletarDocumento(TENANT_ID, nome, tokenAdmin);
       await recarregarDocumentos();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Falha ao remover o documento.");
+      tratarErroAdmin(e, "Falha ao remover o documento.");
     }
   }
 
-  if (!autorizado) {
+  if (!tokenAdmin) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-6 bg-background">
         <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-10 w-auto" />

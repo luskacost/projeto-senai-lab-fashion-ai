@@ -10,11 +10,14 @@ Rodar localmente: uvicorn api.main:app --reload
 """
 
 import hashlib
+import hmac
 import io
+import secrets
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -112,27 +115,84 @@ class ConfigTenantUpdate(BaseModel):
 
 
 @app.put("/config/tenant")
-def atualizar_config_tenant(payload: ConfigTenantUpdate) -> Dict[str, str]:
+def atualizar_config_tenant(payload: ConfigTenantUpdate, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> Dict[str, str]:
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+    verificar_token_admin(payload.tenant_id, x_admin_token)
     salvar_config_tenant(payload.tenant_id, payload.dados_custom)
     return {"status": "salvo"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AUTENTICAÇÃO/ADMIN (stub)
+# AUTENTICAÇÃO/ADMIN (Fase 9, Bloco B)
+#
+# Antes disto, /admin/login comparava a senha com "==" (não é constant-time), sem limite de
+# tentativas, e sequer emitia um token -- o front-end só guardava um "1" no sessionStorage após
+# o login, e as rotas administrativas de verdade (upload/remoção de documentos, config do tenant)
+# não checavam autorização nenhuma no backend. Qualquer um que soubesse o tenant_id (uma string
+# pública) podia chamá-las direto via curl, sem nunca passar pelo login.
+#
+# Sessão de admin implementada como um token opaco em memória (processo único, sem banco de
+# dados -- compatível com a arquitetura atual de um único servidor Uvicorn; ver Fase 9/Bloco D
+# para os outros pontos de estado em memória/arquivo local). Reinicia ao reiniciar o processo,
+# o que é aceitável: exige só um novo login.
 # ─────────────────────────────────────────────────────────────────────────────
+_ADMIN_TOKENS: Dict[str, Dict[str, Any]] = {}  # token -> {"tenant_id": ..., "expira_em": timestamp}
+_ADMIN_LOGIN_TENTATIVAS: Dict[str, Dict[str, Any]] = {}  # tenant_id -> {"falhas": int, "bloqueado_ate": timestamp}
+
+DURACAO_TOKEN_ADMIN_SEGUNDOS = 4 * 60 * 60  # 4 horas
+MAX_TENTATIVAS_LOGIN_ADMIN = 5
+DURACAO_BLOQUEIO_LOGIN_SEGUNDOS = 15 * 60  # 15 minutos
+
+
+def _gerar_token_admin(tenant_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    _ADMIN_TOKENS[token] = {"tenant_id": tenant_id, "expira_em": time.time() + DURACAO_TOKEN_ADMIN_SEGUNDOS}
+    return token
+
+
+def verificar_token_admin(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> None:
+    """Dependência de rota: exige um token de admin válido (emitido por POST /admin/login) para o
+    tenant informado. Levanta 401 se ausente, de outro tenant, ou expirado."""
+    dados = _ADMIN_TOKENS.get(x_admin_token)
+    if not dados or dados["tenant_id"] != tenant_id or dados["expira_em"] < time.time():
+        raise HTTPException(status_code=401, detail="Token de admin ausente, inválido ou expirado. Faça login novamente.")
+
+
 class AdminLoginRequest(BaseModel):
     tenant_id: str
     senha: str
 
 
 @app.post("/admin/login")
-def admin_login(payload: AdminLoginRequest) -> Dict[str, bool]:
+def admin_login(payload: AdminLoginRequest) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+
+    agora = time.time()
+    estado = _ADMIN_LOGIN_TENTATIVAS.get(payload.tenant_id, {"falhas": 0, "bloqueado_ate": 0.0})
+    if estado["bloqueado_ate"] > agora:
+        minutos_restantes = int((estado["bloqueado_ate"] - agora) / 60) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Muitas tentativas de login incorretas. Tente novamente em {minutos_restantes} minuto(s)."
+        )
+
     senha_correta = obter_secret_tenant(payload.tenant_id, "ADMIN_PASSWORD")
-    return {"autorizado": bool(senha_correta) and payload.senha == senha_correta}
+    # hmac.compare_digest evita timing attack -- "==" vaza quantos caracteres iniciais bateram
+    # através do tempo de resposta.
+    autorizado = bool(senha_correta) and hmac.compare_digest(payload.senha, senha_correta)
+
+    if not autorizado:
+        estado["falhas"] += 1
+        if estado["falhas"] >= MAX_TENTATIVAS_LOGIN_ADMIN:
+            estado["bloqueado_ate"] = agora + DURACAO_BLOQUEIO_LOGIN_SEGUNDOS
+            estado["falhas"] = 0
+        _ADMIN_LOGIN_TENTATIVAS[payload.tenant_id] = estado
+        return {"autorizado": False, "token": None}
+
+    _ADMIN_LOGIN_TENTATIVAS.pop(payload.tenant_id, None)
+    return {"autorizado": True, "token": _gerar_token_admin(payload.tenant_id)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -580,7 +640,12 @@ def listar_documentos(tenant_id: str) -> List[str]:
 
 
 @app.post("/documentos/upload")
-async def upload_documento(tenant_id: str, arquivo: UploadFile = File(...)) -> Dict[str, Any]:
+async def upload_documento(
+    tenant_id: str,
+    arquivo: UploadFile = File(...),
+    x_admin_token: str = Header(..., alias="X-Admin-Token")
+) -> Dict[str, Any]:
+    verificar_token_admin(tenant_id, x_admin_token)
     conteudo = await arquivo.read()
     try:
         unidades_extraidas = extrair_documento(conteudo, nome_arquivo=arquivo.filename)
@@ -598,7 +663,8 @@ async def upload_documento(tenant_id: str, arquivo: UploadFile = File(...)) -> D
 
 
 @app.delete("/documentos/{nome_arquivo}")
-def deletar_documento(nome_arquivo: str, tenant_id: str) -> Dict[str, str]:
+def deletar_documento(nome_arquivo: str, tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> Dict[str, str]:
+    verificar_token_admin(tenant_id, x_admin_token)
     removido = remover_documento(tenant_id, nome_arquivo)
     if not removido:
         raise HTTPException(status_code=404, detail=f"Documento '{nome_arquivo}' não encontrado para o tenant '{tenant_id}'.")

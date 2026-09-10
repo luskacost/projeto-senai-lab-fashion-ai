@@ -117,9 +117,10 @@ export interface AparenciaTenant {
   mensagem_boas_vindas: string;
 }
 
-export async function atualizarConfigTenant(tenantId: string, dadosCustom: AparenciaTenant): Promise<void> {
+export async function atualizarConfigTenant(tenantId: string, dadosCustom: AparenciaTenant, tokenAdmin: string): Promise<void> {
   await request<{ status: string }>("/config/tenant", {
     method: "PUT",
+    headers: { "X-Admin-Token": tokenAdmin },
     body: JSON.stringify({ tenant_id: tenantId, dados_custom: dadosCustom }),
   });
 }
@@ -199,12 +200,16 @@ export async function deletarConversa(tenantId: string, usuarioId: string, conve
   );
 }
 
-export async function adminLogin(tenantId: string, senha: string): Promise<boolean> {
-  const resultado = await request<{ autorizado: boolean }>("/admin/login", {
+// POST /admin/login agora emite um token de sessão (Fase 9, Bloco B) -- o front-end guarda esse
+// token (não mais um simples "1") e precisa enviá-lo de volta no header X-Admin-Token em toda
+// rota administrativa de verdade (upload/remoção de documentos, config do tenant), que agora
+// checa esse token no backend em vez de confiar só na tela de login escondendo o botão.
+export async function adminLogin(tenantId: string, senha: string): Promise<string | null> {
+  const resultado = await request<{ autorizado: boolean; token: string | null }>("/admin/login", {
     method: "POST",
     body: JSON.stringify({ tenant_id: tenantId, senha }),
   });
-  return resultado.autorizado;
+  return resultado.autorizado ? resultado.token : null;
 }
 
 export async function listarDocumentos(tenantId: string): Promise<string[]> {
@@ -216,12 +221,13 @@ export interface UploadDocumentoResponse {
   chunks_indexados: number;
 }
 
-export async function uploadDocumento(tenantId: string, arquivo: File): Promise<UploadDocumentoResponse> {
+export async function uploadDocumento(tenantId: string, arquivo: File, tokenAdmin: string): Promise<UploadDocumentoResponse> {
   const formData = new FormData();
   formData.append("arquivo", arquivo);
 
   const res = await fetch(`${API_URL}/documentos/upload?tenant_id=${encodeURIComponent(tenantId)}`, {
     method: "POST",
+    headers: { "X-Admin-Token": tokenAdmin },
     body: formData,
   });
 
@@ -292,10 +298,10 @@ export async function uploadPlanilha(
   return res.json() as Promise<UploadPlanilhaResponse>;
 }
 
-export async function deletarDocumento(tenantId: string, nomeArquivo: string): Promise<void> {
+export async function deletarDocumento(tenantId: string, nomeArquivo: string, tokenAdmin: string): Promise<void> {
   await request<{ status: string }>(
     `/documentos/${encodeURIComponent(nomeArquivo)}?tenant_id=${encodeURIComponent(tenantId)}`,
-    { method: "DELETE" }
+    { method: "DELETE", headers: { "X-Admin-Token": tokenAdmin } }
   );
 }
 
