@@ -20,9 +20,22 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from filelock import FileLock, Timeout
+from logger_config import obter_logger
 from utils_visual import hex_to_rgb
 
 DIRETORIO_CONVERSAS = os.path.join("tenant_data", "conversas")
+
+# Timeout curto (Fase 9, Bloco D): salvar_conversas sobrescreve o arquivo inteiro com a lista
+# completa -- sem lock, duas requisições concorrentes do mesmo usuário (ex: duas abas abertas)
+# podiam ler a mesma lista, cada uma adicionar uma mensagem diferente, e uma escrita apagar a
+# conversa que a outra acabou de adicionar (last-write-wins silencioso).
+TIMEOUT_LOCK_SEGUNDOS = 5
+
+
+def _caminho_lock_conversas(tenant_id: str, usuario_id: str) -> str:
+    return os.path.join(DIRETORIO_CONVERSAS, f"{tenant_id}_{usuario_id}.json.lock")
+
 
 def carregar_conversas(tenant_id: str, usuario_id: str) -> list:
     """
@@ -48,14 +61,21 @@ def carregar_conversas(tenant_id: str, usuario_id: str) -> list:
 def salvar_conversas(tenant_id: str, usuario_id: str, conversas: list):
     """
     Sobrescreve o arquivo JSON com a lista completa atualizada de conversas do usuário.
+
+    A escrita roda dentro de um FileLock por usuário/tenant, para que duas requisições
+    concorrentes não leiam a mesma lista e uma escrita apague a conversa que a outra acabou
+    de adicionar (ver nota no topo do módulo).
     """
     try:
         os.makedirs(DIRETORIO_CONVERSAS, exist_ok=True)
         caminho_arquivo = os.path.join(DIRETORIO_CONVERSAS, f"{tenant_id}_{usuario_id}.json")
-        with open(caminho_arquivo, "w", encoding="utf-8") as f:
-            json.dump(conversas, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+        with FileLock(_caminho_lock_conversas(tenant_id, usuario_id), timeout=TIMEOUT_LOCK_SEGUNDOS):
+            with open(caminho_arquivo, "w", encoding="utf-8") as f:
+                json.dump(conversas, f, ensure_ascii=False, indent=2)
+    except Timeout:
+        obter_logger(tenant_id).error(f"Timeout ao adquirir lock de conversas para usuario={usuario_id} -- escrita descartada.")
+    except Exception as e:
+        obter_logger(tenant_id).error(f"Erro ao salvar conversas para usuario={usuario_id}: {e}", exc_info=True)
 
 def criar_nova_conversa() -> dict:
     """

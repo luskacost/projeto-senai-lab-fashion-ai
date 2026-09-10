@@ -634,6 +634,12 @@ def exportar_conversa(conversa_id: str, tenant_id: str, usuario_id: str, formato
 # ─────────────────────────────────────────────────────────────────────────────
 # DOCUMENTOS (Base de Conhecimento)
 # ─────────────────────────────────────────────────────────────────────────────
+# Antes, /documentos/upload e /planilha/upload aceitavam arquivo de qualquer tamanho -- um
+# upload muito grande (acidental ou não) podia gastar memória/disco/tempo de indexação
+# desproporcionais. 20MB cobre com folga documentos técnicos e planilhas reais de uso normal.
+LIMITE_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
 @app.get("/documentos")
 def listar_documentos(tenant_id: str) -> List[str]:
     return listar_documentos_indexados(tenant_id)
@@ -647,6 +653,11 @@ async def upload_documento(
 ) -> Dict[str, Any]:
     verificar_token_admin(tenant_id, x_admin_token)
     conteudo = await arquivo.read()
+    if len(conteudo) > LIMITE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Arquivo '{arquivo.filename}' excede o limite de {LIMITE_UPLOAD_BYTES // (1024 * 1024)}MB por upload."
+        )
     try:
         unidades_extraidas = extrair_documento(conteudo, nome_arquivo=arquivo.filename)
     except ValueError as err_val:
@@ -680,6 +691,11 @@ async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadF
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
 
     conteudo = await arquivo.read()
+    if len(conteudo) > LIMITE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Arquivo '{arquivo.filename}' excede o limite de {LIMITE_UPLOAD_BYTES // (1024 * 1024)}MB por upload."
+        )
     stream = io.BytesIO(conteudo)
     stream.name = arquivo.filename
 

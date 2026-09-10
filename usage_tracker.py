@@ -4,7 +4,19 @@
 import os
 import json
 from datetime import datetime
+from filelock import FileLock, Timeout
 from logger_config import obter_logger
+
+# Timeout curto (Fase 9, Bloco D): antes, ler+incrementar o contador de uso era um
+# read-modify-write sem nenhum lock -- duas requisições concorrentes podiam ler o mesmo valor
+# inicial e cada uma escrever "+1" por cima da outra, perdendo um incremento (e permitindo passar
+# do limite diário configurado). O lock é por tenant (um arquivo .lock ao lado do .json de uso).
+TIMEOUT_LOCK_SEGUNDOS = 5
+
+
+def _caminho_lock_uso(tenant_id: str) -> str:
+    return os.path.join("tenant_data", f"{tenant_id}_usage.json.lock")
+
 
 def carregar_uso_do_dia(tenant_id: str) -> dict:
     """Lê o arquivo tenant_data/{tenant_id}_usage.json.
@@ -45,19 +57,26 @@ def carregar_uso_do_dia(tenant_id: str) -> dict:
 def incrementar_uso(tenant_id: str, tipo: str, quantidade: int = 1):
     """Carrega o uso atual, incrementa o contador do 'tipo' ("mensagens" ou "imagens")
     pela 'quantidade' especificada (padrão 1), e salva no arquivo JSON.
+
+    Todo o ciclo leitura-modificação-escrita roda dentro de um FileLock por tenant, para que
+    duas requisições concorrentes não leiam o mesmo valor inicial e cada uma sobrescreva a
+    escrita da outra (perdendo um incremento e potencialmente deixando passar do limite diário).
     """
     try:
-        uso = carregar_uso_do_dia(tenant_id)
-        if tipo in uso:
-            uso[tipo] = max(0, uso[tipo] + quantidade)
-        else:
-            uso[tipo] = max(0, quantidade)
-
         os.makedirs("tenant_data", exist_ok=True)
-        caminho_arquivo = os.path.join("tenant_data", f"{tenant_id}_usage.json")
+        with FileLock(_caminho_lock_uso(tenant_id), timeout=TIMEOUT_LOCK_SEGUNDOS):
+            uso = carregar_uso_do_dia(tenant_id)
+            if tipo in uso:
+                uso[tipo] = max(0, uso[tipo] + quantidade)
+            else:
+                uso[tipo] = max(0, quantidade)
 
-        with open(caminho_arquivo, "w", encoding="utf-8") as f:
-            json.dump(uso, f, ensure_ascii=False, indent=2)
+            caminho_arquivo = os.path.join("tenant_data", f"{tenant_id}_usage.json")
+            with open(caminho_arquivo, "w", encoding="utf-8") as f:
+                json.dump(uso, f, ensure_ascii=False, indent=2)
+    except Timeout:
+        logger = obter_logger(tenant_id)
+        logger.error(f"Timeout ao adquirir lock de uso ({tipo}) -- incremento descartado para não travar a requisição.")
     except Exception as e:
         logger = obter_logger(tenant_id)
         logger.error(f"Erro ao salvar/incrementar uso do dia ({tipo}): {e}", exc_info=True)
@@ -78,6 +97,14 @@ def verificar_limite(tenant_id: str, tipo: str, limite: int, quantidade_necessar
         return permitido
     except Exception as e:
         logger = obter_logger(tenant_id)
-        logger.error(f"Erro ao verificar limite de {tipo}: {e}", exc_info=True)
+        # Fail-open deliberado (não travar o usuário por falha técnica transitória) -- mas isso
+        # significa que o limite diário NÃO foi de fato verificado nesta chamada. A mensagem
+        # deixa esse efeito colateral explícito no log, em vez de um erro genérico que passaria
+        # despercebido em qualquer ferramenta de monitoramento de log.
+        logger.error(
+            f"Erro ao verificar limite de {tipo} -- acesso liberado apesar do erro (fail-open, "
+            f"limite diário não verificado nesta chamada): {e}",
+            exc_info=True
+        )
         return True
 
