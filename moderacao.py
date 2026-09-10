@@ -10,6 +10,7 @@ de imagem (como DALL-E, Gemini/Imagen) possam possuir. O objetivo desta camada p
 
 import json
 from logger_config import obter_logger
+from rag_config import OPENAI_TEXT_MODEL
 
 PROMPT_SISTEMA_MODERACAO = (
     "Você é um classificador de segurança e escopo para uma ferramenta de geração de imagens de moda e têxtil. "
@@ -28,7 +29,7 @@ PROMPT_SISTEMA_MODERACAO = (
 def validar_prompt_imagem(client, prompt_visual: str, tenant_id: str) -> dict:
     """Valida se o prompt visual está dentro do escopo de moda/têxtil e livre de conteúdo impróprio.
     
-    Usa a API de texto da Groq com temperatura 0 e baixo max_tokens para classificação barata e rápida.
+    Usa a API de texto da OpenAI com temperatura 0 e baixo max_tokens para classificação barata e rápida.
     Em caso de falha de parse ou de rede, adota comportamento fail-safe (retorna aprovado: False).
     """
     logger = obter_logger(tenant_id)
@@ -49,7 +50,7 @@ def validar_prompt_imagem(client, prompt_visual: str, tenant_id: str) -> dict:
         try:
             resposta = client.chat.completions.create(
                 messages=messages,
-                model="openai/gpt-oss-20b",
+                model=OPENAI_TEXT_MODEL,
                 temperature=0.0,
                 max_tokens=300,
                 response_format={"type": "json_object"}
@@ -59,7 +60,7 @@ def validar_prompt_imagem(client, prompt_visual: str, tenant_id: str) -> dict:
             # Fallback caso response_format não seja suportado em alguma versão do modelo
             resposta = client.chat.completions.create(
                 messages=messages,
-                model="openai/gpt-oss-20b",
+                model=OPENAI_TEXT_MODEL,
                 temperature=0.0,
                 max_tokens=300
             )

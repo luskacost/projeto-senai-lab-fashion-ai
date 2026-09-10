@@ -21,7 +21,7 @@ from fastapi import FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from groq import Groq
+from openai import OpenAI
 
 from tenant_config import (
     TENANT_CONFIG,
@@ -39,7 +39,7 @@ from rag_manager import (
     obter_ultimo_rag_debug
 )
 from document_extractors import extrair_documento
-from rag_config import GROQ_MODEL
+from rag_config import OPENAI_TEXT_MODEL
 from conversas_manager import (
     carregar_conversas,
     salvar_conversas,
@@ -274,24 +274,24 @@ def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[
 
     custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario)
 
-    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+        raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
 
-    client = Groq(api_key=api_key)
+    client = OpenAI(api_key=api_key)
     resposta = responder_pergunta_sobre_dados(
         client=client,
         pergunta=payload.mensagem,
         resumo_estatistico=resumo_estatistico,
         prompt_sistema=custom_prompt,
-        modelo=GROQ_MODEL,
+        modelo=OPENAI_TEXT_MODEL,
         tenant_id=payload.tenant_id
     )
     return {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
 
 
 def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str, Any]:
-    """Modos baseados em agente com tool calling (Groq): Gerador de Croqui, Consultor de Estilo,
+    """Modos baseados em agente com tool calling (OpenAI): Gerador de Croqui, Consultor de Estilo,
     Professor Técnico e Tendências.
 
     A função é agnóstica ao modo -- chamar_agente() só usa as "tools" configuradas para o modo
@@ -315,10 +315,10 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
     else:
         messages_for_api.append({"role": "user", "content": payload.mensagem})
 
-    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
-    client = Groq(api_key=api_key)
+        raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+    client = OpenAI(api_key=api_key)
 
     texto, imagem_url, usou_fallback, pendente, fontes_busca_web = chamar_agente(
         client, config["modos"][payload.modo], messages_for_api, payload.tenant_id, estilo
@@ -379,17 +379,17 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
     prompt_com_contexto, fontes_consultadas = montar_prompt_final(chunks_relevantes, payload.mensagem)
     custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario)
 
-    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+        raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
 
-    client = Groq(api_key=api_key)
+    client = OpenAI(api_key=api_key)
     resposta_obj = client.chat.completions.create(
         messages=[
             {"role": "system", "content": custom_prompt},
             {"role": "user", "content": prompt_com_contexto}
         ],
-        model=GROQ_MODEL,
+        model=OPENAI_TEXT_MODEL,
         temperature=0.1,
         max_tokens=2048
     )
@@ -426,10 +426,10 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
             "imagem_url_costas": None
         }
 
-    api_key = obter_secret_tenant(payload.tenant_id, "GROQ_API_KEY")
+    api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail=f"GROQ_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
-    client = Groq(api_key=api_key)
+        raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+    client = OpenAI(api_key=api_key)
 
     prompt_vis = payload.pendente.get("prompt_visual", "")
     estilo = payload.pendente.get("estilo_croqui", ESTILO_ILUSTRACAO)
@@ -512,7 +512,7 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 
     segunda_resposta = client.chat.completions.create(
         messages=msgs_api,
-        model=GROQ_MODEL,
+        model=OPENAI_TEXT_MODEL,
         temperature=0.7,
         max_tokens=2048,
     )

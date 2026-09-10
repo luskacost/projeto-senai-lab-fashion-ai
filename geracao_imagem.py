@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-from rag_config import GROQ_MODEL
+from rag_config import OPENAI_TEXT_MODEL
 from tenant_config import obter_secret_tenant
 
 SUFIXO_TECNICO = (
@@ -141,7 +141,7 @@ def chamar_agente(
         if tools is not None:
             primeira_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model=GROQ_MODEL,
+                model=OPENAI_TEXT_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
                 tools=tools,
@@ -150,7 +150,7 @@ def chamar_agente(
         else:
             primeira_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model=GROQ_MODEL,
+                model=OPENAI_TEXT_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
             )
@@ -159,7 +159,7 @@ def chamar_agente(
         if tools is not None and any(kw in err_str for kw in ["tool", "search", "not supported", "invalid"]):
             primeira_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model=GROQ_MODEL,
+                model=OPENAI_TEXT_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
             )
@@ -264,7 +264,7 @@ def chamar_agente(
         try:
             proxima_resposta = client.chat.completions.create(
                 messages=messages_for_api,
-                model=GROQ_MODEL,
+                model=OPENAI_TEXT_MODEL,
                 temperature=0.7,
                 max_tokens=2048,
                 tools=tools,

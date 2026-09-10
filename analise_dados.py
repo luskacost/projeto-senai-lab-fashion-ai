@@ -13,6 +13,8 @@ import os
 import unicodedata
 from typing import Optional, Any, List
 import numpy as np
+
+from rag_config import OPENAI_TEXT_MODEL
 import pandas as pd
 
 from logger_config import obter_logger
@@ -337,10 +339,10 @@ def responder_pergunta_sobre_dados(
     pergunta: str,
     resumo_estatistico: dict,
     prompt_sistema: str,
-    modelo: str = "openai/gpt-oss-20b",
+    modelo: str = OPENAI_TEXT_MODEL,
     tenant_id: str = "senai_labfashion"
 ) -> str:
-    """Monta a mensagem para a API da Groq contendo o resumo_estatistico serializado
+    """Monta a mensagem para a API da OpenAI contendo o resumo_estatistico serializado
     em JSON como contexto seguro, mais a pergunta do usuário, e retorna a resposta interpretada.
     """
     logger = obter_logger(tenant_id)
