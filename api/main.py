@@ -520,7 +520,9 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
         incrementar_uso(payload.tenant_id, "imagens")
 
     instructions = payload.pendente.get("instructions", "")
-    texto_final = retomar_apos_confirmacao(client, instructions, payload.pendente, resultado_ferramenta.conteudo)
+    texto_final = retomar_apos_confirmacao(
+        client, instructions, payload.pendente, resultado_ferramenta.conteudo, tenant_id=payload.tenant_id
+    )
 
     return {
         "resposta": texto_final,

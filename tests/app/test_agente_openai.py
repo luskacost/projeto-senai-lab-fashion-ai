@@ -263,5 +263,94 @@ class TestLimiteDeRodadas(unittest.TestCase):
         self.assertLessEqual(client.responses.create.call_count, MAX_RODADAS_FERRAMENTA + 2)
 
 
+class TestObservabilidade(unittest.TestCase):
+    """Fase 10, Task 9: log estruturado por invocação do agente -- pergunta (resumida, nunca
+    íntegra), rodadas, tokens, latência, web_search e erro. Complementa o log por ferramenta já
+    coberto em test_agente_ferramentas.py."""
+
+    def test_log_de_resposta_direta_contem_todos_os_campos(self):
+        client = MagicMock()
+        client.responses.create.return_value = _resposta([], "Resposta direta.")
+
+        with self.assertLogs("labfashion_ia", level="INFO") as cm:
+            chamar_agente(
+                client, "instrucoes", None, [{"role": "user", "content": "qual a capital da frança?"}],
+                ContextoExecucao(tenant_id="senai_labfashion"),
+            )
+
+        linha = next(m for m in cm.output if "agente pergunta=" in m)
+        self.assertIn("pergunta=qual a capital da frança?", linha)
+        self.assertIn("rodadas=0", linha)
+        self.assertIn("tokens_in=", linha)
+        self.assertIn("tokens_out=", linha)
+        self.assertIn("duracao_ms=", linha)
+        self.assertIn("web_search=False", linha)
+        self.assertIn("erro=False", linha)
+
+    def test_pergunta_logada_nunca_e_o_texto_integral_se_muito_longo(self):
+        # resumir_para_log() trunca -- a garantia de privacidade (logger_config.py) depende disso.
+        texto_longo = "x" * 500
+        client = MagicMock()
+        client.responses.create.return_value = _resposta([], "ok")
+
+        with self.assertLogs("labfashion_ia", level="INFO") as cm:
+            chamar_agente(
+                client, "instrucoes", None, [{"role": "user", "content": texto_longo}],
+                ContextoExecucao(tenant_id="senai_labfashion"),
+            )
+
+        linha = next(m for m in cm.output if "agente pergunta=" in m)
+        self.assertIn("chars]", linha)
+        self.assertNotIn("x" * 500, linha)
+
+    def test_falha_inicial_e_logada_com_erro_antes_de_propagar(self):
+        client = MagicMock()
+        client.responses.create.side_effect = Exception("insufficient_quota")
+
+        with self.assertLogs("labfashion_ia", level="ERROR") as cm:
+            with self.assertRaises(Exception):
+                chamar_agente(
+                    client, "instrucoes", None, [{"role": "user", "content": "oi"}],
+                    ContextoExecucao(tenant_id="senai_labfashion"),
+                )
+
+        self.assertTrue(any("Falha na chamada inicial ao agente" in m for m in cm.output))
+
+    def test_pendente_confirmacao_e_logado_como_tal(self):
+        client = MagicMock()
+        call = _function_call_item(
+            "call_1", "gerar_imagem_croqui",
+            '{"prompt_visual": "x", "resumo_confirmacao": "y"}',
+        )
+        client.responses.create.return_value = _resposta([call], "")
+
+        with self.assertLogs("labfashion_ia", level="INFO") as cm:
+            chamar_agente(
+                client, "instrucoes", ["gerar_imagem_croqui"], [{"role": "user", "content": "quero um croqui"}],
+                ContextoExecucao(tenant_id="senai_labfashion"),
+            )
+
+        linha = next(m for m in cm.output if "agente pergunta=" in m)
+        self.assertIn("pendente_confirmacao=True", linha)
+
+    def test_retomar_apos_confirmacao_loga_ferramenta_tokens_e_duracao(self):
+        client = MagicMock()
+        client.responses.create.return_value = MagicMock(output_text="Resposta final.")
+        pendente = {
+            "input_previo": [{"role": "user", "content": "oi"}],
+            "function_call_item": {"type": "function_call", "call_id": "call_1", "name": "gerar_imagem_croqui", "arguments": "{}"},
+            "tool_call_id": "call_1",
+            "nome_ferramenta": "gerar_imagem_croqui",
+        }
+
+        with self.assertLogs("labfashion_ia", level="INFO") as cm:
+            retomar_apos_confirmacao(client, "instrucoes", pendente, "sucesso", tenant_id="senai_labfashion")
+
+        linha = next(m for m in cm.output if "agente_confirmacao" in m)
+        self.assertIn("ferramenta=gerar_imagem_croqui", linha)
+        self.assertIn("tokens_in=", linha)
+        self.assertIn("duracao_ms=", linha)
+
+
 if __name__ == "__main__":
     unittest.main()
