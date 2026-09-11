@@ -1,123 +1,127 @@
-# Contrato da API (Fase 3, Passo 15)
+# Contrato da API
 
-Rascunho dos endpoints mínimos para extrair a lógica de negócio de `app.py` para uma API própria
-(FastAPI, Passo 16+), permitindo depois construir o front-end em React/Next.js sobre ela. Cada
-endpoint mapeia para função(ões) Python já existentes e testadas — nenhuma lógica nova aqui, só a
-casca de transporte HTTP.
+Referência dos endpoints REST expostos por `api/main.py` (FastAPI), consumidos pelo frontend
+Next.js via `frontend/src/lib/api.ts`. Documenta o contrato **atual** — não um plano; para a
+arquitetura de IA por trás de `/chat`, ver a seção "Arquitetura do agente" no `README.md`.
 
-Convenção: `tenant_id` é sempre obrigatório (path, query ou body conforme o verbo) — a API continua
-multi-tenant mesmo com uso single-tenant na prática hoje.
+Convenção: `tenant_id` é sempre obrigatório. Multi-tenant na estrutura, uso single-tenant
+(`senai_labfashion`) na prática hoje.
 
 ## Autenticação/Admin
 
 ### `POST /admin/login`
 - **Body:** `{ tenant_id, senha }`
-- **Lógica:** compara `senha` com `obter_secret_tenant(tenant_id, "ADMIN_PASSWORD")` (app.py:45).
-- **Resposta:** `{ autorizado: bool }` (ou token/sessão, a definir na Fase 3 quando houver sessão HTTP
-  real — hoje é só um gate de UI via `st.session_state`, sem token).
+- **Lógica:** compara `senha` com `obter_secret_tenant(tenant_id, "ADMIN_PASSWORD")` via
+  `hmac.compare_digest` (constant-time); bloqueio de 15min após 5 tentativas incorretas por tenant.
+- **Resposta:** `{ autorizado: bool, token: string | null }` — `token` é opaco, válido por 4h,
+  exigido no header `X-Admin-Token` nas rotas administrativas abaixo.
 
 ## Configuração do Tenant
 
 ### `GET /config/tenant?tenant_id=`
-- **Lógica:** `carregar_config_tenant(tenant_id, TENANT_CONFIG[tenant_id])` (app.py:82).
-- **Resposta:** config mesclada (branding, prompts, modos, cores).
+- **Resposta:** config mesclada (branding, prompts, modos, limites diários, cores) — não exige auth.
 
 ### `PUT /config/tenant`
+- **Headers:** `X-Admin-Token`
 - **Body:** `{ tenant_id, dados_custom }`
-- **Lógica:** `salvar_config_tenant(tenant_id, dados_custom)` (app.py:120).
 
 ## Chat
 
 ### `POST /chat`
-- **Body:** `{ tenant_id, conversation_id, modo, perfil_usuario, mensagem }`
-- **Lógica por `modo`** (espelha o dispatch hoje em `app.py`, dentro de `with tab_assistente:`):
-  - **"Base de Conhecimento":** `buscar_contexto_relevante(tenant_id, mensagem, top_k=10,
-    conversation_id=conversation_id)` (rag_manager.py:1016) → `montar_prompt_final(chunks,
-    mensagem)` (rag_manager.py, Passo 14) → `client.chat.completions.create(model=GROQ_MODEL, ...)`.
-  - **"Análise de Dados":** `responder_pergunta_sobre_dados(client, pergunta, resumo_estatistico,
-    prompt_sistema, tenant_id)` (analise_dados.py:328). **Atenção:** hoje `resumo_estatistico` vem de
-    `st.session_state.resumo_estatistico_atual` (populado ao fazer upload da planilha) — como a API é
-    stateless entre requisições, esse resumo precisa ser persistido por `conversation_id` (ex.: campo
-    novo em `tenant_data/conversas/` ou cache separado) antes deste endpoint funcionar sem Streamlit.
-    Ajuste necessário na Fase 3, não um bloqueador do contrato em si.
-  - **"Gerador de Croqui":** `chamar_agente(client, agente_config, messages_for_api)` (app.py:712),
-    que internamente despacha para `executar_ferramenta_local()` (app.py:699) →
-    `chamar_api_geracao_imagem()` (app.py:691) quando o modelo aciona a tool de geração de imagem;
-    passa por `validar_prompt_imagem()` (moderacao.py:28) antes de gerar.
-  - **Outros modos custom** (definidos em `tenant_config.py`): chamada direta ao Groq com
-    `CUSTOM_PROMPT` (`config['base_prompt'] + prompt_modo + contexto_perfil`), sem RAG.
-  - Em todos os casos: `incrementar_uso(tenant_id, "mensagens")` (usage_tracker.py:45) e checagem
-    prévia de `verificar_limite(...)` (usage_tracker.py:66); cache opcional via
-    `obter_resposta_cacheada`/`salvar_resposta_cache` (resposta_cache.py).
-- **Resposta:** `{ resposta, fontes_consultadas, trechos_consultados, imagem_url? }`.
+- **Body:** `{ tenant_id, conversation_id?, modo, perfil_usuario?, mensagem, historico?, estilo_croqui? }`
+  — `historico` é a lista `{role, content}[]` da conversa (só enviada por modos baseados em
+  agente, ver `frontend/src/lib/modos.ts:ehModoDeAgente`).
+- **Checagem prévia:** `limite_mensagens_dia` do tenant (`config.get("limite_mensagens_dia", 200)`)
+  — `429` se excedido, **antes** de qualquer chamada à OpenAI (sem custo).
+- **Lógica por `modo`:**
+  - **"Base de Conhecimento":** RAG puro — `buscar_contexto_relevante` → `montar_prompt_final` →
+    `chat.completions.create` (Chat Completions, não passa pelo agente).
+  - **"Análise de Dados":** `responder_pergunta_sobre_dados` sobre o resumo estatístico persistido
+    por `conversation_id` (populado por `POST /planilha/upload`) — nunca vê os dados brutos.
+  - **Todos os demais modos** (Consultor de Estilo, Professor Técnico, Engenharia Têxtil, Gerador
+    de Croqui, Tendências, Assistente Geral): via o agente (`agente_openai.chamar_agente`,
+    Responses API). Cada modo declara em `tenant_config.py` uma lista de nomes de ferramentas
+    (resolvidas contra o registry em `agente_ferramentas.py`) e uma flag `usar_web_search`. O
+    modelo decide sozinho se/quando chamar cada uma.
+- **Resposta:**
+  ```jsonc
+  {
+    "resposta": "string | null",       // null quando pendente_confirmacao não é null
+    "imagem_url": "string | null",     // data URI base64 (data:image/png;base64,...) ou null
+    "pendente_confirmacao": { ... } | null,  // ver abaixo -- opaco pro frontend
+    "fontes_consultadas": ["string", ...],   // títulos das fontes citadas
+    "trechos_consultados": [
+      { "fonte": "string", "texto": "string", "url": "string | null" }
+      // "url" só presente quando a fonte veio de busca real na web (web_search nativo);
+      // ausente/null para documentos internos (RAG) ou dados do sistema
+    ],
+    "usou_busca_web": true | false     // distingue "respondeu de conhecimento próprio" de
+                                        // "pesquisou antes de responder" -- só relevante nos
+                                        // modos com usar_web_search habilitado
+  }
+  ```
+- **`pendente_confirmacao`** (não `null`): o modelo decidiu chamar uma ferramenta que exige
+  aprovação prévia (hoje, `gerar_imagem_croqui`/`gerar_ficha_tecnica` — as únicas marcadas
+  `exige_confirmacao=True` no registry). O frontend guarda esse objeto em memória (opaco, nunca
+  inspeciona o conteúdo) e o devolve inalterado em `POST /chat/croqui/confirmar`. Contém, entre
+  outros campos internos do motor, `resumo_confirmacao` (frase curta em português, a única parte
+  que o frontend de fato lê, para exibir "Entendi que você quer: ...").
+
+### `POST /chat/croqui/confirmar`
+- **Body:** `{ tenant_id, confirmado: bool, pendente: <objeto de pendente_confirmacao> }`
+- **Se `confirmado: false`:** cancela, devolve `{ resposta: "Entendido! ...", imagem_url: null }`
+  sem gastar nenhuma chamada.
+- **Se `confirmado: true`:** modera o prompt visual (`validar_prompt_imagem`), checa
+  `limite_imagens_dia` (`429` se excedido), executa a ferramenta de verdade (gera a imagem via
+  gpt-image-1), incrementa o uso, e retoma a conversa até obter a resposta final (síntese/tabela
+  de medidas).
+- **Resposta:** `{ resposta: "string", imagem_url: "string | null" }`
 
 ## Conversas
 
 ### `GET /conversas?tenant_id=&usuario_id=`
-- **Lógica:** `carregar_conversas(tenant_id, usuario_id)` (conversas_manager.py:24).
+### `POST /conversas` — `{ tenant_id, usuario_id }`
+### `PATCH /conversas/{conversa_id}` — `{ tenant_id, usuario_id, novo_titulo?, mensagens? }`
+### `DELETE /conversas/{conversa_id}?tenant_id=&usuario_id=`
+### `GET /conversas/{conversa_id}/export?tenant_id=&usuario_id=&formato=txt|pdf`
 
-### `POST /conversas`
-- **Body:** `{ tenant_id, usuario_id }`
-- **Lógica:** `criar_nova_conversa()` (conversas_manager.py:57) + `salvar_conversas(...)`
-  (conversas_manager.py:45). Título inicial via `gerar_titulo_conversa(primeira_mensagem)`
-  (conversas_manager.py:71) assim que a primeira mensagem chegar.
-
-### `PATCH /conversas/{conversa_id}`
-- **Body:** `{ tenant_id, usuario_id, novo_titulo }`
-- **Lógica:** `renomear_conversa(conversas, conversa_id, novo_titulo)` (conversas_manager.py:86) +
-  `salvar_conversas(...)`.
-
-### `DELETE /conversas/{conversa_id}`
-- **Lógica:** não existe função dedicada hoje — `app.py` (~linha 915) filtra a lista em memória e
-  chama `salvar_conversas(...)` com a lista sem o item removido. Replicar esse padrão no endpoint
-  (carregar lista, filtrar, salvar) em vez de criar uma função nova — comportamento simples o
-  suficiente para não precisar de uma função dedicada em `conversas_manager.py`.
-
-### `GET /conversas/{conversa_id}/export?formato=pdf|txt`
-- **Lógica:** `formatar_conversa_txt(messages, ...)` (app.py:166) ou `gerar_conversa_pdf(messages,
-  ...)` (app.py:197, via `fpdf2`).
+Sem mudanças nesta fase — persistência em `tenant_data/conversas/{tenant_id}_{usuario_id}.json`,
+protegida por `FileLock` desde a Fase 9.
 
 ## Documentos (Base de Conhecimento)
 
 ### `GET /documentos?tenant_id=`
-- **Lógica:** `listar_documentos_indexados(tenant_id)` (rag_manager.py).
+### `POST /documentos/upload` — multipart, headers `X-Admin-Token`, limite 20MB
+### `DELETE /documentos/{nome_arquivo}?tenant_id=` — headers `X-Admin-Token`
 
-### `POST /documentos/upload`
-- **Body:** multipart (`tenant_id`, arquivo)
-- **Lógica:** `extrair_documento(stream, nome_arquivo, extensao)` (rag_manager.py/document_extractors.py)
-  → `indexar_documento(tenant_id, nome_arquivo, unidades_extraidas, dados_tabulares=...)`
-  (rag_manager.py:864 região). Requer checagem de `EXTENSOES_SUPORTADAS` antes de aceitar o arquivo.
+## Análise de Dados
 
-### `DELETE /documentos/{nome_arquivo}?tenant_id=`
-- **Lógica:** `remover_documento(tenant_id, nome_arquivo)` (rag_manager.py).
+### `POST /planilha/upload?tenant_id=&conversation_id=` — multipart, limite 20MB
+- Gera e persiste o resumo estatístico por `conversation_id`, reaproveitado pelas próximas
+  mensagens de chat no modo "Análise de Dados" na mesma conversa.
 
-## Análise de Dados (upload de planilha)
-
-### `POST /planilha/upload`
-- **Body:** multipart (`tenant_id`, `conversation_id`, arquivo)
-- **Lógica:** `carregar_planilha(arquivo, tenant_id)` (analise_dados.py:43) →
-  `gerar_resumo_estatistico(df)` (analise_dados.py:195). **Mesma observação do endpoint `/chat`:** o
-  resumo resultante precisa ser persistido por `conversation_id` para ser reaproveitado nas
-  perguntas subsequentes daquela conversa (hoje vive só em `st.session_state`).
-
-## Debug/Observabilidade (opcional, uso interno)
+## Debug/Observabilidade (uso interno)
 
 ### `GET /debug/rag?tenant_id=`
-- **Lógica:** `obter_ultimo_rag_debug()` / `formatar_bloco_debug_rag()` (rag_manager.py) — expõe o
-  último relatório de debug do pipeline RAG. Só relevante para uma futura tela de administração; não
-  é prioridade da Fase 4 (front-end React).
+- Último relatório de debug do pipeline RAG gerado neste processo (estado global do módulo, não
+  segmentado por requisição — ver limitação documentada no próprio endpoint).
 
 ---
 
-## Observações que afetam a ordem de implementação (Passo 16+)
+## Ferramentas do agente (referência rápida)
 
-1. **Estado hoje vive em `st.session_state`, a API precisa persistir isso em disco/DB:**
-   `resumo_estatistico_atual` (Análise de Dados) é o único caso que exige uma mudança real de
-   arquitetura (persistir por conversa) — todo o resto (conversas, documentos, config) já persiste em
-   `tenant_data/` e só precisa de uma casca HTTP em cima.
-2. **`/chat` é o endpoint mais complexo** (Passo 17 do roadmap) por despachar para 3 fluxos internos
-   diferentes conforme o `modo` — implementar primeiro só o caminho "Base de Conhecimento" (mais
-   simples, já 100% stateless) antes de extrair "Gerador de Croqui" e "Análise de Dados".
-3. **Nenhuma função de negócio precisa ser reescrita** — todas as listadas acima já existem e têm
-   cobertura de teste (RAG) ou são triviais o suficiente (conversas, config) para escrever teste
-   junto com o endpoint.
+Schemas completos e handlers vivem em `agente_ferramentas.py` (fonte única de verdade — nunca
+duplicados em `tenant_config.py`, que só referencia os nomes). Nenhuma recebe `tenant_id` ou
+credenciais do modelo; esses valores vêm sempre do `ContextoExecucao` montado pelo backend.
+
+| Ferramenta | Exige confirmação? | O que faz |
+|---|---|---|
+| `gerar_imagem_croqui` | Sim | Gera imagem via gpt-image-1 (OpenAI). |
+| `gerar_ficha_tecnica` | Sim | Idem, mais instrução para montar a tabela de medidas na resposta final. |
+| `buscar_documentos_internos` | Não | Busca semântica no RAG do tenant (mesmo pipeline do modo "Base de Conhecimento"). |
+| `listar_documentos_disponiveis` | Não | Lista nomes de documentos indexados, sem gerar embeddings. |
+| `consultar_resumo_planilha` | Não | Resumo estatístico da planilha enviada na conversa atual. |
+| `consultar_unidades_senai` | Não | Endereço/telefone/e-mail das unidades do SENAI Goiás (dado estático). |
+
+`web_search` (nativo da OpenAI, não é uma ferramenta do registry) é habilitado por modo via
+`usar_web_search: True` em `tenant_config.py` — hoje: Tendências, Engenharia Têxtil, Assistente Geral.
