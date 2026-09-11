@@ -73,36 +73,47 @@ class TestValidarComposicao(unittest.TestCase):
 
 class TestValidarCustos(unittest.TestCase):
 
-    def _custos(self, aviamentos, tecidos, costura, total):
+    def _custos(self, aviamentos, tecidos, costura, outros, total):
+        def _cat(valor):
+            return {"custo": _campo(valor), "observacao": _campo("")}
         return {"custos": {
-            "aviamentos": _campo(aviamentos),
-            "tecidos": _campo(tecidos),
-            "costura_beneficiamento": _campo(costura),
-            "preco_total": _campo(total),
+            "aviamentos": _cat(aviamentos),
+            "tecidos": _cat(tecidos),
+            "costura_beneficiamento": _cat(costura),
+            "outros": _cat(outros),
+            "preco_total": _cat(total),
         }}
 
     def test_custos_batendo_nao_gera_alerta(self):
-        dados = self._custos(10.0, 20.0, 5.0, 35.0)
+        dados = self._custos(10.0, 20.0, 5.0, 0.0, 35.0)
+        self.assertEqual(fv.validar_custos(dados), [])
+
+    def test_custos_batendo_com_outros_nao_gera_alerta(self):
+        dados = self._custos(10.0, 20.0, 5.0, 8.0, 43.0)
         self.assertEqual(fv.validar_custos(dados), [])
 
     def test_custos_nao_batendo_gera_alerta(self):
-        dados = self._custos(10.0, 20.0, 5.0, 100.0)
+        dados = self._custos(10.0, 20.0, 5.0, 0.0, 100.0)
         alertas = fv.validar_custos(dados)
         self.assertEqual(len(alertas), 1)
         self.assertEqual(alertas[0]["codigo"], "custos_nao_batem")
-        self.assertEqual(alertas[0]["campo"], "custos.preco_total")
+        self.assertEqual(alertas[0]["campo"], "custos.preco_total.custo")
 
     def test_tolerancia_de_centavos_nao_gera_alerta(self):
-        dados = self._custos(10.0, 20.0, 5.001, 35.0)
+        dados = self._custos(10.0, 20.0, 5.001, 0.0, 35.0)
         self.assertEqual(fv.validar_custos(dados), [])
 
     def test_algum_campo_ausente_nao_valida(self):
         # Regra 7 do prompt: sem dado suficiente, não inventa nem alerta -- "a definir" é legítimo.
-        dados = self._custos(10.0, None, 5.0, 35.0)
+        dados = self._custos(10.0, None, 5.0, 0.0, 35.0)
+        self.assertEqual(fv.validar_custos(dados), [])
+
+    def test_outros_ausente_nao_valida(self):
+        dados = self._custos(10.0, 20.0, 5.0, None, 35.0)
         self.assertEqual(fv.validar_custos(dados), [])
 
     def test_todos_ausentes_nao_valida(self):
-        dados = self._custos(None, None, None, None)
+        dados = self._custos(None, None, None, None, None)
         self.assertEqual(fv.validar_custos(dados), [])
 
     def test_custos_ausentes_no_dict_nao_quebra(self):
@@ -194,10 +205,11 @@ class TestValidarFicha(unittest.TestCase):
         dados["ficha"]["descricao"] = _campo("Camisa social manga curta")
         dados["grade"]["numericos"] = _campo(["38", "40"])
         dados["tecidos"] = [_tecido("95% algodão, 5% elastano")]
-        dados["custos"]["aviamentos"] = _campo(10.0)
-        dados["custos"]["tecidos"] = _campo(20.0)
-        dados["custos"]["costura_beneficiamento"] = _campo(5.0)
-        dados["custos"]["preco_total"] = _campo(35.0)
+        dados["custos"]["aviamentos"]["custo"] = _campo(10.0)
+        dados["custos"]["tecidos"]["custo"] = _campo(20.0)
+        dados["custos"]["costura_beneficiamento"]["custo"] = _campo(5.0)
+        dados["custos"]["outros"]["custo"] = _campo(0.0)
+        dados["custos"]["preco_total"]["custo"] = _campo(35.0)
 
         self.assertEqual(fv.validar_ficha(dados), [])
 

@@ -54,10 +54,11 @@ CAMPOS_NAO_INFERIVEIS = (
     "tecidos[].largura",
     "tecidos[].fornecedor",
     "tecidos[].preco",
-    "custos.aviamentos",
-    "custos.tecidos",
-    "custos.costura_beneficiamento",
-    "custos.preco_total",
+    "custos.aviamentos.custo",
+    "custos.tecidos.custo",
+    "custos.costura_beneficiamento.custo",
+    "custos.outros.custo",
+    "custos.preco_total.custo",
     "sequencia_operacional[].maquinas",
     "modelagem.modelista",
     "modelagem.numero_moldes",
@@ -172,54 +173,92 @@ _PROPRIEDADES_OPERACAO = {
     "maquinas": campo_texto("Máquina(s) usada(s) na operação (ex: overloque, reta, galoneira)."),
 }
 
-_PROPRIEDADES_COR = {
-    "nome": campo_texto("Nome/descrição da cor (ex: preto, azul marinho, off-white)."),
+_PROPRIEDADES_COR_BENEFICIAMENTO = {
+    "item": campo_texto("Item/parte da peça a que esta linha se refere (ex: corpo, gola, punho)."),
+    "descricao": campo_texto("Descrição da cor/beneficiamento desta linha."),
+    "cor": campo_texto("Cor aplicada."),
+    "beneficiamento": campo_texto("Beneficiamento aplicado (ex: estamparia, tingimento, lavagem)."),
+    "observacoes": campo_texto("Observações desta linha."),
 }
 
-# Campos confirmados contra o template .docx real (Fase 11, planejamento de 2026-09-11): o
-# cabeçalho da primeira página só tem estes 6 campos -- "técnica" e "empresa" que o prompt
-# original listava junto não pertencem aqui, pertencem ao bloco BENEFICIAMENTOS separado (ver
-# abaixo). Corrigido antes da Task 9 (preflight do template) de propósito: renomear/mover campo
-# depois que os placeholders do Word existirem é o problema que a Task 1 existe para evitar.
+_PROPRIEDADES_PARTE_MODELAGEM = {
+    "descricao": campo_texto("Parte/componente da modelagem (ex: frente, costas, manga, gola)."),
+    "observacoes": campo_texto("Observação de corte/modelagem para esta parte."),
+}
+
+
+def _campo_custo(descricao: str) -> dict:
+    """Categoria de custo do template real: não é só um número, é {custo, observação} -- a tabela
+    CUSTOS do .docx tem uma linha "OBS.:" própria embaixo de cada categoria (aviamentos, tecidos,
+    costura/benef., outros, preço total).
+
+    Chave interna é "custo", não "valor": um campo folha de proveniência (`_bloco_proveniencia`)
+    já usa "valor" como nome da sua própria propriedade -- nomear diferente evita a colisão entre
+    "objeto com propriedade valor→é um campo folha" e "objeto que por acaso tem uma sub-chave
+    também chamada valor".
+    """
+    return _objeto({
+        "custo": campo_numero(descricao),
+        "observacao": campo_texto("Observação sobre esta categoria de custo."),
+    })
+
+
+# Campos confirmados contra o template .docx real recebido em 2026-09-11 (templates/ficha_tecnica_
+# v1.docx), célula por célula via python-docx -- não a partir da descrição textual do prompt nem
+# do PDF de referência enviado antes, que divergiam do documento oficial em vários pontos.
 SCHEMA_EXTRACAO = _objeto({
+    # Bloco "IDENTIFICAÇÃO DO PRODUTO" do template: ref/data aparecem de novo no cabeçalho da
+    # página (REF.:/DATA:/PÁG.:), repetição intencional do mesmo dado -- o render do docx (Task 10)
+    # preenche as duas posições com o mesmo valor.
     "ficha": _objeto({
         "ref": campo_texto("Código de referência da peça."),
         "nome": campo_texto("Nome da peça."),
         "colecao": campo_texto("Coleção a que a peça pertence."),
         "descricao": campo_texto("Descrição da peça conforme o usuário a descreveu."),
         "designer": campo_texto("Nome do designer responsável."),
+        "tecnica": campo_texto("Técnica empregada na peça."),
+        "empresa": campo_texto("Empresa/marca da peça."),
         "data": campo_texto("Data da ficha, no formato DD/MM/AAAA."),
     }),
-    # Bloco "BENEFICIAMENTOS" do template: contato/processo de beneficiamento da peça (tingimento,
-    # lavagem, estamparia etc.) -- é um NOME/TÉCNICA/EMPRESA distinto do designer da ficha.
-    "beneficiamento": _objeto({
-        "nome": campo_texto("Nome do responsável/contato do beneficiamento."),
-        "tecnica": campo_texto("Técnica de beneficiamento empregada (ex: estamparia, tingimento, lavagem)."),
-        "empresa": campo_texto("Empresa que executa o beneficiamento."),
-    }),
-    "cores": _lista_de(_PROPRIEDADES_COR, "Cores da peça. Lista vazia se nenhuma foi informada."),
+    # Tabela "CORES / BENEFICIAMENTOS" do template: ITEM | DESCRIÇÃO | COR | BENEFICIAMENTO |
+    # OBSERVAÇÕES, uma linha dinâmica por item/parte da peça que recebe cor ou beneficiamento.
+    "cores_beneficiamentos": _lista_de(
+        _PROPRIEDADES_COR_BENEFICIAMENTO,
+        "Cores e beneficiamentos por item/parte da peça. Lista vazia se nenhum foi informado.",
+    ),
     "grade": _objeto({
         "numericos": campo_lista_enum(TAMANHOS_NUMERICOS, "Tamanhos numéricos que a peça terá."),
         "comerciais": campo_lista_enum(TAMANHOS_COMERCIAIS, "Tamanhos comerciais que a peça terá."),
     }),
     "aviamentos": _lista_de(_PROPRIEDADES_AVIAMENTO, "Aviamentos da peça. Lista vazia se nenhum foi informado."),
     "tecidos": _lista_de(_PROPRIEDADES_TECIDO, "Tecidos da peça. Lista vazia se nenhum foi informado."),
+    # Tabela "CUSTOS" do template: 5 categorias (a 5ª, "outros", não existia na descrição textual
+    # original do produto -- só apareceu no .docx real), cada uma com valor em reais e uma
+    # observação própria.
     "custos": _objeto({
-        "aviamentos": campo_numero("Custo total de aviamentos em reais."),
-        "tecidos": campo_numero("Custo total de tecidos em reais."),
-        "costura_beneficiamento": campo_numero("Custo de costura e beneficiamento em reais."),
-        "preco_total": campo_numero("Preço total da peça em reais."),
+        "aviamentos": _campo_custo("Custo total de aviamentos em reais."),
+        "tecidos": _campo_custo("Custo total de tecidos em reais."),
+        "costura_beneficiamento": _campo_custo("Custo de costura e beneficiamento em reais."),
+        "outros": _campo_custo("Outros custos em reais."),
+        "preco_total": _campo_custo("Preço total da peça em reais."),
     }),
     "sequencia_operacional": _lista_de(
         _PROPRIEDADES_OPERACAO,
         "Sequência de operações de costura, na ordem de execução. Lista vazia se não houver "
-        "informação suficiente sobre a construção da peça.",
+        "informação suficiente sobre a construção da peça. Não inclui o número da etapa -- o "
+        "template numera as linhas automaticamente pela posição.",
     ),
+    # Tabela "MODELAGEM" do template: MODELISTA e QUANTIDADE DE MOLDES são valores únicos da
+    # ficha; PARTES/COMPONENTES DA MODELAGEM e OBSERVAÇÕES variam por linha -- uma linha por parte
+    # da peça (frente, costas, manga...), cada uma com sua nota de corte.
     "modelagem": _objeto({
         "modelista": campo_texto("Nome do modelista responsável."),
         "numero_moldes": campo_numero("Quantidade de moldes da peça."),
-        "partes_componentes": campo_texto("Partes componentes da modelagem."),
-        "corte": campo_texto("Observações sobre o corte."),
+        "partes": _lista_de(
+            _PROPRIEDADES_PARTE_MODELAGEM,
+            "Partes/componentes da modelagem, uma linha por parte da peça. Lista vazia se não "
+            "houver informação suficiente.",
+        ),
     }),
 })
 
@@ -265,8 +304,22 @@ def operacao_vazia() -> dict:
     return {"descricao": campo_texto_vazio(), "maquinas": campo_texto_vazio()}
 
 
-def cor_vazia() -> dict:
-    return {"nome": campo_texto_vazio()}
+def cor_beneficiamento_vazia() -> dict:
+    return {
+        "item": campo_texto_vazio(),
+        "descricao": campo_texto_vazio(),
+        "cor": campo_texto_vazio(),
+        "beneficiamento": campo_texto_vazio(),
+        "observacoes": campo_texto_vazio(),
+    }
+
+
+def parte_modelagem_vazia() -> dict:
+    return {"descricao": campo_texto_vazio(), "observacoes": campo_texto_vazio()}
+
+
+def custo_vazio() -> dict:
+    return {"custo": campo_numero_vazio(), "observacao": campo_texto_vazio()}
 
 
 def dados_vazios() -> dict:
@@ -278,29 +331,26 @@ def dados_vazios() -> dict:
             "colecao": campo_texto_vazio(),
             "descricao": campo_texto_vazio(),
             "designer": campo_texto_vazio(),
-            "data": campo_texto_vazio(),
-        },
-        "beneficiamento": {
-            "nome": campo_texto_vazio(),
             "tecnica": campo_texto_vazio(),
             "empresa": campo_texto_vazio(),
+            "data": campo_texto_vazio(),
         },
-        "cores": [],
+        "cores_beneficiamentos": [],
         "grade": {"numericos": _campo_vazio([]), "comerciais": _campo_vazio([])},
         "aviamentos": [],
         "tecidos": [],
         "custos": {
-            "aviamentos": campo_numero_vazio(),
-            "tecidos": campo_numero_vazio(),
-            "costura_beneficiamento": campo_numero_vazio(),
-            "preco_total": campo_numero_vazio(),
+            "aviamentos": custo_vazio(),
+            "tecidos": custo_vazio(),
+            "costura_beneficiamento": custo_vazio(),
+            "outros": custo_vazio(),
+            "preco_total": custo_vazio(),
         },
         "sequencia_operacional": [],
         "modelagem": {
             "modelista": campo_texto_vazio(),
             "numero_moldes": campo_numero_vazio(),
-            "partes_componentes": campo_texto_vazio(),
-            "corte": campo_texto_vazio(),
+            "partes": [],
         },
     }
 

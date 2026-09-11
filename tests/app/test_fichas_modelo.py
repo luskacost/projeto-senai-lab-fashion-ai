@@ -92,7 +92,7 @@ class TestConformidadeStrictMode(unittest.TestCase):
 
     def test_ausencia_de_numero_e_uniao_com_null(self):
         # Campo numérico não pode virar "" quando não há informação: o decodificador rejeitaria.
-        preco = _resolver_caminho("custos.preco_total")
+        preco = _resolver_caminho("custos.preco_total.custo")
         self.assertEqual(preco["properties"]["valor"]["type"], ["number", "null"])
 
 
@@ -125,7 +125,7 @@ class TestProveniencia(unittest.TestCase):
     def test_campos_criticos_estao_protegidos(self):
         # Guarda contra alguém remover uma proteção sem perceber o efeito: preço e composição
         # inventados viram pedido de compra e lote de tecido errados.
-        for obrigatorio in ("aviamentos[].preco", "tecidos[].composicao", "custos.preco_total",
+        for obrigatorio in ("aviamentos[].preco", "tecidos[].composicao", "custos.preco_total.custo",
                             "modelagem.numero_moldes"):
             self.assertIn(obrigatorio, fm.CAMPOS_NAO_INFERIVEIS)
 
@@ -152,7 +152,7 @@ class TestValoresVazios(unittest.TestCase):
         dados = fm.dados_vazios()
         self.assertEqual(dados["ficha"]["ref"]["origem"], fm.ORIGEM_DESCONHECIDO)
         self.assertEqual(dados["ficha"]["ref"]["valor"], "")
-        self.assertIsNone(dados["custos"]["preco_total"]["valor"])
+        self.assertIsNone(dados["custos"]["preco_total"]["custo"]["valor"])
         self.assertEqual(dados["ficha"]["ref"]["trecho"], "")
 
     def test_listas_dinamicas_comecam_vazias(self):
@@ -179,12 +179,17 @@ class TestValoresVazios(unittest.TestCase):
             ("aviamentos[]", fm.aviamento_vazio()),
             ("tecidos[]", fm.tecido_vazio()),
             ("sequencia_operacional[]", fm.operacao_vazia()),
-            ("cores[]", fm.cor_vazia()),
+            ("cores_beneficiamentos[]", fm.cor_beneficiamento_vazia()),
+            ("modelagem.partes[]", fm.parte_modelagem_vazia()),
         )
         for caminho, item in pares:
             with self.subTest(item=caminho):
                 schema = _resolver_caminho(caminho)
                 self.assertEqual(set(item.keys()), set(schema["properties"].keys()))
+
+    def test_custo_vazio_bate_com_o_schema(self):
+        schema = _resolver_caminho("custos.preco_total")
+        self.assertEqual(set(fm.custo_vazio().keys()), set(schema["properties"].keys()))
 
 
 class TestAcessoACampos(unittest.TestCase):
@@ -209,35 +214,57 @@ class TestAcessoACampos(unittest.TestCase):
 
 
 class TestEstruturaConformeTemplateReal(unittest.TestCase):
-    """Corrigido depois que o .docx real chegou (2026-09-11): o cabeçalho da primeira página do
-    template só tem ref/nome/colecao/descricao/designer/data -- "técnica" e "empresa" pertencem
-    ao bloco BENEFICIAMENTOS, separado, que também tem seu próprio "nome" (contato do
-    beneficiamento, não o designer). Esses testes existem pra nunca mais deixar essa confusão
-    voltar silenciosamente."""
+    """Schema confirmado célula por célula contra templates/ficha_tecnica_v1.docx (recebido e
+    inspecionado em 2026-09-11, via python-docx, não a partir da descrição textual do prompt nem
+    do PDF de referência enviado antes -- os dois divergiam do documento oficial em vários
+    pontos). Esses testes existem pra nunca mais deixar essas divergências voltarem
+    silenciosamente."""
 
-    def test_ficha_nao_tem_tecnica_nem_empresa(self):
+    def test_ficha_tem_tecnica_e_empresa_no_mesmo_bloco(self):
+        # A tabela real "IDENTIFICAÇÃO DO PRODUTO" tem nome/colecao/descricao/designer/tecnica/
+        # empresa/ref/data juntos -- ao contrário do que o PDF de referência sugeria, não existe
+        # um bloco "BENEFICIAMENTOS" com nome/técnica/empresa separado do designer.
         ficha = _resolver_caminho("ficha")
-        self.assertNotIn("tecnica", ficha["properties"])
-        self.assertNotIn("empresa", ficha["properties"])
         self.assertEqual(
             set(ficha["properties"].keys()),
-            {"ref", "nome", "colecao", "descricao", "designer", "data"},
+            {"ref", "nome", "colecao", "descricao", "designer", "tecnica", "empresa", "data"},
         )
 
-    def test_beneficiamento_e_bloco_proprio(self):
-        beneficiamento = _resolver_caminho("beneficiamento")
-        self.assertEqual(set(beneficiamento["properties"].keys()), {"nome", "tecnica", "empresa"})
+    def test_cores_beneficiamentos_e_tabela_dinamica_de_5_colunas(self):
+        # A seção "CORES / BENEFICIAMENTOS" do .docx é UMA tabela (ITEM | DESCRIÇÃO | COR |
+        # BENEFICIAMENTO | OBSERVAÇÕES), não duas coisas separadas (lista de cores + contato).
+        item = _resolver_caminho("cores_beneficiamentos[]")
+        self.assertEqual(
+            set(item["properties"].keys()),
+            {"item", "descricao", "cor", "beneficiamento", "observacoes"},
+        )
 
-    def test_cores_e_lista_dinamica(self):
-        cores = _resolver_caminho("cores[]")
-        self.assertEqual(set(cores["properties"].keys()), {"nome"})
+    def test_custos_tem_outros_e_observacao_por_categoria(self):
+        # A tabela CUSTOS real tem 5 categorias (não 4 -- "outros" só apareceu no .docx) e uma
+        # linha "OBS.:" própria embaixo de cada uma.
+        for categoria in ("aviamentos", "tecidos", "costura_beneficiamento", "outros", "preco_total"):
+            with self.subTest(categoria=categoria):
+                campo = _resolver_caminho(f"custos.{categoria}")
+                self.assertEqual(set(campo["properties"].keys()), {"custo", "observacao"})
 
-    def test_dados_vazios_tem_beneficiamento_e_cores(self):
+    def test_modelagem_modelista_e_moldes_sao_unicos_partes_e_lista(self):
+        # A tabela MODELAGEM real tem MODELISTA/QUANTIDADE DE MOLDES (únicos) e PARTES/
+        # COMPONENTES + OBSERVAÇÕES variando linha a linha -- e não tem campo "CORTE" (o .docx
+        # real substituiu por "OBSERVAÇÕES", confirmado com o usuário).
+        modelagem = _resolver_caminho("modelagem")
+        self.assertEqual(set(modelagem["properties"].keys()), {"modelista", "numero_moldes", "partes"})
+        self.assertNotIn("corte", modelagem["properties"])
+        parte = _resolver_caminho("modelagem.partes[]")
+        self.assertEqual(set(parte["properties"].keys()), {"descricao", "observacoes"})
+
+    def test_dados_vazios_reflete_a_estrutura_real(self):
         dados = fm.dados_vazios()
-        self.assertIn("beneficiamento", dados)
-        self.assertNotIn("tecnica", dados["ficha"])
-        self.assertNotIn("empresa", dados["ficha"])
-        self.assertEqual(dados["cores"], [])
+        self.assertIn("tecnica", dados["ficha"])
+        self.assertIn("empresa", dados["ficha"])
+        self.assertNotIn("beneficiamento", dados)
+        self.assertEqual(dados["cores_beneficiamentos"], [])
+        self.assertEqual(set(dados["custos"].keys()), {"aviamentos", "tecidos", "costura_beneficiamento", "outros", "preco_total"})
+        self.assertEqual(dados["modelagem"]["partes"], [])
 
 
 class TestConstantes(unittest.TestCase):

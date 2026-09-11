@@ -76,27 +76,35 @@ def validar_composicao(dados: dict) -> List[dict]:
 
 
 def validar_custos(dados: dict) -> List[dict]:
-    """Alerta quando aviamentos + tecidos + costura/beneficiamento != preço total.
+    """Alerta quando aviamentos + tecidos + costura/beneficiamento + outros != preço total.
 
-    Só valida se os 3 componentes E o total estiverem preenchidos -- com qualquer um ausente não
+    Cada categoria é {custo, observacao} no schema real (tabela CUSTOS do template tem uma linha
+    "OBS.:" própria por categoria) -- só o subcampo "custo" entra na soma.
+
+    Só valida se as 4 categorias E o total estiverem preenchidos -- com qualquer um ausente não
     há como validar com confiança, e o item 7 do prompt já cobre esse caso ("quando algum valor
     não estiver disponível, não inventar... mostrar como não informado").
     """
     custos = dados.get("custos", {}) or {}
-    aviamentos = fm.valor_de(custos.get("aviamentos"))
-    tecidos = fm.valor_de(custos.get("tecidos"))
-    costura = fm.valor_de(custos.get("costura_beneficiamento"))
-    total = fm.valor_de(custos.get("preco_total"))
 
-    if None in (aviamentos, tecidos, costura, total):
+    def _custo(nome: str) -> Optional[float]:
+        return fm.valor_de((custos.get(nome) or {}).get("custo"))
+
+    aviamentos = _custo("aviamentos")
+    tecidos = _custo("tecidos")
+    costura = _custo("costura_beneficiamento")
+    outros = _custo("outros")
+    total = _custo("preco_total")
+
+    if None in (aviamentos, tecidos, costura, outros, total):
         return []
 
-    soma = aviamentos + tecidos + costura
+    soma = aviamentos + tecidos + costura + outros
     if abs(soma - total) > TOLERANCIA_CUSTO_REAIS:
         return [_alerta(
             "custos_nao_batem",
-            "custos.preco_total",
-            f"Aviamentos + tecidos + costura/beneficiamento = R$ {soma:.2f}, "
+            "custos.preco_total.custo",
+            f"Aviamentos + tecidos + costura/beneficiamento + outros = R$ {soma:.2f}, "
             f"mas o preço total informado é R$ {total:.2f}.",
         )]
     return []
