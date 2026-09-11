@@ -14,10 +14,12 @@ caso precise consultar).
 
 - **Backend:** FastAPI (`api/main.py`), expõe a API REST consumida pelo frontend.
 - **Frontend:** Next.js 16 / React, em `frontend/`.
-- **LLM (texto):** [OpenAI](https://platform.openai.com/) (`gpt-4o` por padrão) -- chat, moderação,
-  tool-calling (croqui/tendências) e síntese do RAG.
+- **LLM (texto):** [OpenAI](https://platform.openai.com/) (`gpt-4o` por padrão, via Responses API)
+  -- chat, moderação, tool-calling (ferramentas próprias do sistema) e síntese do RAG.
 - **Geração de imagem:** OpenAI `gpt-image-1` -- croquis e desenhos técnicos de moda.
-- **Busca web:** [Tavily](https://tavily.com/) -- busca real usada pelo modo Tendências.
+- **Busca web:** `web_search` nativo da OpenAI (Responses API) -- usado pelos modos Tendências,
+  Engenharia Têxtil e Assistente Geral quando a pergunta exige informação atual; o modelo decide
+  sozinho quando pesquisar em vez de responder de conhecimento próprio.
 - **RAG / Base de Conhecimento:** [ChromaDB](https://www.trychroma.com/) (embutido, self-hosted)
   + [Sentence-Transformers](https://www.sbert.net/) (`paraphrase-multilingual-MiniLM-L12-v2`,
   100% local em CPU, sem custo de API para vetorização) para embeddings.
@@ -33,7 +35,7 @@ caso precise consultar).
 | Professor Técnico | Costura, modelagem, tecidos -- tom didático. |
 | Engenharia Têxtil | Normas técnicas (ABNT/ISO/AATCC/ASTM), ensaios de tecido, controle de qualidade -- tom técnico-industrial. |
 | Gerador de Croqui | Ilustração de moda ou Desenho Técnico (flat sketch); inclui geração de ficha técnica completa (desenho + tabela de medidas/materiais). |
-| Tendências | Análise de tendências com busca real na web (Tavily), cita fontes. |
+| Tendências | Análise de tendências com busca real na web (web_search nativo), cita fontes. |
 | Análise de Dados | Upload de planilha (CSV/XLSX/XLS), perguntas sobre os números -- só o resumo estatístico vai pro LLM, nunca o dado bruto. |
 | Base de Conhecimento | Pergunta sobre documentos indexados pelo tenant (RAG). |
 | Assistente Geral | Sem restrição de escopo a moda -- qualquer assunto. |
@@ -79,9 +81,8 @@ Copie `.env.example` para `.env` e preencha (convenção: `{TENANT_ID_MAIUSCULO}
 
 | Variável | Uso |
 |---|---|
-| `SENAI_LABFASHION_OPENAI_API_KEY` | Chat (GPT-4o), moderação, geração de imagem (gpt-image-1). |
+| `SENAI_LABFASHION_OPENAI_API_KEY` | Chat (GPT-4o), moderação, geração de imagem (gpt-image-1), busca web (web_search nativo). |
 | `SENAI_LABFASHION_ADMIN_PASSWORD` | Senha do painel administrativo (`/admin`). |
-| `SENAI_LABFASHION_TAVILY_API_KEY` | Busca web do modo Tendências. |
 
 Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 

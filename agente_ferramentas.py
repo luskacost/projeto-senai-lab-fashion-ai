@@ -275,14 +275,14 @@ def executar_ferramenta(nome: str, argumentos: Dict[str, Any], contexto: Context
 # ─────────────────────────────────────────────────────────────────────────────
 # FERRAMENTAS EXISTENTES, MIGRADAS PARA O REGISTRY
 #
-# As três ferramentas abaixo já existiam (Fases 7 e 8) declaradas em tenant_config.py no formato
+# As duas ferramentas abaixo já existiam (Fase 8) declaradas em tenant_config.py no formato
 # aninhado de Chat Completions e executadas por geracao_imagem.executar_ferramenta_local(). Aqui
-# elas passam a ter uma declaração única. Os handlers delegam para as funções originais, que
-# seguem sendo a implementação de verdade -- este bloco é a camada de declaração, não uma
-# reescrita da lógica.
+# elas passam a ter uma declaração única. Os handlers delegam para chamar_api_geracao_imagem
+# (geracao_imagem.py), que segue sendo a implementação de verdade -- este bloco é a camada de
+# declaração, não uma reescrita da lógica.
 #
-# Enquanto o motor novo (Bloco B) não entra no lugar de chamar_agente(), tenant_config.py mantém
-# suas declarações antigas em paralelo; elas saem de lá na task que faz a troca do motor.
+# Uma terceira ferramenta migrada aqui na Task 1, buscar_tendencias_web (Tavily), foi removida do
+# registry na Task 6 -- ver a nota logo após gerar_ficha_tecnica abaixo.
 # ─────────────────────────────────────────────────────────────────────────────
 
 DESCRICAO_PROMPT_VISUAL = "Descrição detalhada da peça em inglês: pose, silhueta, cores, tecido, fundo"
@@ -334,19 +334,6 @@ def _handler_gerar_ficha_tecnica(argumentos: Dict[str, Any], contexto: ContextoE
     )
 
 
-def _handler_buscar_tendencias_web(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
-    """Busca web via Tavily. Substituída pelo web_search nativo da OpenAI no Bloco C desta fase --
-    mantida aqui para preservar o comportamento durante a migração do motor."""
-    from geracao_imagem import buscar_tendencias_web
-
-    texto, fontes = buscar_tendencias_web(argumentos.get("query", ""), contexto.tenant_id)
-    return ResultadoFerramenta(
-        conteudo=texto,
-        erro=texto.startswith("[Erro]"),
-        dados_extras={"fontes": fontes},
-    )
-
-
 registrar(Ferramenta(
     nome="gerar_imagem_croqui",
     descricao=(
@@ -394,24 +381,8 @@ registrar(Ferramenta(
     exige_confirmacao=True,
 ))
 
-registrar(Ferramenta(
-    nome="buscar_tendencias_web",
-    descricao=(
-        "Busca informações atuais na web (notícias, artigos, previsões de mercado) sobre tendências "
-        "de moda, cores, coleções e comportamento de consumo."
-    ),
-    propriedades={
-        "query": {
-            "type": "string",
-            "description": (
-                "Termos de busca objetivos e específicos, em português ou inglês "
-                "(ex: 'cores tendência primavera verão 2027 Pantone')"
-            ),
-        },
-    },
-    obrigatorios=["query"],
-    handler=_handler_buscar_tendencias_web,
-))
+# buscar_tendencias_web (Tavily) foi removida do registry na Fase 10, Task 6 -- o modo
+# "Tendências" usa web_search nativo desde a Task 5 (ver tenant_config.py, usar_web_search=True).
 
 
 # ─────────────────────────────────────────────────────────────────────────────

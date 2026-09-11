@@ -218,8 +218,9 @@ class TestConfirmacaoObrigatoria(unittest.TestCase):
         self.assertTrue(exige_confirmacao("gerar_imagem_croqui"))
         self.assertTrue(exige_confirmacao("gerar_ficha_tecnica"))
 
-    def test_busca_nao_exige_confirmacao(self):
-        self.assertFalse(exige_confirmacao("buscar_tendencias_web"))
+    def test_consulta_interna_nao_exige_confirmacao(self):
+        self.assertFalse(exige_confirmacao("consultar_unidades_senai"))
+        self.assertFalse(exige_confirmacao("buscar_documentos_internos"))
 
     def test_ferramenta_inexistente_nao_exige_confirmacao(self):
         self.assertFalse(exige_confirmacao("nao_existe"))

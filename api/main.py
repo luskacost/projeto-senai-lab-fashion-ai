@@ -346,8 +346,8 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
         }
 
     # fontes_consultadas/trechos_consultados unificam citações do web_search nativo (título +
-    # URL) e de tools que devolvem "fontes" em dados_extras (ex: buscar_tendencias_web) -- mesmo
-    # contrato que o modo "Base de Conhecimento" já usa, então o front-end exibe as duas
+    # URL) e de tools que devolvem "fontes" em dados_extras (ex: buscar_documentos_internos) --
+    # mesmo contrato que o modo "Base de Conhecimento" já usa, então o front-end exibe as duas
     # igualmente sem precisar saber a origem.
     return {
         "resposta": resultado.texto,

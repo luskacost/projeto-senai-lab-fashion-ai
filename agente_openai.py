@@ -132,9 +132,12 @@ def _extrair_citacoes_web_search(output_items: List[Any]) -> List[Dict[str, str]
 
 
 def _normalizar_fontes_de_tool(dados_extras: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Uniformiza o campo "fontes" que ferramentas diferentes preenchem em formatos diferentes:
-    buscar_tendencias_web devolve dicts {titulo,url,trecho}; buscar_documentos_internos devolve
-    uma lista de strings "documento.pdf (Página N)" (não há URL real para um documento interno).
+    """Uniformiza o campo "fontes" que ferramentas diferentes podem preencher em formatos
+    diferentes: buscar_documentos_internos devolve uma lista de strings "documento.pdf (Página N)"
+    (não há URL real para um documento interno); uma tool futura que cite fontes com URL real
+    devolveria dicts {titulo,url,trecho} -- mesmo formato que buscar_tendencias_web (Tavily) usava
+    antes de ser removida na Fase 10, Task 6 (substituída por web_search nativo). Mantido genérico
+    para não precisar mudar de novo na próxima tool que citar fontes.
     """
     fontes_raw = dados_extras.get("fontes")
     if not fontes_raw:
