@@ -36,7 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
+import { Bot, Download, Globe, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -342,6 +342,7 @@ export default function ChatPage() {
           fontes_consultadas: resposta.fontes_consultadas,
           trechos_consultados: resposta.trechos_consultados,
           imagem_url: resposta.imagem_url ?? null,
+          usou_busca_web: resposta.usou_busca_web ?? false,
         },
       ];
       setMensagens(mensagensFinais);
@@ -539,6 +540,19 @@ export default function ChatPage() {
                   </div>
                 )}
 
+                {m.usou_busca_web && (
+                  <div
+                    className={badgeVariants({
+                      variant: "secondary",
+                      className: "mt-2 gap-1 font-normal text-muted-foreground",
+                    })}
+                    title="Esta resposta usou uma busca real na web antes de responder"
+                  >
+                    <Globe className="h-3 w-3" />
+                    Pesquisou na web
+                  </div>
+                )}
+
                 {m.fontes_consultadas && m.fontes_consultadas.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {m.fontes_consultadas.map((f, fi) => {
@@ -558,6 +572,16 @@ export default function ChatPage() {
                             <p className="mt-1 whitespace-pre-wrap text-muted-foreground">
                               {trecho?.texto ?? "Trecho não disponível para esta fonte."}
                             </p>
+                            {trecho?.url && (
+                              <a
+                                href={trecho.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 block truncate text-primary underline underline-offset-2"
+                              >
+                                {trecho.url}
+                              </a>
+                            )}
                           </PopoverContent>
                         </Popover>
                       );

@@ -40,6 +40,9 @@ export interface ChunkConsultado {
   pagina?: number;
   texto: string;
   score?: number;
+  // Só presente quando a fonte veio de uma busca real na web (web_search nativo) -- documentos
+  // internos (RAG) não têm URL real, então o campo fica ausente/null (Fase 10, Task 10).
+  url?: string | null;
 }
 
 // Passada de volta inalterada pelo front-end em POST /chat/croqui/confirmar -- o conteúdo
@@ -52,6 +55,9 @@ export interface ChatResponse {
   trechos_consultados: ChunkConsultado[];
   imagem_url?: string | null;
   pendente_confirmacao?: PendenteConfirmacao | null;
+  // True quando o agente usou o web_search nativo para responder (Fase 10, Task 10) -- distingue
+  // "respondendo com conhecimento do modelo" de "pesquisou na web antes de responder".
+  usou_busca_web?: boolean;
 }
 
 export async function enviarMensagemChat(params: {
@@ -151,6 +157,7 @@ export interface MensagemConversa {
   trechos_consultados?: ChunkConsultado[];
   imagem_url?: string | null;
   arquivo_anexado?: ArquivoAnexado | null;
+  usou_busca_web?: boolean;
 }
 
 export interface Conversa {

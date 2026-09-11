@@ -361,22 +361,26 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
             "imagem_url": None,
             "pendente_confirmacao": pendente,
             "fontes_consultadas": [],
-            "trechos_consultados": []
+            "trechos_consultados": [],
+            "usou_busca_web": resultado.usou_web_search,
         }
 
     # fontes_consultadas/trechos_consultados unificam citações do web_search nativo (título +
     # URL) e de tools que devolvem "fontes" em dados_extras (ex: buscar_documentos_internos) --
     # mesmo contrato que o modo "Base de Conhecimento" já usa, então o front-end exibe as duas
-    # igualmente sem precisar saber a origem.
+    # igualmente sem precisar saber a origem. "url" vai como campo próprio (Fase 10, Task 10) em
+    # vez de embutido no texto do trecho -- o front-end usa isso pra tornar a fonte um link
+    # clicável de verdade; documentos internos não têm URL real, então o campo fica None/ausente.
     return {
         "resposta": resultado.texto,
         "imagem_url": resultado.imagem_url,
         "pendente_confirmacao": None,
         "fontes_consultadas": [f["titulo"] for f in resultado.fontes if f.get("titulo")],
         "trechos_consultados": [
-            {"fonte": f["titulo"], "texto": f"{f['trecho']}\n\nURL: {f['url']}" if f.get("url") else f["trecho"]}
+            {"fonte": f["titulo"], "texto": f["trecho"], "url": f.get("url") or None}
             for f in resultado.fontes
-        ]
+        ],
+        "usou_busca_web": resultado.usou_web_search,
     }
 
 
