@@ -222,6 +222,13 @@ def chamar_agente(
     if usar_web_search:
         tools.append({"type": "web_search", "search_context_size": TAMANHO_CONTEXTO_WEB_SEARCH})
 
+    # Fase 10, Task 11: "least privilege" (Etapa 6 do pedido original) -- nomes_ferramentas já
+    # controla quais schemas são enviados ao modelo (a API só deveria poder chamar o que recebeu),
+    # mas não confiamos nisso como única garantia. Uma function_call para um nome que existe no
+    # registry global mas não foi declarado para ESTE modo é tratada como não autorizada e nunca
+    # chega a executar_ferramenta() -- ver o uso de nomes_permitidos abaixo.
+    nomes_permitidos = set(nomes_ferramentas or [])
+
     imagem_url: Optional[str] = None
     fontes: List[Dict[str, str]] = []
     usou_web_search = False
@@ -309,8 +316,11 @@ def chamar_agente(
 
         # Ferramentas caras (gerar_imagem_croqui/gerar_ficha_tecnica) nunca executam por conta
         # própria -- têm prioridade sobre qualquer outra tool chamada na mesma rodada, mesmo
-        # comportamento do motor anterior (FERRAMENTAS_COM_CONFIRMACAO).
-        call_confirmacao = next((c for c in function_calls if exige_confirmacao(c.name)), None)
+        # comportamento do motor anterior (FERRAMENTAS_COM_CONFIRMACAO). Restrito às ferramentas
+        # autorizadas para este modo (nomes_permitidos) -- ver nota de "least privilege" abaixo.
+        call_confirmacao = next(
+            (c for c in function_calls if c.name in nomes_permitidos and exige_confirmacao(c.name)), None
+        )
         if call_confirmacao is not None:
             argumentos = _parse_argumentos(call_confirmacao.arguments)
             pendente = {
@@ -351,6 +361,18 @@ def chamar_agente(
 
         novos_itens = [_serializar_item(item) for item in resposta.output]
         for call in function_calls:
+            if call.name not in nomes_permitidos:
+                # Nunca deveria acontecer com a Responses API se comportando normalmente (ela só
+                # chama tools que recebeu em `tools`), mas não confiamos nisso como única barreira
+                # -- ver a nota de "least privilege" no início da função. Recusa sem executar.
+                logger.warning(f"Ferramenta '{call.name}' chamada pelo modelo mas não autorizada para este modo -- recusada.")
+                novos_itens.append({
+                    "type": "function_call_output",
+                    "call_id": call.call_id,
+                    "output": f"[Erro] A ferramenta '{call.name}' não está disponível neste modo.",
+                })
+                continue
+
             argumentos = _parse_argumentos(call.arguments)
             resultado = executar_ferramenta(call.name, argumentos, contexto)
             if "imagem_url" in resultado.dados_extras:
