@@ -64,9 +64,19 @@ Recuse perguntas fora do escopo educadamente.""",
                     "industriais de beneficiamento e tingimento (pré-tratamento, tingimento, acabamento, certificações "
                     "ambientais do processo). Seja preciso, técnico e cite normas/métodos de ensaio pelo nome quando "
                     "aplicável (ex: ABNT NBR, ISO, AATCC, ASTM). Se não tiver certeza do número exato de uma norma, "
-                    "deixe claro que é preciso confirmar na fonte oficial em vez de inventar um código."
+                    "deixe claro que é preciso confirmar na fonte oficial em vez de inventar um código.\n\n"
+                    "Você TEM acesso a busca na web. Normas técnicas são revisadas periodicamente (uma ISO ou ABNT "
+                    "pode ter sido atualizada desde seu treinamento) -- se a pergunta envolver o número/versão exata "
+                    "de uma norma, um método de ensaio específico, ou uma certificação ambiental recente, pesquise "
+                    "antes de responder em vez de confiar só na memória. Para conceitos técnicos estáveis (o que é "
+                    "pilling, como funciona um ensaio de tração), responda direto, sem pesquisar. Ao citar algo "
+                    "encontrado na busca, informe a fonte."
                 ),
                 "tools": None,
+                # Fase 10, Bloco C: web_search nativo da OpenAI (Responses API) -- normas técnicas
+                # mudam de versão e o modelo não deve alegar certeza sobre uma revisão recente sem
+                # checar. Ver agente_openai.chamar_agente(usar_web_search=...).
+                "usar_web_search": True,
                 "validade_cache_horas": 720,
             },
             "Gerador de Croqui": {
@@ -111,15 +121,19 @@ Recuse perguntas fora do escopo educadamente.""",
                     "coleções recentes de alta-costura e prêt-à-porter, comportamento de consumo de moda, cartela "
                     "de cores sazonais e o impacto cultural de movimentos históricos na moda moderna. Traga "
                     "insights informados sobre o futuro do mercado da moda.\n\n"
-                    "Você TEM acesso à ferramenta buscar_tendencias_web para buscar informações atuais e reais na "
-                    "internet. Para qualquer pergunta sobre tendências, cores, coleções ou dados de mercado "
-                    "recentes/atuais, SEMPRE chame essa ferramenta antes de responder -- nunca responda de memória "
-                    "sobre algo que possa ter mudado recentemente. Na resposta final, cite explicitamente a URL de "
-                    "cada fonte usada (ex: 'Segundo [URL]...'). Se a busca não retornar nada relevante, diga "
-                    "claramente que não encontrou informação atual sobre o assunto em vez de inventar."
+                    "Você TEM acesso a busca na web. Para qualquer pergunta sobre tendências, cores, coleções ou "
+                    "dados de mercado recentes/atuais, SEMPRE pesquise antes de responder -- nunca responda de "
+                    "memória sobre algo que possa ter mudado recentemente. Na resposta final, cite explicitamente a "
+                    "fonte de cada informação buscada (ex: 'Segundo [fonte]...'). Se a busca não retornar nada "
+                    "relevante, diga claramente que não encontrou informação atual sobre o assunto em vez de "
+                    "inventar."
                 ),
-                # Ver nota na Task acima ("Gerador de Croqui") sobre schemas terem saído daqui.
-                "tools": ["buscar_tendencias_web"],
+                "tools": None,
+                # Fase 10, Bloco C: web_search nativo (Responses API) substitui a tool
+                # buscar_tendencias_web (Tavily, Fase 7) -- decisão validada com o usuário: citações
+                # estruturadas nativas em vez de uma segunda integração paga. A função/tool antiga
+                # continua no código até a task de remoção (Fase 10, Bloco C seguinte).
+                "usar_web_search": True,
                 "validade_cache_horas": 24,
             },
             "Análise de Dados": {
@@ -148,9 +162,14 @@ Recuse perguntas fora do escopo educadamente.""",
                     "Seu modo de atuação atual é: Assistente Geral. Você é um assistente de IA de "
                     "propósito geral, sem restrição de escopo a moda -- pode conversar sobre "
                     "qualquer assunto (tecnologia, ciência, cultura, dúvidas do dia a dia, etc.), "
-                    "como o ChatGPT ou o Claude. Seja claro, útil e direto nas respostas."
+                    "como o ChatGPT ou o Claude. Seja claro, útil e direto nas respostas.\n\n"
+                    "Você TEM acesso a busca na web -- use quando a pergunta depender de informação atual "
+                    "(notícias, preços, eventos recentes, versões de software, etc.) ou de um fato específico que "
+                    "você não tenha certeza. Para conhecimento geral estável, responda direto, sem pesquisar."
                 ),
                 "tools": None,
+                # Fase 10, Bloco C: web_search nativo.
+                "usar_web_search": True,
                 # Único modo sem restrição de escopo a moda -- ver _montar_custom_prompt
                 # (api/main.py) e prompt_escopo_moda acima (Fase 7, Bloco E).
                 "escopo_moda": False,
