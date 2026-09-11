@@ -179,6 +179,7 @@ class TestValoresVazios(unittest.TestCase):
             ("aviamentos[]", fm.aviamento_vazio()),
             ("tecidos[]", fm.tecido_vazio()),
             ("sequencia_operacional[]", fm.operacao_vazia()),
+            ("cores[]", fm.cor_vazia()),
         )
         for caminho, item in pares:
             with self.subTest(item=caminho):
@@ -205,6 +206,38 @@ class TestAcessoACampos(unittest.TestCase):
 
     def test_origem_de_campo_valido(self):
         self.assertEqual(fm.origem_de({"origem": fm.ORIGEM_FORNECIDO}), fm.ORIGEM_FORNECIDO)
+
+
+class TestEstruturaConformeTemplateReal(unittest.TestCase):
+    """Corrigido depois que o .docx real chegou (2026-09-11): o cabeçalho da primeira página do
+    template só tem ref/nome/colecao/descricao/designer/data -- "técnica" e "empresa" pertencem
+    ao bloco BENEFICIAMENTOS, separado, que também tem seu próprio "nome" (contato do
+    beneficiamento, não o designer). Esses testes existem pra nunca mais deixar essa confusão
+    voltar silenciosamente."""
+
+    def test_ficha_nao_tem_tecnica_nem_empresa(self):
+        ficha = _resolver_caminho("ficha")
+        self.assertNotIn("tecnica", ficha["properties"])
+        self.assertNotIn("empresa", ficha["properties"])
+        self.assertEqual(
+            set(ficha["properties"].keys()),
+            {"ref", "nome", "colecao", "descricao", "designer", "data"},
+        )
+
+    def test_beneficiamento_e_bloco_proprio(self):
+        beneficiamento = _resolver_caminho("beneficiamento")
+        self.assertEqual(set(beneficiamento["properties"].keys()), {"nome", "tecnica", "empresa"})
+
+    def test_cores_e_lista_dinamica(self):
+        cores = _resolver_caminho("cores[]")
+        self.assertEqual(set(cores["properties"].keys()), {"nome"})
+
+    def test_dados_vazios_tem_beneficiamento_e_cores(self):
+        dados = fm.dados_vazios()
+        self.assertIn("beneficiamento", dados)
+        self.assertNotIn("tecnica", dados["ficha"])
+        self.assertNotIn("empresa", dados["ficha"])
+        self.assertEqual(dados["cores"], [])
 
 
 class TestConstantes(unittest.TestCase):

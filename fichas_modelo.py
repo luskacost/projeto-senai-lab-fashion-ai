@@ -172,6 +172,15 @@ _PROPRIEDADES_OPERACAO = {
     "maquinas": campo_texto("Máquina(s) usada(s) na operação (ex: overloque, reta, galoneira)."),
 }
 
+_PROPRIEDADES_COR = {
+    "nome": campo_texto("Nome/descrição da cor (ex: preto, azul marinho, off-white)."),
+}
+
+# Campos confirmados contra o template .docx real (Fase 11, planejamento de 2026-09-11): o
+# cabeçalho da primeira página só tem estes 6 campos -- "técnica" e "empresa" que o prompt
+# original listava junto não pertencem aqui, pertencem ao bloco BENEFICIAMENTOS separado (ver
+# abaixo). Corrigido antes da Task 9 (preflight do template) de propósito: renomear/mover campo
+# depois que os placeholders do Word existirem é o problema que a Task 1 existe para evitar.
 SCHEMA_EXTRACAO = _objeto({
     "ficha": _objeto({
         "ref": campo_texto("Código de referência da peça."),
@@ -180,9 +189,15 @@ SCHEMA_EXTRACAO = _objeto({
         "descricao": campo_texto("Descrição da peça conforme o usuário a descreveu."),
         "designer": campo_texto("Nome do designer responsável."),
         "data": campo_texto("Data da ficha, no formato DD/MM/AAAA."),
-        "tecnica": campo_texto("Técnica empregada na peça."),
-        "empresa": campo_texto("Empresa/marca da peça."),
     }),
+    # Bloco "BENEFICIAMENTOS" do template: contato/processo de beneficiamento da peça (tingimento,
+    # lavagem, estamparia etc.) -- é um NOME/TÉCNICA/EMPRESA distinto do designer da ficha.
+    "beneficiamento": _objeto({
+        "nome": campo_texto("Nome do responsável/contato do beneficiamento."),
+        "tecnica": campo_texto("Técnica de beneficiamento empregada (ex: estamparia, tingimento, lavagem)."),
+        "empresa": campo_texto("Empresa que executa o beneficiamento."),
+    }),
+    "cores": _lista_de(_PROPRIEDADES_COR, "Cores da peça. Lista vazia se nenhuma foi informada."),
     "grade": _objeto({
         "numericos": campo_lista_enum(TAMANHOS_NUMERICOS, "Tamanhos numéricos que a peça terá."),
         "comerciais": campo_lista_enum(TAMANHOS_COMERCIAIS, "Tamanhos comerciais que a peça terá."),
@@ -250,6 +265,10 @@ def operacao_vazia() -> dict:
     return {"descricao": campo_texto_vazio(), "maquinas": campo_texto_vazio()}
 
 
+def cor_vazia() -> dict:
+    return {"nome": campo_texto_vazio()}
+
+
 def dados_vazios() -> dict:
     """Dados extraíveis zerados -- mesma forma que SCHEMA_EXTRACAO descreve."""
     return {
@@ -260,9 +279,13 @@ def dados_vazios() -> dict:
             "descricao": campo_texto_vazio(),
             "designer": campo_texto_vazio(),
             "data": campo_texto_vazio(),
+        },
+        "beneficiamento": {
+            "nome": campo_texto_vazio(),
             "tecnica": campo_texto_vazio(),
             "empresa": campo_texto_vazio(),
         },
+        "cores": [],
         "grade": {"numericos": _campo_vazio([]), "comerciais": _campo_vazio([])},
         "aviamentos": [],
         "tecidos": [],
