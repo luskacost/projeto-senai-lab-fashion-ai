@@ -58,6 +58,7 @@ from analise_dados import (
 )
 from moderacao import validar_prompt_imagem
 from usage_tracker import incrementar_uso, verificar_limite
+from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
@@ -325,14 +326,32 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
         client=client,
     )
 
+    # Fase 10, Task 8: limite_buscas_web_dia -- diferente do limite de imagens (que bloqueia a
+    # rota com 429, porque a geração de imagem É o pedido do usuário), aqui a busca web é só uma
+    # ferramenta a mais que o modo pode usar. Bloquear a rota inteira deixaria o modo Tendências
+    # inutilizável pelo resto do dia assim que a cota estourasse -- em vez disso, quando a cota
+    # já foi atingida, a chamada segue sem a ferramenta (o modelo responde com conhecimento
+    # próprio) em vez de falhar. Só desliga a busca se o modo de fato a usaria.
+    usar_web_search = modo_cfg.get("usar_web_search", False)
+    if usar_web_search:
+        limite_buscas = config.get("limite_buscas_web_dia", 50)
+        if not verificar_limite(payload.tenant_id, "buscas_web", limite_buscas, quantidade_necessaria=1):
+            obter_logger(payload.tenant_id).warning(
+                f"Limite diário de buscas web atingido para o modo '{payload.modo}' -- respondendo sem web_search nesta chamada."
+            )
+            usar_web_search = False
+
     resultado = chamar_agente(
         client,
         instructions,
         modo_cfg.get("tools"),
         input_items,
         contexto,
-        usar_web_search=modo_cfg.get("usar_web_search", False),
+        usar_web_search=usar_web_search,
     )
+
+    if resultado.usou_web_search:
+        incrementar_uso(payload.tenant_id, "buscas_web")
 
     if resultado.pendente_confirmacao:
         pendente = dict(resultado.pendente_confirmacao)
@@ -371,51 +390,63 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
     if payload.modo not in config["modos"]:
         raise HTTPException(status_code=400, detail=f"Modo '{payload.modo}' inválido para o tenant '{payload.tenant_id}'.")
 
+    # Fase 10, Task 8: limite_mensagens_dia estava configurado em TENANT_CONFIG desde sempre mas
+    # nunca era de fato verificado -- qualquer volume de chat passava sem checagem de custo. Um
+    # único ponto de checagem/incremento aqui cobre os 3 caminhos abaixo (Análise de Dados,
+    # agente, Base de Conhecimento) sem duplicar a lógica em cada um. Se a chamada abaixo levantar
+    # uma exceção (ex: 500 da OpenAI), o incremento no fim da função não é alcançado -- mesmo
+    # comportamento do limite de imagens (só conta uso que de fato completou).
+    limite_msgs = config.get("limite_mensagens_dia", 200)
+    if not verificar_limite(payload.tenant_id, "mensagens", limite_msgs, quantidade_necessaria=1):
+        raise HTTPException(status_code=429, detail="Limite diário de mensagens atingido. Novas mensagens estarão disponíveis amanhã.")
+
     if payload.modo == "Análise de Dados":
-        return _chat_analise_dados(payload, config)
+        resultado = _chat_analise_dados(payload, config)
+    elif payload.modo != "Base de Conhecimento":
+        resultado = _chat_via_agente(payload, config)
+    else:
+        chunks_relevantes = buscar_contexto_relevante(
+            payload.tenant_id,
+            payload.mensagem,
+            top_k=10,
+            conversation_id=payload.conversation_id
+        )
 
-    if payload.modo != "Base de Conhecimento":
-        return _chat_via_agente(payload, config)
-
-    chunks_relevantes = buscar_contexto_relevante(
-        payload.tenant_id,
-        payload.mensagem,
-        top_k=10,
-        conversation_id=payload.conversation_id
-    )
-
-    if not chunks_relevantes:
-        docs_cadastrados = listar_documentos_indexados(payload.tenant_id)
-        if docs_cadastrados:
-            resposta = "Não encontrei essa informação no documento."
+        if not chunks_relevantes:
+            docs_cadastrados = listar_documentos_indexados(payload.tenant_id)
+            if docs_cadastrados:
+                resposta = "Não encontrei essa informação no documento."
+            else:
+                resposta = "📚 Nenhum documento foi carregado ainda para este assistente na Base de Conhecimento. Peça ao administrador para adicionar materiais na aba Configurações."
+            resultado = {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
         else:
-            resposta = "📚 Nenhum documento foi carregado ainda para este assistente na Base de Conhecimento. Peça ao administrador para adicionar materiais na aba Configurações."
-        return {"resposta": resposta, "fontes_consultadas": [], "trechos_consultados": []}
+            prompt_com_contexto, fontes_consultadas = montar_prompt_final(chunks_relevantes, payload.mensagem)
+            custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario)
 
-    prompt_com_contexto, fontes_consultadas = montar_prompt_final(chunks_relevantes, payload.mensagem)
-    custom_prompt = _montar_custom_prompt(config, payload.modo, payload.perfil_usuario)
+            api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
+            if not api_key:
+                raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
 
-    api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+            client = OpenAI(api_key=api_key)
+            resposta_obj = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": custom_prompt},
+                    {"role": "user", "content": prompt_com_contexto}
+                ],
+                model=OPENAI_TEXT_MODEL,
+                temperature=0.1,
+                max_tokens=2048
+            )
+            resposta = resposta_obj.choices[0].message.content
 
-    client = OpenAI(api_key=api_key)
-    resposta_obj = client.chat.completions.create(
-        messages=[
-            {"role": "system", "content": custom_prompt},
-            {"role": "user", "content": prompt_com_contexto}
-        ],
-        model=OPENAI_TEXT_MODEL,
-        temperature=0.1,
-        max_tokens=2048
-    )
-    resposta = resposta_obj.choices[0].message.content
+            resultado = {
+                "resposta": resposta,
+                "fontes_consultadas": sorted(fontes_consultadas),
+                "trechos_consultados": chunks_relevantes
+            }
 
-    return {
-        "resposta": resposta,
-        "fontes_consultadas": sorted(fontes_consultadas),
-        "trechos_consultados": chunks_relevantes
-    }
+    incrementar_uso(payload.tenant_id, "mensagens")
+    return resultado
 
 
 class ConfirmarCroquiRequest(BaseModel):

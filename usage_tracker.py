@@ -20,11 +20,19 @@ def _caminho_lock_uso(tenant_id: str) -> str:
 
 def carregar_uso_do_dia(tenant_id: str) -> dict:
     """Lê o arquivo tenant_data/{tenant_id}_usage.json.
-    
+
     Se o arquivo não existir, for inválido ou tiver data diferente de hoje (YYYY-MM-DD),
-    retorna um dicionário zerado no formato:
-    {"data": "AAAA-MM-DD", "mensagens": 0, "imagens": 0}
+    retorna um dicionário zerado com pelo menos {"data": "AAAA-MM-DD", "mensagens": 0, "imagens": 0}
     sem modificar o disco.
+
+    Genérico em "tipo" (Fase 10, Task 8): preserva qualquer contador numérico salvo no arquivo,
+    não só "mensagens"/"imagens" -- antes desta correção, a função reconstruía o dict retornado
+    com só essas duas chaves hardcoded, descartando silenciosamente qualquer outro tipo salvo
+    (ex: "buscas_web", introduzido nesta mesma task). Na prática isso fazia incrementar_uso()
+    "esquecer" o valor acumulado de um tipo novo a cada leitura seguinte -- o incremento parecia
+    funcionar (a chave existia no dict em memória, era salva no arquivo), mas a próxima leitura
+    descartava o que estava no disco e via o contador voltar a não existir, zerando-o de novo em
+    vez de acumular.
     """
     hoje = datetime.now().strftime('%Y-%m-%d')
     dict_padrao = {"data": hoje, "mensagens": 0, "imagens": 0}
@@ -43,11 +51,17 @@ def carregar_uso_do_dia(tenant_id: str) -> dict:
         if dados.get("data") != hoje:
             return dict_padrao
 
-        return {
-            "data": hoje,
-            "mensagens": max(0, int(dados.get("mensagens", 0))),
-            "imagens": max(0, int(dados.get("imagens", 0))),
-        }
+        uso = {"data": hoje}
+        for chave, valor in dados.items():
+            if chave == "data":
+                continue
+            try:
+                uso[chave] = max(0, int(valor))
+            except (TypeError, ValueError):
+                continue  # contador corrompido/não numérico -- ignora em vez de propagar erro
+        uso.setdefault("mensagens", 0)
+        uso.setdefault("imagens", 0)
+        return uso
     except Exception as e:
         logger = obter_logger(tenant_id)
         logger.error(f"Erro ao ler arquivo de uso do dia: {e}", exc_info=True)
@@ -55,8 +69,9 @@ def carregar_uso_do_dia(tenant_id: str) -> dict:
 
 
 def incrementar_uso(tenant_id: str, tipo: str, quantidade: int = 1):
-    """Carrega o uso atual, incrementa o contador do 'tipo' ("mensagens" ou "imagens")
-    pela 'quantidade' especificada (padrão 1), e salva no arquivo JSON.
+    """Carrega o uso atual, incrementa o contador do 'tipo' (qualquer string -- "mensagens",
+    "imagens", "buscas_web", ou um tipo novo futuro) pela 'quantidade' especificada (padrão 1),
+    e salva no arquivo JSON.
 
     Todo o ciclo leitura-modificação-escrita roda dentro de um FileLock por tenant, para que
     duas requisições concorrentes não leiam o mesmo valor inicial e cada uma sobrescreva a

@@ -31,8 +31,15 @@ TENANT_CONFIG = {
         "nome": "SENAI LabFashion IA",
         "cor_primaria": "#0047AB",
         "cor_secundaria": "#F47B20",
+        # limite_mensagens_dia existia desde sempre mas nunca era de fato verificado em nenhuma
+        # rota -- ativado em POST /chat na Fase 10, Task 8. limite_buscas_web_dia é novo na mesma
+        # task: teto separado (mais baixo que limite_mensagens_dia) porque cada busca via
+        # web_search custa bem mais tokens de input que uma mensagem comum (~17.6k tokens medidos
+        # numa busca real contra a API, ver auditoria da Fase 10) -- sem ele, um único modo
+        # (Tendências) poderia consumir a maior parte do orçamento diário do tenant sozinho.
         "limite_mensagens_dia": 200,
         "limite_imagens_dia": 30,
+        "limite_buscas_web_dia": 50,
         # Regras de segurança: sempre aplicadas, em TODOS os modos (inclusive o "Assistente Geral",
         # que não tem restrição de escopo a moda). Separado de prompt_escopo_moda abaixo para que o
         # modo generalista possa herdar só a parte de segurança (Fase 7, Bloco E).
