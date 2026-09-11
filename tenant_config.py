@@ -40,6 +40,11 @@ TENANT_CONFIG = {
         "limite_mensagens_dia": 200,
         "limite_imagens_dia": 30,
         "limite_buscas_web_dia": 50,
+        # Fase 11, Task 6: extrair dados de ficha técnica a partir de texto livre é uma chamada de
+        # API própria (fichas_extracao.extrair_dados), fora do fluxo de /chat -- sem um limite
+        # dedicado, POST /fichas com texto_origem ficaria com gasto ilimitado, ao contrário de
+        # toda outra ação com custo de API neste tenant.
+        "limite_fichas_dia": 30,
         # Regras de segurança: sempre aplicadas, em TODOS os modos (inclusive o "Assistente Geral",
         # que não tem restrição de escopo a moda). Separado de prompt_escopo_moda abaixo para que o
         # modo generalista possa herdar só a parte de segurança (Fase 7, Bloco E).

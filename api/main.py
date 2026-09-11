@@ -62,6 +62,19 @@ from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
+from fichas_modelo import STATUS_EM_REVISAO
+from fichas_extracao import extrair_dados
+from fichas_verificacao import verificar_proveniencia
+from fichas_validacao import validar_ficha
+from fichas_repo import (
+    ConflitoDeVersaoError,
+    criar_ficha,
+    carregar_ficha,
+    listar_fichas,
+    salvar_ficha,
+    duplicar_ficha,
+    deletar_ficha,
+)
 
 try:
     # pyrefly: ignore [missing-import]
@@ -721,6 +734,152 @@ async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadF
         "colunas": list(df.columns),
         "resumo_estatistico": resumo
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FICHAS TÉCNICAS DE MODA (Fase 11, Task 6)
+#
+# Diferente de /conversas (por usuario_id, privado por navegador), fichas são compartilhadas por
+# todo o tenant -- mesmo modelo de /documentos (recurso institucional do laboratório, não dado
+# pessoal de quem está conversando). Decisão da Fase 11: uma empresa só (SENAI), sem cadastro
+# multiempresa nem autenticação de usuário final -- por isso nenhuma rota abaixo pede usuario_id
+# nem token de admin.
+#
+# O envelope de resposta {"ficha": ..., "alertas": [...]} recalcula os alertas de
+# fichas_validacao.validar_ficha() a cada leitura/escrita -- os alertas refletem o estado atual
+# dos dados, nunca um snapshot congelado de quando a ficha foi criada.
+# ─────────────────────────────────────────────────────────────────────────────
+def _ficha_com_alertas(ficha: Dict[str, Any], alertas_extra: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    alertas = list(alertas_extra or [])
+    alertas.extend(validar_ficha(ficha.get("dados", {})))
+    return {"ficha": ficha, "alertas": alertas}
+
+
+class CriarFichaRequest(BaseModel):
+    tenant_id: str
+    texto_origem: Optional[str] = None
+
+
+class AtualizarFichaRequest(BaseModel):
+    tenant_id: str
+    ficha: Dict[str, Any]
+    atualizado_em_esperado: Optional[str] = None
+
+
+class DuplicarFichaRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/fichas")
+def criar_ficha_endpoint(payload: CriarFichaRequest) -> Dict[str, Any]:
+    """Cria uma ficha nova. Se `texto_origem` for informado, extrai os dados estruturados
+    (fichas_extracao, Structured Outputs -- chamada real de API) e audita a proveniência
+    (fichas_verificacao) antes de persistir; sem texto, nasce em branco para revisão manual.
+    """
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+
+    ficha = criar_ficha(payload.tenant_id, texto_origem=payload.texto_origem or "")
+    alertas_proveniencia: List[Dict[str, Any]] = []
+
+    if payload.texto_origem:
+        config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
+        limite_fichas = config.get("limite_fichas_dia", 30)
+        if not verificar_limite(payload.tenant_id, "fichas", limite_fichas, quantidade_necessaria=1):
+            raise HTTPException(status_code=429, detail="Limite diário de fichas técnicas atingido. Novas extrações estarão disponíveis amanhã.")
+
+        api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+        client = OpenAI(api_key=api_key)
+
+        dados_extraidos = extrair_dados(client, payload.texto_origem, payload.tenant_id)
+        dados_corrigidos, alertas_proveniencia = verificar_proveniencia(dados_extraidos, payload.texto_origem)
+
+        ficha["dados"] = dados_corrigidos
+        ficha["status"] = STATUS_EM_REVISAO
+        ficha = salvar_ficha(payload.tenant_id, ficha)
+        incrementar_uso(payload.tenant_id, "fichas")
+
+    return _ficha_com_alertas(ficha, alertas_proveniencia)
+
+
+@app.get("/fichas")
+def listar_fichas_endpoint(tenant_id: str) -> List[Dict[str, Any]]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    return listar_fichas(tenant_id)
+
+
+@app.get("/fichas/{ficha_id}")
+def obter_ficha_endpoint(ficha_id: str, tenant_id: str) -> Dict[str, Any]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+
+    try:
+        ficha = carregar_ficha(tenant_id, ficha_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de ficha inválido: '{ficha_id}'.")
+    if ficha is None:
+        raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
+    return _ficha_com_alertas(ficha)
+
+
+@app.put("/fichas/{ficha_id}")
+def atualizar_ficha_endpoint(ficha_id: str, payload: AtualizarFichaRequest) -> Dict[str, Any]:
+    """Salva os dados revisados de uma ficha existente.
+
+    `atualizado_em_esperado`, quando informado, é o timestamp que o cliente tinha ao abrir a
+    ficha para edição -- divergência do valor salvo em disco indica edição concorrente em outra
+    sessão (ConflitoDeVersaoError, traduzido para HTTP 412 aqui).
+    """
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+
+    try:
+        existente = carregar_ficha(payload.tenant_id, ficha_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de ficha inválido: '{ficha_id}'.")
+    if existente is None:
+        raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
+
+    ficha = dict(payload.ficha)
+    ficha["id"] = ficha_id  # o path é a fonte de verdade do id, não o corpo da requisição
+
+    try:
+        ficha_salva = salvar_ficha(payload.tenant_id, ficha, atualizado_em_esperado=payload.atualizado_em_esperado)
+    except ConflitoDeVersaoError as err_conflito:
+        raise HTTPException(status_code=412, detail=str(err_conflito))
+
+    return _ficha_com_alertas(ficha_salva)
+
+
+@app.post("/fichas/{ficha_id}/duplicar")
+def duplicar_ficha_endpoint(ficha_id: str, payload: DuplicarFichaRequest) -> Dict[str, Any]:
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+
+    try:
+        copia = duplicar_ficha(payload.tenant_id, ficha_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de ficha inválido: '{ficha_id}'.")
+    if copia is None:
+        raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
+    return _ficha_com_alertas(copia)
+
+
+@app.delete("/fichas/{ficha_id}")
+def deletar_ficha_endpoint(ficha_id: str, tenant_id: str) -> Dict[str, str]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+
+    try:
+        removida = deletar_ficha(tenant_id, ficha_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de ficha inválido: '{ficha_id}'.")
+    if not removida:
+        raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
+    return {"status": "removida"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

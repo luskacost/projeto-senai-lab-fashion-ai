@@ -94,6 +94,32 @@ class TestVerificacaoDeOrigem(unittest.TestCase):
         self.assertNotIn("origem_rebaixada", codigos)
 
 
+class TestValorVazioComo(unittest.TestCase):
+    """Regressão: zerar um campo numérico que já está None caía no fallback de texto (""),
+    trocando silenciosamente um número ausente por string vazia -- e quebrando qualquer soma
+    feita depois em fichas_validacao.validar_custos() com dados totalmente vazios (o caso mais
+    comum de todos: uma ficha recém-criada, ainda sem nenhum custo preenchido)."""
+
+    def test_none_permanece_none(self):
+        self.assertIsNone(fv._valor_vazio_como(None))
+
+    def test_numero_vira_none(self):
+        self.assertIsNone(fv._valor_vazio_como(42.0))
+        self.assertIsNone(fv._valor_vazio_como(42))
+
+    def test_lista_vira_lista_vazia(self):
+        self.assertEqual(fv._valor_vazio_como(["34", "36"]), [])
+
+    def test_texto_vira_string_vazia(self):
+        self.assertEqual(fv._valor_vazio_como("algo"), "")
+
+    def test_ficha_vazia_nao_quebra_verificacao(self):
+        # dados_vazios() inteiro, sem nenhum campo tocado -- todo campo crítico já nasce
+        # DESCONHECIDO e será "zerado" (um no-op, já que já está vazio); isso não pode lançar.
+        corrigidos, _ = fv.verificar_proveniencia(fm.dados_vazios(), "texto qualquer")
+        self.assertIsNone(corrigidos["custos"]["preco_total"]["custo"]["valor"])
+
+
 class TestAllowlistDeCamposCriticos(unittest.TestCase):
     """Depois da verificação de honestidade, todo campo em CAMPOS_NAO_INFERIVEIS que não for
     FORNECIDO é zerado -- não importa se a origem é INFERIDO ou DESCONHECIDO."""

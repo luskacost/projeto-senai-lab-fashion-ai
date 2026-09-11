@@ -75,7 +75,16 @@ def _percorrer_campos(no: Any, caminho: str) -> Generator[Tuple[str, dict], None
 def _valor_vazio_como(valor: Any) -> Any:
     """Valor "zerado" do mesmo tipo do valor anterior -- lista vira lista vazia, número vira
     None, texto vira string vazia. Nenhum campo de CAMPOS_NAO_INFERIVEIS hoje é lista, mas a
-    função cobre o caso por completude caso um campo assim seja adicionado."""
+    função cobre o caso por completude caso um campo assim seja adicionado.
+
+    None precisa de checagem própria e em primeiro lugar: é o valor "já vazio" de um campo
+    numérico (fichas_modelo.campo_numero_vazio()). Sem esse caso, `isinstance(None, (int, float))`
+    é False e o valor cairia no fallback de texto (""), trocando silenciosamente um número ausente
+    por uma string vazia -- o que quebra qualquer soma/comparação numérica feita depois (ex:
+    fichas_validacao.validar_custos) com "unsupported operand type(s) for -: 'str' and 'str'".
+    """
+    if valor is None:
+        return None
     if isinstance(valor, list):
         return []
     if isinstance(valor, bool):
