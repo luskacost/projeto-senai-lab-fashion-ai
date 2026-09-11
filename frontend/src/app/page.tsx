@@ -459,7 +459,7 @@ export default function ChatPage() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-4 py-4 bg-background">
+        <main className="flex-1 overflow-y-auto px-4 py-4 chat-wallpaper">
           <div className="max-w-3xl mx-auto space-y-4">
           <AnimatePresence mode="wait">
             {mensagens.length === 0 && !carregando && (
