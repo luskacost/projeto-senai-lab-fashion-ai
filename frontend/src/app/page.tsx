@@ -36,7 +36,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, Globe, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
+import { Bot, Download, FileStack, Globe, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -449,6 +449,13 @@ export default function ChatPage() {
               </div>
             )}
             <ContatoSenai />
+            <Link
+              href="/fichas"
+              className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
+            >
+              <FileStack className="h-3.5 w-3.5" />
+              Fichas Técnicas
+            </Link>
             <Link
               href="/admin"
               className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"

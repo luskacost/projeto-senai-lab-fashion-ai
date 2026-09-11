@@ -310,6 +310,101 @@ export async function deletarDocumento(tenantId: string, nomeArquivo: string, to
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FICHAS TÉCNICAS DE MODA (Fase 11)
+// ─────────────────────────────────────────────────────────────────────────────
+export type StatusFicha =
+  | "RASCUNHO"
+  | "EM_REVISAO"
+  | "DESENHO_GERADO"
+  | "AGUARDANDO_APROVACAO"
+  | "APROVADA"
+  | "DOCUMENTO_GERADO";
+
+// Histórico leve (GET /fichas) -- espelha fichas_repo._resumo_indice, não o documento completo.
+export interface FichaResumo {
+  id: string;
+  ref: string;
+  nome: string;
+  status: StatusFicha;
+  criado_em: string;
+  atualizado_em: string;
+}
+
+export type OrigemCampo = "FORNECIDO" | "OBSERVADO" | "INFERIDO" | "DESCONHECIDO";
+
+// Todo campo de valor extraído carrega de onde veio (fichas_modelo.py, backend) -- a base da
+// regra de não-invenção: preço/composição/fornecedor etc. nunca aparecem como fato se a origem
+// não for FORNECIDO. A tela de revisão (Task 8) usa isso para destacar campo por campo.
+export interface CampoFicha<T> {
+  valor: T;
+  origem: OrigemCampo;
+  trecho: string;
+}
+
+// O documento completo -- "dados" fica solto como Record aqui porque seu formato detalhado
+// (ficha/grade/aviamentos/tecidos/custos/sequência operacional/modelagem) só importa a partir da
+// tela de revisão (Task 8); esta página (Task 7) só lista/cria/duplica/exclui.
+export interface Ficha {
+  id: string;
+  status: StatusFicha;
+  criado_em: string;
+  atualizado_em: string;
+  texto_origem: string;
+  dados: Record<string, unknown>;
+  desenho: {
+    solicitado: boolean;
+    versoes: unknown[];
+    versao_aprovada: number | null;
+  };
+  documentos: { docx: string; pdf: string; gerado_em: string };
+}
+
+export interface AlertaFicha {
+  codigo: string;
+  severidade: string;
+  campo: string;
+  mensagem: string;
+}
+
+// Envelope devolvido por toda rota que lê/escreve uma ficha específica -- os alertas são
+// recalculados no backend a cada chamada, nunca um snapshot congelado (api/main.py:_ficha_com_alertas).
+export interface FichaComAlertas {
+  ficha: Ficha;
+  alertas: AlertaFicha[];
+}
+
+export async function listarFichas(tenantId: string): Promise<FichaResumo[]> {
+  return request<FichaResumo[]>(`/fichas?tenant_id=${encodeURIComponent(tenantId)}`);
+}
+
+export async function criarFicha(tenantId: string, textoOrigem?: string): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>("/fichas", {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, texto_origem: textoOrigem || null }),
+  });
+}
+
+export async function obterFicha(tenantId: string, fichaId: string): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(
+    `/fichas/${encodeURIComponent(fichaId)}?tenant_id=${encodeURIComponent(tenantId)}`
+  );
+}
+
+export async function duplicarFicha(tenantId: string, fichaId: string): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/duplicar`, {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId }),
+  });
+}
+
+export async function deletarFicha(tenantId: string, fichaId: string): Promise<void> {
+  await request<{ status: string }>(
+    `/fichas/${encodeURIComponent(fichaId)}?tenant_id=${encodeURIComponent(tenantId)}`,
+    { method: "DELETE" }
+  );
+}
+
 // Baixa a exportação de uma conversa (TXT ou PDF) e dispara o download no navegador,
 // já que a resposta é um arquivo binário/texto, não JSON.
 export async function baixarExportacaoConversa(
