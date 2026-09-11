@@ -134,7 +134,16 @@ export default function ConversasHistorico({
                     >
                       <MoreHorizontal className="h-4 w-4" />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                    <DropdownMenuContent
+                      align="end"
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                      // Sem isso, o Base UI devolve o foco pro botão "..." ao fechar o menu --
+                      // colidindo com o autoFocus do input de renomear (que abre em resposta ao
+                      // mesmo clique) e disparando um blur imediato nele, que por sua vez chama
+                      // confirmarEdicao() antes do usuário digitar qualquer coisa. Era esse race
+                      // que fazia "Renomear" parecer não fazer nada (bug relatado pelo usuário).
+                      finalFocus={false}
+                    >
                       <DropdownMenuItem onClick={() => iniciarEdicao(conv)}>
                         <Pencil className="h-4 w-4" />
                         Renomear
