@@ -68,6 +68,7 @@ from fichas_modelo import STATUS_DOCUMENTO_GERADO, STATUS_EM_REVISAO, valor_de
 from fichas_extracao import extrair_dados
 import fichas_docx
 import fichas_logo
+import fichas_pdf
 from fichas_verificacao import verificar_proveniencia
 from fichas_validacao import validar_ficha
 from fichas_repo import (
@@ -895,14 +896,7 @@ def duplicar_ficha_endpoint(ficha_id: str, payload: DuplicarFichaRequest) -> Dic
     return _ficha_com_alertas(copia)
 
 
-@app.get("/fichas/{ficha_id}/docx")
-def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
-    """Gera o documento Word da ficha e devolve o arquivo para download.
-
-    Gera na hora, a cada chamada, em vez de servir um .docx guardado: a ficha pode ter sido
-    editada depois da última geração, e entregar um documento desatualizado sem avisar seria pior
-    do que o custo de renderizar de novo (que é local e rápido -- nenhuma chamada de API).
-    """
+def _carregar_ficha_ou_404(tenant_id: str, ficha_id: str) -> Dict[str, Any]:
     if tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
 
@@ -912,7 +906,16 @@ def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
         raise HTTPException(status_code=400, detail=f"ID de ficha inválido: '{ficha_id}'.")
     if ficha is None:
         raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
+    return ficha
 
+
+def _gerar_docx_e_marcar(tenant_id: str, ficha: Dict[str, Any]) -> str:
+    """Renderiza o .docx da ficha e registra a geração no documento persistido.
+
+    Gera na hora, a cada chamada, em vez de servir um arquivo guardado: a ficha pode ter sido
+    editada depois da última geração, e entregar um documento desatualizado sem avisar seria pior
+    do que o custo de renderizar de novo (que é local e rápido -- nenhuma chamada de API).
+    """
     try:
         caminho = fichas_docx.gerar_docx_da_ficha(tenant_id, ficha)
     except Exception:
@@ -923,6 +926,14 @@ def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
     ficha["documentos"]["gerado_em"] = datetime.now().isoformat()
     ficha["status"] = STATUS_DOCUMENTO_GERADO
     salvar_ficha(tenant_id, ficha)
+    return caminho
+
+
+@app.get("/fichas/{ficha_id}/docx")
+def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
+    """Gera o documento Word da ficha e devolve o arquivo para download."""
+    ficha = _carregar_ficha_ou_404(tenant_id, ficha_id)
+    caminho = _gerar_docx_e_marcar(tenant_id, ficha)
 
     with open(caminho, "rb") as f:
         conteudo = f.read()
@@ -931,6 +942,38 @@ def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
         content=conteudo,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{_nome_arquivo_ficha(ficha, "docx")}"'},
+    )
+
+
+@app.get("/fichas/{ficha_id}/pdf")
+def baixar_ficha_pdf(ficha_id: str, tenant_id: str) -> Response:
+    """Gera o PDF da ficha (Word renderizado pelo LibreOffice) e devolve para download.
+
+    O PDF vem sempre do mesmo .docx que o usuário baixaria -- não é um segundo layout gerado em
+    paralelo. É o que garante que os dois arquivos sejam visualmente idênticos.
+    """
+    ficha = _carregar_ficha_ou_404(tenant_id, ficha_id)
+    caminho_docx = _gerar_docx_e_marcar(tenant_id, ficha)
+
+    try:
+        caminho_pdf = fichas_pdf.gerar_pdf_da_ficha(tenant_id, ficha_id, caminho_docx)
+    except fichas_pdf.LibreOfficeIndisponivelError as err:
+        # 501 (não implementado neste ambiente) em vez de 500: não é um defeito do código, é uma
+        # dependência de sistema ausente -- e a mensagem diz exatamente o que instalar.
+        raise HTTPException(status_code=501, detail=str(err))
+    except fichas_pdf.ConversaoPdfError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    ficha["documentos"]["pdf"] = fichas_pdf.NOME_ARQUIVO_PDF
+    salvar_ficha(tenant_id, ficha)
+
+    with open(caminho_pdf, "rb") as f:
+        conteudo = f.read()
+
+    return Response(
+        content=conteudo,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{_nome_arquivo_ficha(ficha, "pdf")}"'},
     )
 
 

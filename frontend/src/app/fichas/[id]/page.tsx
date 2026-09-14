@@ -15,7 +15,7 @@ import {
   Tecido,
   aviamentoVazio,
   atualizarFicha,
-  baixarFichaDocx,
+  baixarFichaDocumento,
   campoEditado,
   corBeneficiamentoVazia,
   obterFicha,
@@ -142,7 +142,9 @@ export default function FichaDetalhePage() {
   const [alertas, setAlertas] = useState<AlertaFicha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
-  const [gerando, setGerando] = useState(false);
+  // Guarda qual formato está sendo gerado (não só "gerando: sim/não"), para o spinner aparecer
+  // no botão certo quando há dois.
+  const [gerando, setGerando] = useState<"docx" | "pdf" | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
@@ -197,9 +199,9 @@ export default function FichaDetalhePage() {
     }
   }
 
-  async function gerarDocumento() {
+  async function gerarDocumento(formato: "docx" | "pdf") {
     if (!ficha) return;
-    setGerando(true);
+    setGerando(formato);
     try {
       // Salva antes de gerar: o backend renderiza a partir do que está em disco, então edições
       // não salvas sairiam de fora do documento sem o usuário perceber.
@@ -207,8 +209,8 @@ export default function FichaDetalhePage() {
       setFicha(salva.ficha);
       setAlertas(salva.alertas);
 
-      await baixarFichaDocx(TENANT_ID, ficha.id);
-      toast.success("Documento gerado.");
+      await baixarFichaDocumento(TENANT_ID, ficha.id, formato);
+      toast.success(formato === "pdf" ? "PDF gerado." : "Documento Word gerado.");
 
       // O backend muda o status para "Documento gerado" ao renderizar -- recarrega para a tela
       // refletir isso sem precisar de F5.
@@ -218,11 +220,15 @@ export default function FichaDetalhePage() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
         toast.error("Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de gerar o documento.");
+      } else if (e instanceof ApiError && e.status === 501) {
+        // 501 = LibreOffice ausente no servidor. É falta de dependência de sistema, não bug --
+        // e a mensagem do backend já diz o que instalar.
+        toast.error(e.message);
       } else {
         toast.error(e instanceof ApiError ? e.message : "Falha ao gerar o documento.");
       }
     } finally {
-      setGerando(false);
+      setGerando(null);
     }
   }
 
@@ -257,13 +263,17 @@ export default function FichaDetalhePage() {
         </Link>
         <div className="flex items-center gap-2">
           <Badge variant={VARIANTE_STATUS_FICHA[ficha.status]}>{ROTULO_STATUS_FICHA[ficha.status]}</Badge>
-          <Button onClick={salvar} disabled={salvando || gerando} variant="outline">
+          <Button onClick={salvar} disabled={salvando || gerando !== null} variant="outline">
             {salvando ? <Loader2 className="animate-spin" /> : <Save />}
             {salvando ? "Salvando..." : "Salvar"}
           </Button>
-          <Button onClick={gerarDocumento} disabled={salvando || gerando}>
-            {gerando ? <Loader2 className="animate-spin" /> : <FileDown />}
-            {gerando ? "Gerando..." : "Gerar Word"}
+          <Button onClick={() => gerarDocumento("docx")} disabled={salvando || gerando !== null} variant="outline">
+            {gerando === "docx" ? <Loader2 className="animate-spin" /> : <FileDown />}
+            {gerando === "docx" ? "Gerando..." : "Word"}
+          </Button>
+          <Button onClick={() => gerarDocumento("pdf")} disabled={salvando || gerando !== null}>
+            {gerando === "pdf" ? <Loader2 className="animate-spin" /> : <FileDown />}
+            {gerando === "pdf" ? "Gerando..." : "PDF"}
           </Button>
         </div>
       </div>

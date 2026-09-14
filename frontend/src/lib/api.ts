@@ -609,11 +609,16 @@ export async function duplicarFicha(tenantId: string, fichaId: string): Promise<
   });
 }
 
-// Gera o .docx da ficha e dispara o download no navegador. O documento é renderizado na hora, a
-// cada chamada -- a ficha pode ter mudado desde a última geração, e entregar um arquivo
-// desatualizado sem avisar seria pior que renderizar de novo.
-export async function baixarFichaDocx(tenantId: string, fichaId: string): Promise<void> {
-  const url = `${API_URL}/fichas/${encodeURIComponent(fichaId)}/docx?tenant_id=${encodeURIComponent(tenantId)}`;
+// Gera o documento da ficha e dispara o download no navegador. É renderizado na hora, a cada
+// chamada -- a ficha pode ter mudado desde a última geração, e entregar um arquivo desatualizado
+// sem avisar seria pior que renderizar de novo. O PDF sai do mesmo .docx (convertido pelo
+// LibreOffice), então os dois arquivos são visualmente idênticos.
+export async function baixarFichaDocumento(
+  tenantId: string,
+  fichaId: string,
+  formato: "docx" | "pdf"
+): Promise<void> {
+  const url = `${API_URL}/fichas/${encodeURIComponent(fichaId)}/${formato}?tenant_id=${encodeURIComponent(tenantId)}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -636,7 +641,7 @@ export async function baixarFichaDocx(tenantId: string, fichaId: string): Promis
   const objectUrl = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
-  link.download = nomeDoHeader || "ficha.docx";
+  link.download = nomeDoHeader || `ficha.${formato}`;
   document.body.appendChild(link);
   link.click();
   link.remove();
