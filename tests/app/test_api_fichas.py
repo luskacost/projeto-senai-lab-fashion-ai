@@ -257,6 +257,82 @@ class TestDuplicarFicha(TestApiFichasBase):
         self.assertEqual(r.json()["ficha"]["status"], fm.STATUS_RASCUNHO)
 
 
+class TestBaixarDocx(TestApiFichasBase):
+    """GET /fichas/{id}/docx -- gera o Word na hora e devolve para download."""
+
+    def test_inexistente_404(self):
+        r = self.client.get(f"/fichas/{UUID_INEXISTENTE}/docx", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_id_malformado_400(self):
+        r = self.client.get("/fichas/nao-e-um-uuid/docx", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 400)
+
+    def test_tenant_inexistente_404(self):
+        r = self.client.get(f"/fichas/{UUID_INEXISTENTE}/docx", params={"tenant_id": "tenant_que_nao_existe"})
+        self.assertEqual(r.status_code, 404)
+
+    def test_devolve_um_docx(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("wordprocessingml", r.headers["content-type"])
+        # Todo .docx é um zip: os dois primeiros bytes são a assinatura "PK".
+        self.assertTrue(r.content.startswith(b"PK"), "o corpo não parece um arquivo .docx")
+
+    def test_nome_do_arquivo_usa_ref_e_nome(self):
+        # O uuid da ficha não diz nada na pasta de downloads; ref + nome dizem.
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        criada["dados"]["ficha"]["ref"] = {"valor": "CM-001", "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        criada["dados"]["ficha"]["nome"] = {"valor": "Camisa Social", "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        self.client.put(f"/fichas/{criada['id']}", json={"tenant_id": TENANT_TESTE, "ficha": criada})
+
+        r = self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+        self.assertIn("ficha_CM-001_Camisa_Social.docx", r.headers["content-disposition"])
+
+    def test_nome_do_arquivo_sobrevive_a_acento_e_simbolo(self):
+        # O nome viaja num header HTTP: acento e caractere especial ali dão comportamento
+        # inconsistente entre navegadores.
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        criada["dados"]["ficha"]["nome"] = {"valor": "Camisa Ação/Verão 50%", "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        self.client.put(f"/fichas/{criada['id']}", json={"tenant_id": TENANT_TESTE, "ficha": criada})
+
+        r = self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+        disposicao = r.headers["content-disposition"]
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(disposicao.isascii(), f"nome de arquivo não-ASCII no header: {disposicao}")
+
+    def test_status_vira_documento_gerado(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.assertEqual(criada["status"], fm.STATUS_RASCUNHO)
+
+        self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+
+        depois = self.client.get(f"/fichas/{criada['id']}", params={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.assertEqual(depois["status"], fm.STATUS_DOCUMENTO_GERADO)
+        self.assertEqual(depois["documentos"]["docx"], "ficha.docx")
+        self.assertTrue(depois["documentos"]["gerado_em"])
+
+    def test_gera_sempre_a_versao_atual_da_ficha(self):
+        # Gerar duas vezes com uma edição no meio precisa refletir a edição -- servir um arquivo
+        # guardado entregaria silenciosamente um documento desatualizado.
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+
+        atual = self.client.get(f"/fichas/{criada['id']}", params={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        atual["dados"]["ficha"]["nome"] = {"valor": "Nome Editado Depois", "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        self.client.put(f"/fichas/{atual['id']}", json={"tenant_id": TENANT_TESTE, "ficha": atual})
+
+        r = self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+
+        import io as _io
+        from docx import Document
+        doc = Document(_io.BytesIO(r.content))
+        texto = "\n".join(c.text for t in doc.tables for linha in t.rows for c in linha.cells)
+        self.assertIn("Nome Editado Depois", texto)
+
+
 class TestDeletarFicha(TestApiFichasBase):
 
     def test_inexistente_404(self):

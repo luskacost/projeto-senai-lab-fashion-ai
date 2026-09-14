@@ -15,6 +15,7 @@ import {
   Tecido,
   aviamentoVazio,
   atualizarFicha,
+  baixarFichaDocx,
   campoEditado,
   corBeneficiamentoVazia,
   obterFicha,
@@ -33,7 +34,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import OrigemIndicador from "@/components/fichas/OrigemIndicador";
-import { AlertTriangle, ArrowLeft, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileDown, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -141,6 +142,7 @@ export default function FichaDetalhePage() {
   const [alertas, setAlertas] = useState<AlertaFicha[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [gerando, setGerando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
@@ -195,6 +197,35 @@ export default function FichaDetalhePage() {
     }
   }
 
+  async function gerarDocumento() {
+    if (!ficha) return;
+    setGerando(true);
+    try {
+      // Salva antes de gerar: o backend renderiza a partir do que está em disco, então edições
+      // não salvas sairiam de fora do documento sem o usuário perceber.
+      const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
+      setFicha(salva.ficha);
+      setAlertas(salva.alertas);
+
+      await baixarFichaDocx(TENANT_ID, ficha.id);
+      toast.success("Documento gerado.");
+
+      // O backend muda o status para "Documento gerado" ao renderizar -- recarrega para a tela
+      // refletir isso sem precisar de F5.
+      const atualizada = await obterFicha(TENANT_ID, ficha.id);
+      setFicha(atualizada.ficha);
+      setAlertas(atualizada.alertas);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 412) {
+        toast.error("Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de gerar o documento.");
+      } else {
+        toast.error(e instanceof ApiError ? e.message : "Falha ao gerar o documento.");
+      }
+    } finally {
+      setGerando(false);
+    }
+  }
+
   if (carregando) {
     return (
       <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
@@ -226,9 +257,13 @@ export default function FichaDetalhePage() {
         </Link>
         <div className="flex items-center gap-2">
           <Badge variant={VARIANTE_STATUS_FICHA[ficha.status]}>{ROTULO_STATUS_FICHA[ficha.status]}</Badge>
-          <Button onClick={salvar} disabled={salvando}>
+          <Button onClick={salvar} disabled={salvando || gerando} variant="outline">
             {salvando ? <Loader2 className="animate-spin" /> : <Save />}
             {salvando ? "Salvando..." : "Salvar"}
+          </Button>
+          <Button onClick={gerarDocumento} disabled={salvando || gerando}>
+            {gerando ? <Loader2 className="animate-spin" /> : <FileDown />}
+            {gerando ? "Gerando..." : "Gerar Word"}
           </Button>
         </div>
       </div>

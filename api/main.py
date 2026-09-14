@@ -12,8 +12,10 @@ Rodar localmente: uvicorn api.main:app --reload
 import hmac
 import io
 import os
+import re
 import secrets
 import time
+import unicodedata
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -62,8 +64,9 @@ from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
-from fichas_modelo import STATUS_EM_REVISAO
+from fichas_modelo import STATUS_DOCUMENTO_GERADO, STATUS_EM_REVISAO, valor_de
 from fichas_extracao import extrair_dados
+import fichas_docx
 import fichas_logo
 from fichas_verificacao import verificar_proveniencia
 from fichas_validacao import validar_ficha
@@ -104,6 +107,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Sem isto, o JavaScript do front não consegue LER o Content-Disposition das respostas de
+    # download, mesmo elas chegando corretamente: o navegador só expõe um punhado de headers
+    # "seguros" para requisições cross-origin, e Content-Disposition não é um deles. O efeito era
+    # silencioso -- o download funcionava, mas com o nome genérico do fallback em vez do nome
+    # montado pelo backend (ficha_CM-001_Camisa_Social.docx).
+    expose_headers=["Content-Disposition"],
 )
 
 
@@ -750,6 +759,23 @@ async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadF
 # fichas_validacao.validar_ficha() a cada leitura/escrita -- os alertas refletem o estado atual
 # dos dados, nunca um snapshot congelado de quando a ficha foi criada.
 # ─────────────────────────────────────────────────────────────────────────────
+def _nome_arquivo_ficha(ficha: Dict[str, Any], extensao: str) -> str:
+    """Nome de download legível, a partir da referência e do nome da peça.
+
+    "ficha_CM-001_Camisa_Social.docx" diz muito mais na pasta de downloads do usuário do que o
+    uuid da ficha. Reduzido a ASCII e a caracteres seguros porque o nome viaja num header HTTP
+    (Content-Disposition) -- acento e espaço ali causam comportamento inconsistente entre
+    navegadores.
+    """
+    identificacao = (ficha.get("dados") or {}).get("ficha") or {}
+    partes = [valor_de(identificacao.get("ref")) or "", valor_de(identificacao.get("nome")) or ""]
+    rotulo = "_".join(parte for parte in partes if parte) or "ficha"
+
+    rotulo = unicodedata.normalize("NFKD", rotulo).encode("ascii", "ignore").decode("ascii")
+    rotulo = re.sub(r"[^A-Za-z0-9_-]+", "_", rotulo).strip("_")[:60]
+    return f"ficha_{rotulo or 'sem_nome'}.{extensao}"
+
+
 def _ficha_com_alertas(ficha: Dict[str, Any], alertas_extra: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     alertas = list(alertas_extra or [])
     alertas.extend(validar_ficha(ficha.get("dados", {})))
@@ -867,6 +893,45 @@ def duplicar_ficha_endpoint(ficha_id: str, payload: DuplicarFichaRequest) -> Dic
     if copia is None:
         raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
     return _ficha_com_alertas(copia)
+
+
+@app.get("/fichas/{ficha_id}/docx")
+def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
+    """Gera o documento Word da ficha e devolve o arquivo para download.
+
+    Gera na hora, a cada chamada, em vez de servir um .docx guardado: a ficha pode ter sido
+    editada depois da última geração, e entregar um documento desatualizado sem avisar seria pior
+    do que o custo de renderizar de novo (que é local e rápido -- nenhuma chamada de API).
+    """
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+
+    try:
+        ficha = carregar_ficha(tenant_id, ficha_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de ficha inválido: '{ficha_id}'.")
+    if ficha is None:
+        raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
+
+    try:
+        caminho = fichas_docx.gerar_docx_da_ficha(tenant_id, ficha)
+    except Exception:
+        # gerar_docx_da_ficha já logou o erro com stack trace.
+        raise HTTPException(status_code=500, detail="Falha ao gerar o documento da ficha técnica.")
+
+    ficha["documentos"]["docx"] = fichas_docx.NOME_ARQUIVO_DOCX
+    ficha["documentos"]["gerado_em"] = datetime.now().isoformat()
+    ficha["status"] = STATUS_DOCUMENTO_GERADO
+    salvar_ficha(tenant_id, ficha)
+
+    with open(caminho, "rb") as f:
+        conteudo = f.read()
+
+    return Response(
+        content=conteudo,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{_nome_arquivo_ficha(ficha, "docx")}"'},
+    )
 
 
 @app.delete("/fichas/{ficha_id}")

@@ -609,6 +609,40 @@ export async function duplicarFicha(tenantId: string, fichaId: string): Promise<
   });
 }
 
+// Gera o .docx da ficha e dispara o download no navegador. O documento é renderizado na hora, a
+// cada chamada -- a ficha pode ter mudado desde a última geração, e entregar um arquivo
+// desatualizado sem avisar seria pior que renderizar de novo.
+export async function baixarFichaDocx(tenantId: string, fichaId: string): Promise<void> {
+  const url = `${API_URL}/fichas/${encodeURIComponent(fichaId)}/docx?tenant_id=${encodeURIComponent(tenantId)}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // corpo nao era JSON valido, mantem statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  // O nome vem do Content-Disposition montado pelo backend (ex: ficha_CM-001_Camisa.docx), que
+  // é bem mais util na pasta de downloads do que o uuid da ficha.
+  const disposicao = res.headers.get("Content-Disposition") ?? "";
+  const nomeDoHeader = /filename="([^"]+)"/.exec(disposicao)?.[1];
+
+  const blob = await res.blob();
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = nomeDoHeader || "ficha.docx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+}
+
 export async function deletarFicha(tenantId: string, fichaId: string): Promise<void> {
   await request<{ status: string }>(
     `/fichas/${encodeURIComponent(fichaId)}?tenant_id=${encodeURIComponent(tenantId)}`,
