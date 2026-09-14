@@ -28,6 +28,10 @@ import os
 import sys
 
 from docx import Document
+from docx.enum.table import WD_ROW_HEIGHT_RULE
+from docx.shared import Cm
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -174,6 +178,12 @@ LINHAS_A_REMOVER = {
 GRADE_TABELA_3 = ["PP", "P", "M", "G", "GG", "XG", "34", "36", "38", "40", "42", "44"]
 GRADE_TABELA_4 = ["46", "48", "50", "52", "54", "56"]
 
+# Altura reservada para o desenho técnico. Valor inicial conservador: grande o bastante para um
+# desenho legível, pequeno o bastante para não empurrar a ficha de 3 para 4 páginas. A checagem
+# real de paginação só é possível quando houver renderização em PDF (Task 13/14) -- ajustar lá se
+# necessário.
+ALTURA_AREA_DESENHO_CM = 6.0
+
 
 def _definir_texto_celula(celula, texto: str) -> None:
     """Escreve `texto` na célula mantendo tudo num único run.
@@ -208,6 +218,48 @@ def _remover_linhas(tabela, indices) -> None:
     for indice in sorted(indices, reverse=True):
         elemento = tabela.rows[indice]._tr
         elemento.getparent().remove(elemento)
+
+
+def _adicionar_secao_desenho(doc: Document) -> None:
+    """Cria a seção "DESENHO TÉCNICO" na primeira página, logo abaixo da identificação do produto.
+
+    O formulário oficial não reservou espaço para o desenho -- só o PDF de referência que o
+    usuário enviou antes tinha essa área. Sem ela, o desenho aprovado (Bloco C) não teria onde ser
+    impresso. Decisão confirmada com o usuário: adicionar a seção em vez de sacrificar a área de
+    AMOSTRA DE TECIDOS, que serve para colar amostras físicas de tecido na ficha impressa.
+
+    Título e caixa são cópias de elementos que já existem no documento (um título de seção e a
+    tabela da amostra), para herdarem fonte, bordas e largura sem precisar recriar formatação --
+    e assim a seção nova não destoa visualmente do resto da ficha.
+    """
+    titulo_modelo = next(p for p in doc.paragraphs if p.text.strip() == "CORES / BENEFICIAMENTOS")
+    novo_titulo = copy.deepcopy(titulo_modelo._p)
+
+    caixa_modelo = doc.tables[8]  # AMOSTRA DE TECIDOS: mesma largura e bordas do resto da ficha
+    nova_caixa = copy.deepcopy(caixa_modelo._tbl)
+
+    # Inserir a caixa primeiro e o título depois faz os dois caírem na ordem certa, já que
+    # addnext() sempre insere imediatamente após o elemento de referência.
+    ancora = doc.tables[1]._tbl  # IDENTIFICAÇÃO DO PRODUTO
+    ancora.addnext(nova_caixa)
+    ancora.addnext(novo_titulo)
+
+    Paragraph(novo_titulo, doc).runs[0].text = "DESENHO TÉCNICO"
+
+    tabela = Table(nova_caixa, doc)
+    _remover_linhas(tabela, [1])
+    celula = tabela.rows[0].cells[0].merge(tabela.rows[0].cells[-1])
+
+    # Mesclar concatena os parágrafos de todas as células envolvidas -- sem isso, a caixa do
+    # desenho herdaria os três "ESPAÇO PARA AMOSTRA" das outras colunas junto com o placeholder.
+    for paragrafo in celula.paragraphs[1:]:
+        paragrafo._p.getparent().remove(paragrafo._p)
+    _definir_texto_celula(celula, "{{ desenho_tecnico }}")
+
+    # Sem altura explícita a linha encolhe para uma linha de texto -- o desenho precisa de área
+    # reservada de verdade. AT_LEAST deixa a caixa crescer se a imagem inserida for maior.
+    tabela.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    tabela.rows[0].height = Cm(ALTURA_AREA_DESENHO_CM)
 
 
 def _adicionar_linha_de_marcas(tabela, tamanhos) -> None:
@@ -245,6 +297,10 @@ def anotar(caminho: str) -> None:
 
     for indice_tabela, indices in LINHAS_A_REMOVER.items():
         _remover_linhas(doc.tables[indice_tabela], indices)
+
+    # Por último: inserir uma tabela nova desloca os índices de todas as tabelas seguintes, então
+    # isso só pode acontecer depois de todas as operações endereçadas por índice acima.
+    _adicionar_secao_desenho(doc)
 
     doc.save(caminho)
     print(f"Template anotado: {caminho}")

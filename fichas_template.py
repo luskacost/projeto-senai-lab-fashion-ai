@@ -40,6 +40,10 @@ _REGEX_LISTA_ITERADA = re.compile(r"\{%\s*tr\s+for\s+\w+\s+in\s+([a-zA-Z_][a-zA-
 # de propósito -- cabeçalho da página e bloco IDENTIFICAÇÃO DO PRODUTO mostram o mesmo dado.
 PLACEHOLDERS_ESCALARES = (
     "logo",
+    # Área do desenho técnico: não existia no formulário original (só no PDF de referência) e foi
+    # acrescentada na Task 9, com aprovação do usuário -- sem ela o desenho aprovado no Bloco C
+    # não teria onde ser impresso. Fica vazia enquanto não houver desenho aprovado.
+    "desenho_tecnico",
     "ref",
     "nome",
     "colecao",
