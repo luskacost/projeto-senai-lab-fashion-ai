@@ -66,6 +66,7 @@ from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
 from fichas_modelo import STATUS_DOCUMENTO_GERADO, STATUS_EM_REVISAO, valor_de
 from fichas_extracao import extrair_dados
+import fichas_desenho
 import fichas_docx
 import fichas_logo
 import fichas_pdf
@@ -1010,6 +1011,27 @@ def baixar_ficha_pdf(ficha_id: str, tenant_id: str) -> Response:
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{_nome_arquivo_ficha(ficha, "pdf")}"'},
     )
+
+
+@app.get("/fichas/{ficha_id}/desenho/{versao}")
+def obter_desenho_ficha(ficha_id: str, versao: int, tenant_id: str) -> Response:
+    """Devolve o PNG de uma versão do desenho técnico já salva em disco.
+
+    Só serve o que já existe -- gerar uma versão nova (chamada real de API, moderação, registro
+    de cota) é responsabilidade da Task 16/17, ainda não implementada. Esta rota é a camada de
+    leitura, simétrica ao que Task 15 escreve.
+    """
+    _carregar_ficha_ou_404(tenant_id, ficha_id)  # valida tenant + ficha antes de tocar em arquivo
+
+    try:
+        caminho = fichas_desenho.caminho_desenho(tenant_id, ficha_id, versao)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Versão de desenho inválida: {versao}.")
+    if not caminho:
+        raise HTTPException(status_code=404, detail=f"Versão {versao} do desenho não encontrada para esta ficha.")
+
+    with open(caminho, "rb") as f:
+        return Response(content=f.read(), media_type="image/png")
 
 
 @app.delete("/fichas/{ficha_id}")

@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+import fichas_desenho as fdz
 import fichas_modelo as fm
 import fichas_pdf as fp
 import fichas_repo as fr
@@ -384,6 +385,53 @@ class TestPrevisualizarFicha(TestApiFichasBase):
         import io as _io
         texto = "\n".join(p.extract_text() or "" for p in PdfReader(_io.BytesIO(r.content)).pages)
         self.assertIn("Nome Na Previa", texto)
+
+
+class TestObterDesenhoFicha(TestApiFichasBase):
+    """GET /fichas/{id}/desenho/{versao} -- serve um PNG já salvo em disco (Task 15). Não gera
+    nada novo: a geração fica para a Task 16/17."""
+
+    def test_ficha_inexistente_404(self):
+        r = self.client.get(f"/fichas/{UUID_INEXISTENTE}/desenho/1", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_id_de_ficha_malformado_400(self):
+        r = self.client.get("/fichas/nao-e-um-uuid/desenho/1", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 400)
+
+    def test_tenant_inexistente_404(self):
+        r = self.client.get(f"/fichas/{UUID_INEXISTENTE}/desenho/1", params={"tenant_id": "tenant_que_nao_existe"})
+        self.assertEqual(r.status_code, 404)
+
+    def test_versao_sem_desenho_salvo_404(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.get(f"/fichas/{criada['id']}/desenho/1", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_versao_invalida_400(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.get(f"/fichas/{criada['id']}/desenho/0", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 400)
+
+    def test_desenho_salvo_e_servido_corretamente(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        png = b"\x89PNG\r\n\x1a\n" + b"conteudo de teste"
+        fdz.salvar_desenho(TENANT_TESTE, criada["id"], 1, png)
+
+        r = self.client.get(f"/fichas/{criada['id']}/desenho/1", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["content-type"], "image/png")
+        self.assertEqual(r.content, png)
+
+    def test_versoes_diferentes_servem_arquivos_diferentes(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        fdz.salvar_desenho(TENANT_TESTE, criada["id"], 1, b"conteudo v1")
+        fdz.salvar_desenho(TENANT_TESTE, criada["id"], 2, b"conteudo v2")
+
+        r1 = self.client.get(f"/fichas/{criada['id']}/desenho/1", params={"tenant_id": TENANT_TESTE})
+        r2 = self.client.get(f"/fichas/{criada['id']}/desenho/2", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r1.content, b"conteudo v1")
+        self.assertEqual(r2.content, b"conteudo v2")
 
 
 class TestDeletarFicha(TestApiFichasBase):
