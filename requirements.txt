@@ -8,6 +8,9 @@ sentence-transformers==6.0.0
 pypdf==6.16.2
 python-docx==1.2.0
 docxtpl==0.20.2
+# Pillow ja vinha transitivamente (chromadb/sentence-transformers), mas fichas_logo.py passou a
+# depender dele diretamente -- declarar explicitamente evita quebrar se a transitividade sumir.
+Pillow==12.3.0
 python-pptx==1.0.2
 xlrd==2.0.2
 fastapi==0.141.1

@@ -64,6 +64,7 @@ from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
 from fichas_modelo import STATUS_EM_REVISAO
 from fichas_extracao import extrair_dados
+import fichas_logo
 from fichas_verificacao import verificar_proveniencia
 from fichas_validacao import validar_ficha
 from fichas_repo import (
@@ -880,6 +881,68 @@ def deletar_ficha_endpoint(ficha_id: str, tenant_id: str) -> Dict[str, str]:
     if not removida:
         raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
     return {"status": "removida"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGO DA EMPRESA (Fase 11, Task 11)
+#
+# Cadastrado uma vez e reaproveitado em toda ficha gerada. É configuração do tenant (mesma
+# natureza de PUT /config/tenant), então upload e remoção exigem token de admin -- só a leitura
+# é aberta, porque a tela de configuração precisa exibir a prévia.
+# ─────────────────────────────────────────────────────────────────────────────
+@app.post("/branding/logo")
+async def upload_logo(
+    tenant_id: str,
+    arquivo: UploadFile = File(...),
+    x_admin_token: str = Header(..., alias="X-Admin-Token"),
+) -> Dict[str, Any]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    verificar_token_admin(tenant_id, x_admin_token)
+
+    conteudo = await arquivo.read()
+    try:
+        metadados = fichas_logo.salvar_logo(tenant_id, conteudo, nome_original=arquivo.filename or "")
+    except fichas_logo.LogoInvalidoError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+    return metadados
+
+
+@app.get("/branding/logo")
+def obter_logo(tenant_id: str) -> Response:
+    """Devolve a imagem do logo cadastrado (para a prévia na tela de configuração)."""
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+
+    caminho = fichas_logo.caminho_logo(tenant_id)
+    if not caminho:
+        raise HTTPException(status_code=404, detail="Nenhum logo cadastrado para este tenant.")
+
+    with open(caminho, "rb") as f:
+        return Response(content=f.read(), media_type="image/png")
+
+
+@app.get("/branding/logo/info")
+def obter_info_logo(tenant_id: str) -> Dict[str, Any]:
+    """Metadados do logo (nome original, formato, dimensões) sem trafegar a imagem -- a tela usa
+    isso para saber se há logo cadastrado antes de tentar exibi-lo."""
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+
+    metadados = fichas_logo.metadados_logo(tenant_id)
+    return {"cadastrado": metadados is not None, "metadados": metadados}
+
+
+@app.delete("/branding/logo")
+def deletar_logo(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> Dict[str, str]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    verificar_token_admin(tenant_id, x_admin_token)
+
+    if not fichas_logo.remover_logo(tenant_id):
+        raise HTTPException(status_code=404, detail="Nenhum logo cadastrado para este tenant.")
+    return {"status": "removido"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

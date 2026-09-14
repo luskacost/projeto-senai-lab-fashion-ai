@@ -511,6 +511,61 @@ export interface FichaComAlertas {
   alertas: AlertaFicha[];
 }
 
+// ── Logo da empresa ──────────────────────────────────────────────────────────
+// Cadastrado uma vez e reaproveitado em toda ficha gerada. Upload/remoção são operações de
+// admin (mesma natureza da configuração do tenant); só a leitura é aberta, para a prévia.
+export interface InfoLogo {
+  cadastrado: boolean;
+  metadados: {
+    nome_original: string;
+    formato_origem: string;
+    largura_px: number;
+    altura_px: number;
+  } | null;
+}
+
+export async function obterInfoLogo(tenantId: string): Promise<InfoLogo> {
+  return request<InfoLogo>(`/branding/logo/info?tenant_id=${encodeURIComponent(tenantId)}`);
+}
+
+// `versao` força o navegador a rebuscar a imagem depois de um upload -- sem isso, a prévia
+// continuaria mostrando o logo antigo, que fica cacheado na mesma URL.
+export function urlLogo(tenantId: string, versao?: string | number): string {
+  const base = `${API_URL}/branding/logo?tenant_id=${encodeURIComponent(tenantId)}`;
+  return versao === undefined ? base : `${base}&v=${encodeURIComponent(String(versao))}`;
+}
+
+export async function uploadLogo(tenantId: string, arquivo: File, tokenAdmin: string): Promise<InfoLogo["metadados"]> {
+  const formData = new FormData();
+  formData.append("arquivo", arquivo);
+
+  const res = await fetch(`${API_URL}/branding/logo?tenant_id=${encodeURIComponent(tenantId)}`, {
+    method: "POST",
+    headers: { "X-Admin-Token": tokenAdmin },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ?? detail;
+    } catch {
+      // corpo nao era JSON valido, mantem statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  return res.json() as Promise<InfoLogo["metadados"]>;
+}
+
+export async function deletarLogo(tenantId: string, tokenAdmin: string): Promise<void> {
+  await request<{ status: string }>(`/branding/logo?tenant_id=${encodeURIComponent(tenantId)}`, {
+    method: "DELETE",
+    headers: { "X-Admin-Token": tokenAdmin },
+  });
+}
+
 export async function listarFichas(tenantId: string): Promise<FichaResumo[]> {
   return request<FichaResumo[]>(`/fichas?tenant_id=${encodeURIComponent(tenantId)}`);
 }

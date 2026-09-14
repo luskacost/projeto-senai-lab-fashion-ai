@@ -3,12 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ApiError, adminLogin, deletarDocumento, listarDocumentos, uploadDocumento } from "@/lib/api";
+import {
+  ApiError,
+  InfoLogo,
+  adminLogin,
+  deletarDocumento,
+  deletarLogo,
+  listarDocumentos,
+  obterInfoLogo,
+  uploadDocumento,
+  uploadLogo,
+  urlLogo,
+} from "@/lib/api";
 import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileText, Loader2, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -28,6 +39,12 @@ export default function AdminPage() {
   const [enviando, setEnviando] = useState(false);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
+  const [infoLogo, setInfoLogo] = useState<InfoLogo | null>(null);
+  const [enviandoLogo, setEnviandoLogo] = useState(false);
+  // Muda a cada upload/remoção para furar o cache do navegador -- a URL do logo é sempre a mesma.
+  const [versaoLogo, setVersaoLogo] = useState(() => Date.now());
+  const inputLogoRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const tokenSalvo = window.sessionStorage.getItem(CHAVE_SESSAO_ADMIN);
@@ -38,6 +55,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (tokenAdmin) {
       recarregarDocumentos();
+      recarregarLogo();
     }
   }, [tokenAdmin]);
 
@@ -101,6 +119,43 @@ export default function AdminPage() {
     }
   }
 
+  async function recarregarLogo() {
+    try {
+      setInfoLogo(await obterInfoLogo(TENANT_ID));
+    } catch {
+      toast.error("Não foi possível verificar o logo cadastrado.");
+    }
+  }
+
+  async function enviarLogo() {
+    const arquivo = inputLogoRef.current?.files?.[0];
+    if (!arquivo || !tokenAdmin) return;
+
+    setEnviandoLogo(true);
+    try {
+      await uploadLogo(TENANT_ID, arquivo, tokenAdmin);
+      toast.success("Logo atualizado. Ele será usado nas próximas fichas geradas.");
+      if (inputLogoRef.current) inputLogoRef.current.value = "";
+      setVersaoLogo(Date.now());
+      await recarregarLogo();
+    } catch (e) {
+      tratarErroAdmin(e, "Falha ao enviar o logo.");
+    } finally {
+      setEnviandoLogo(false);
+    }
+  }
+
+  async function removerLogo() {
+    if (!tokenAdmin || !window.confirm("Remover o logo da empresa? As fichas passarão a ser geradas sem ele.")) return;
+    try {
+      await deletarLogo(TENANT_ID, tokenAdmin);
+      setVersaoLogo(Date.now());
+      await recarregarLogo();
+    } catch (e) {
+      tratarErroAdmin(e, "Falha ao remover o logo.");
+    }
+  }
+
   async function excluirDocumento(nome: string) {
     if (!tokenAdmin || !window.confirm(`Remover "${nome}" da Base de Conhecimento?`)) return;
     try {
@@ -149,7 +204,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-foreground">Base de Conhecimento — {APP_NOME}</h1>
         <Link href="/" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -157,6 +212,63 @@ export default function AdminPage() {
           Voltar ao chat
         </Link>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Logo da empresa</CardTitle>
+          <CardDescription>
+            Usado no cabeçalho das fichas técnicas geradas. Envie uma vez — ele é reaproveitado em
+            todas as fichas. Formatos aceitos: PNG ou JPG (máx. 5MB).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {infoLogo?.cadastrado ? (
+            <div className="flex items-center gap-4 rounded-lg border border-border p-3">
+              {/* <img> em vez de next/image: a URL vem da API com cache-buster e não passa pelo
+                  otimizador do Next, que exigiria configurar o domínio remoto. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={urlLogo(TENANT_ID, versaoLogo)}
+                alt="Logo cadastrado"
+                className="h-12 w-auto max-w-40 object-contain"
+              />
+              <div className="min-w-0 flex-1 text-sm">
+                <p className="truncate text-foreground">{infoLogo.metadados?.nome_original || "logo"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {infoLogo.metadados?.largura_px}×{infoLogo.metadados?.altura_px} px
+                </p>
+              </div>
+              <Button
+                onClick={removerLogo}
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+                aria-label="Remover logo"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+              <ImageIcon className="h-4 w-4 shrink-0" />
+              Nenhum logo cadastrado — as fichas serão geradas com a área do logo em branco.
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              ref={inputLogoRef}
+              type="file"
+              accept=".png,.jpg,.jpeg"
+              className="flex-1 text-sm text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm file:font-medium"
+            />
+            <Button onClick={enviarLogo} disabled={enviandoLogo} className="shrink-0">
+              {enviandoLogo ? <Loader2 className="animate-spin" /> : <Upload />}
+              {enviandoLogo ? "Enviando..." : infoLogo?.cadastrado ? "Substituir" : "Enviar"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

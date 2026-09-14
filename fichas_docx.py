@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 from docxtpl import DocxTemplate
 from jinja2 import Environment, StrictUndefined
 
+import fichas_logo
 import fichas_modelo as fm
 import fichas_repo
 from fichas_template import (
@@ -224,6 +225,7 @@ def renderizar_para_arquivo(
     ficha: Dict[str, Any],
     caminho_saida: str,
     caminho_template: str = CAMINHO_TEMPLATE,
+    tenant_id: Optional[str] = None,
 ) -> str:
     """Renderiza a ficha no template e salva em `caminho_saida`. Devolve o caminho salvo.
 
@@ -238,8 +240,16 @@ def renderizar_para_arquivo(
       ("conteúdo ilegível"). Com autoescape, viram entidades XML válidas.
     """
     modelo = DocxTemplate(caminho_template)
+
+    contexto = montar_contexto(ficha)
+    if tenant_id:
+        # O InlineImage precisa da instância do template (ele registra a imagem como relação
+        # interna do .docx), então o logo só pode ser resolvido aqui, não em montar_contexto --
+        # que é puro de propósito, para ser testável sem tocar em arquivo nenhum.
+        contexto["logo"] = fichas_logo.logo_para_documento(modelo, tenant_id) or ""
+
     ambiente = Environment(undefined=StrictUndefined)
-    modelo.render(montar_contexto(ficha), ambiente, autoescape=True)
+    modelo.render(contexto, ambiente, autoescape=True)
 
     diretorio = os.path.dirname(caminho_saida)
     if diretorio:
@@ -261,7 +271,7 @@ def gerar_docx_da_ficha(
     """
     caminho = fichas_repo.caminho_arquivo_da_ficha(tenant_id, ficha["id"], NOME_ARQUIVO_DOCX)
     try:
-        return renderizar_para_arquivo(ficha, caminho, caminho_template)
+        return renderizar_para_arquivo(ficha, caminho, caminho_template, tenant_id=tenant_id)
     except Exception as e:
         obter_logger(tenant_id).error(
             f"Falha ao renderizar o .docx da ficha {ficha.get('id')}: {e}", exc_info=True
