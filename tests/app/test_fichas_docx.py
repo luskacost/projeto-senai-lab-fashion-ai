@@ -1,0 +1,295 @@
+# -*- coding: utf-8 -*-
+"""Testes do render da ficha no template .docx (Fase 11, Task 10).
+
+A classe TestRenderCompleto é o teste mais valioso do arquivo: renderiza contra o template de
+produção de verdade e confere que nenhum placeholder sobrou sem substituir. É a única forma de
+pegar uma incompatibilidade entre o contexto (este módulo) e o .docx (Task 9) -- um `{{ ref }}`
+que ninguém alimenta não gera erro no docxtpl, só sai impresso literalmente na ficha.
+"""
+
+import os
+import re
+import shutil
+import tempfile
+import unittest
+
+from docx import Document
+
+import fichas_docx as fd
+import fichas_modelo as fm
+import fichas_template as ft
+
+REGEX_PLACEHOLDER = re.compile(r"\{\{.*?\}\}|\{%.*?%\}")
+
+
+def _campo(valor):
+    return {"valor": valor, "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+
+
+def _ficha_preenchida() -> dict:
+    ficha = fm.ficha_vazia()
+    ficha["id"] = "11111111-1111-1111-1111-111111111111"
+    dados = ficha["dados"]
+
+    dados["ficha"]["ref"] = _campo("CM-001")
+    dados["ficha"]["nome"] = _campo("Camisa Social Branca")
+    dados["ficha"]["colecao"] = _campo("Verão 2027")
+    dados["ficha"]["descricao"] = _campo("Camisa social manga longa")
+    dados["ficha"]["designer"] = _campo("Ana Paula")
+    dados["ficha"]["tecnica"] = _campo("Alfaiataria")
+    dados["ficha"]["empresa"] = _campo("SENAI LabFashion")
+    dados["ficha"]["data"] = _campo("14/09/2026")
+
+    dados["grade"]["numericos"] = _campo(["38", "40"])
+    dados["grade"]["comerciais"] = _campo(["M"])
+
+    aviamento = fm.aviamento_vazio()
+    aviamento["descricao"] = _campo("Botão")
+    aviamento["quantidade"] = _campo(10)
+    aviamento["preco"] = _campo(0.5)
+    dados["aviamentos"] = [aviamento]
+
+    tecido = fm.tecido_vazio()
+    tecido["descricao"] = _campo("Tricoline")
+    tecido["composicao"] = _campo("100% algodão")
+    tecido["quantidade"] = _campo(1.5)
+    tecido["largura"] = _campo(1.5)
+    tecido["preco"] = _campo(28.0)
+    dados["tecidos"] = [tecido]
+
+    cor = fm.cor_beneficiamento_vazia()
+    cor["item"] = _campo("Corpo")
+    cor["cor"] = _campo("Branco")
+    dados["cores_beneficiamentos"] = [cor]
+
+    dados["custos"]["aviamentos"]["custo"] = _campo(13.3)
+    dados["custos"]["tecidos"]["custo"] = _campo(42.0)
+    dados["custos"]["costura_beneficiamento"]["custo"] = _campo(25.0)
+    dados["custos"]["outros"]["custo"] = _campo(0.0)
+    dados["custos"]["preco_total"]["custo"] = _campo(80.3)
+    dados["custos"]["aviamentos"]["observacao"] = _campo("cotação set/26")
+
+    operacao = fm.operacao_vazia()
+    operacao["descricao"] = _campo("Fechar ombros")
+    operacao["maquinas"] = _campo("Overloque")
+    dados["sequencia_operacional"] = [operacao]
+
+    dados["modelagem"]["modelista"] = _campo("Carla Souza")
+    dados["modelagem"]["numero_moldes"] = _campo(8)
+    parte = fm.parte_modelagem_vazia()
+    parte["descricao"] = _campo("Frente")
+    parte["observacoes"] = _campo("cortar 2x")
+    dados["modelagem"]["partes"] = [parte]
+
+    return ficha
+
+
+class TestFormatacaoDeNumeros(unittest.TestCase):
+    """Padrão brasileiro sem depender de locale instalado -- servidor Linux enxuto costuma não ter
+    pt_BR, e o documento precisa sair correto de qualquer jeito."""
+
+    def test_dinheiro_sempre_com_duas_casas(self):
+        self.assertEqual(fd._formatar_dinheiro(80.3), "80,30")
+        self.assertEqual(fd._formatar_dinheiro(0), "0,00")
+
+    def test_dinheiro_com_separador_de_milhar(self):
+        self.assertEqual(fd._formatar_dinheiro(1234.5), "1.234,50")
+        self.assertEqual(fd._formatar_dinheiro(1234567.89), "1.234.567,89")
+
+    def test_dinheiro_ausente_vira_vazio(self):
+        self.assertEqual(fd._formatar_dinheiro(None), "")
+        self.assertEqual(fd._formatar_dinheiro(""), "")
+
+    def test_quantidade_inteira_sem_casas(self):
+        # "10,00 botões" carregaria uma precisão que o dado não tem.
+        self.assertEqual(fd._formatar_quantidade(10), "10")
+        self.assertEqual(fd._formatar_quantidade(10.0), "10")
+
+    def test_quantidade_fracionada_usa_virgula(self):
+        self.assertEqual(fd._formatar_quantidade(1.5), "1,5")
+        self.assertEqual(fd._formatar_quantidade(1.25), "1,25")
+
+    def test_quantidade_ausente_vira_vazio(self):
+        self.assertEqual(fd._formatar_quantidade(None), "")
+
+
+class TestContexto(unittest.TestCase):
+
+    def test_ficha_vazia_nao_produz_none_em_lugar_nenhum(self):
+        # Regra de não-invenção também na impressão: campo sem informação sai em branco, nunca
+        # "None" nem "0" -- que o leitor interpretaria como dado real.
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+
+        def sem_none(valor, caminho):
+            if isinstance(valor, dict):
+                for chave, sub in valor.items():
+                    sem_none(sub, f"{caminho}.{chave}")
+            elif isinstance(valor, list):
+                for i, item in enumerate(valor):
+                    sem_none(item, f"{caminho}[{i}]")
+            else:
+                self.assertNotIn("None", str(valor), f"'None' vazou para o documento em {caminho}")
+
+        sem_none(contexto, "contexto")
+
+    def test_campos_escalares_batem_com_o_contrato_do_template(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        for nome in ft.PLACEHOLDERS_ESCALARES:
+            with self.subTest(placeholder=nome):
+                self.assertIn(nome, contexto, f"O template usa {{{{ {nome} }}}} e o contexto não fornece.")
+
+    def test_listas_dinamicas_batem_com_o_contrato_do_template(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        for nome in ft.PLACEHOLDERS_LISTA:
+            with self.subTest(lista=nome):
+                self.assertIn(nome, contexto)
+                self.assertIsInstance(contexto[nome], list)
+
+    def test_grade_marca_apenas_os_tamanhos_selecionados(self):
+        contexto = fd.montar_contexto(_ficha_preenchida())
+        grade = contexto["grade"]
+        self.assertEqual(grade["38"], ft.MARCA_SELECIONADO)
+        self.assertEqual(grade["40"], ft.MARCA_SELECIONADO)
+        self.assertEqual(grade["M"], ft.MARCA_SELECIONADO)
+        self.assertEqual(grade["34"], ft.MARCA_NAO_SELECIONADO)
+        self.assertEqual(grade["XG"], ft.MARCA_NAO_SELECIONADO)
+
+    def test_grade_cobre_todos_os_tamanhos(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        self.assertEqual(set(contexto["grade"].keys()), set(ft.TAMANHOS_GRADE))
+
+    def test_valores_formatados_na_tabela_de_aviamentos(self):
+        contexto = fd.montar_contexto(_ficha_preenchida())
+        aviamento = contexto["aviamentos"][0]
+        self.assertEqual(aviamento["quantidade"], "10")
+        self.assertEqual(aviamento["preco"], "0,50")
+
+
+class TestPartesDaModelagemNuncaVazia(unittest.TestCase):
+    """No template, modelista e quantidade de moldes são impressos na primeira iteração do laço
+    das partes. Lista vazia => laço não roda => a linha some e leva os dois junto."""
+
+    def test_lista_vazia_vira_uma_linha_em_branco(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        self.assertEqual(len(contexto["partes"]), 1)
+        self.assertEqual(contexto["partes"][0], {"descricao": "", "observacoes": ""})
+
+    def test_modelista_sobrevive_a_ficha_sem_partes(self):
+        ficha = fm.ficha_vazia()
+        ficha["dados"]["modelagem"]["modelista"] = _campo("Carla Souza")
+        ficha["dados"]["modelagem"]["numero_moldes"] = _campo(8)
+
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(contexto["modelista"], "Carla Souza")
+        self.assertEqual(contexto["numero_moldes"], "8")
+        self.assertTrue(contexto["partes"], "sem linha nenhuma, modelista/moldes não seriam impressos")
+
+    def test_lista_preenchida_e_preservada(self):
+        contexto = fd.montar_contexto(_ficha_preenchida())
+        self.assertEqual(len(contexto["partes"]), 1)
+        self.assertEqual(contexto["partes"][0]["descricao"], "Frente")
+
+
+class TestRenderCompleto(unittest.TestCase):
+    """Render de verdade contra o template de produção."""
+
+    def setUp(self):
+        self.diretorio = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.diretorio, ignore_errors=True)
+
+    def _renderizar(self, ficha) -> str:
+        caminho = os.path.join(self.diretorio, "ficha.docx")
+        return fd.renderizar_para_arquivo(ficha, caminho)
+
+    def _texto_do_documento(self, caminho: str) -> str:
+        doc = Document(caminho)
+        partes = [p.text for p in doc.paragraphs]
+        for tabela in doc.tables:
+            for linha in tabela.rows:
+                partes.extend(celula.text for celula in linha.cells)
+        return "\n".join(partes)
+
+    def test_ficha_preenchida_nao_deixa_placeholder_literal(self):
+        caminho = self._renderizar(_ficha_preenchida())
+        sobrou = REGEX_PLACEHOLDER.findall(self._texto_do_documento(caminho))
+        self.assertEqual(sobrou, [], f"Placeholder(s) sem substituir no documento final: {sobrou}")
+
+    def test_ficha_vazia_tambem_renderiza(self):
+        # O caso mais comum no começo do fluxo: ficha recém-criada, quase tudo em branco. Não pode
+        # explodir nem imprimir placeholder.
+        caminho = self._renderizar(fm.ficha_vazia())
+        sobrou = REGEX_PLACEHOLDER.findall(self._texto_do_documento(caminho))
+        self.assertEqual(sobrou, [])
+
+    def test_dados_aparecem_no_documento(self):
+        caminho = self._renderizar(_ficha_preenchida())
+        texto = self._texto_do_documento(caminho)
+        for esperado in ("CM-001", "Camisa Social Branca", "Ana Paula", "Carla Souza", "Tricoline"):
+            with self.subTest(valor=esperado):
+                self.assertIn(esperado, texto)
+
+    def test_tabelas_dinamicas_crescem_conforme_os_dados(self):
+        ficha = _ficha_preenchida()
+        for indice in range(4):  # 1 original + 4 = 5 aviamentos
+            aviamento = fm.aviamento_vazio()
+            aviamento["descricao"] = _campo(f"Aviamento {indice}")
+            ficha["dados"]["aviamentos"].append(aviamento)
+
+        caminho = self._renderizar(ficha)
+        texto = self._texto_do_documento(caminho)
+        for indice in range(4):
+            self.assertIn(f"Aviamento {indice}", texto)
+
+    def test_sequencia_operacional_e_numerada_pelo_template(self):
+        ficha = _ficha_preenchida()
+        for descricao in ("Preparar frente", "Aplicar gola"):
+            operacao = fm.operacao_vazia()
+            operacao["descricao"] = _campo(descricao)
+            ficha["dados"]["sequencia_operacional"].append(operacao)
+
+        doc = Document(self._renderizar(ficha))
+        tabela = next(
+            t for t in doc.tables
+            if t.rows[0].cells[0].text.strip().upper() == "ETAPA"
+        )
+        numeros = [linha.cells[0].text.strip() for linha in tabela.rows[1:]]
+        self.assertEqual(numeros, ["1", "2", "3"])
+
+    def test_caractere_especial_nao_corrompe_o_xml(self):
+        # "Pano & Cia" e observações com "<" quebrariam o XML do .docx sem autoescape, e o Word
+        # recusaria abrir o arquivo com "conteúdo ilegível". O teste só passa se o documento
+        # gerado for relido com sucesso e o texto sair legível.
+        ficha = _ficha_preenchida()
+        ficha["dados"]["aviamentos"][0]["fornecedor"] = _campo("Pano & Cia <Ltda>")
+
+        texto = self._texto_do_documento(self._renderizar(ficha))
+        self.assertIn("Pano & Cia <Ltda>", texto)
+
+    def test_contexto_incompleto_falha_alto(self):
+        # Prova que o StrictUndefined está ativo: sem ele, uma variável que o contexto esqueceu
+        # viraria campo em branco no documento, sem erro nenhum. Exige a exceção específica do
+        # Jinja -- assertRaises(Exception) passaria por qualquer falha, inclusive uma não
+        # relacionada, e daria uma falsa sensação de cobertura.
+        from unittest.mock import patch
+
+        from jinja2.exceptions import UndefinedError
+
+        contexto_incompleto = fd.montar_contexto(_ficha_preenchida())
+        del contexto_incompleto["ref"]
+
+        with patch.object(fd, "montar_contexto", return_value=contexto_incompleto):
+            with self.assertRaises(UndefinedError):
+                self._renderizar(_ficha_preenchida())
+
+    def test_documento_final_mantem_as_tabelas_do_template(self):
+        # Fidelidade ao modelo: o render preenche, não reconstrói. Se o número de tabelas mudar,
+        # alguma coisa está criando estrutura em vez de preencher a existente.
+        doc_modelo = Document(ft.CAMINHO_TEMPLATE)
+        doc_final = Document(self._renderizar(_ficha_preenchida()))
+        self.assertEqual(len(doc_final.tables), len(doc_modelo.tables))
+
+
+if __name__ == "__main__":
+    unittest.main()

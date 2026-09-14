@@ -72,6 +72,16 @@ def _caminho_lock_ficha(tenant_id: str, ficha_id: str) -> str:
     return os.path.join(_dir_ficha(tenant_id, ficha_id), "ficha.json.lock")
 
 
+def caminho_arquivo_da_ficha(tenant_id: str, ficha_id: str, nome_arquivo: str) -> str:
+    """Caminho de um artefato binário dentro da pasta da ficha (ficha.docx, ficha.pdf,
+    desenho_v1.png...). Único ponto que monta esses caminhos, para render (Task 10), download
+    (Task 12), PDF (Task 13) e desenhos (Bloco C) não divergirem sobre onde as coisas ficam."""
+    _validar_ficha_id(ficha_id)
+    if os.sep in nome_arquivo or "/" in nome_arquivo or ".." in nome_arquivo:
+        raise ValueError(f"nome de arquivo inválido: {nome_arquivo!r}")
+    return os.path.join(_dir_ficha(tenant_id, ficha_id), nome_arquivo)
+
+
 def _caminho_indice(tenant_id: str) -> str:
     return os.path.join(DIRETORIO_FICHAS, f"{tenant_id}_index.json")
 
