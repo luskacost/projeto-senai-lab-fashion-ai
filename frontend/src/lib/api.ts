@@ -421,6 +421,25 @@ export interface DadosFicha {
   };
 }
 
+// Status de cada versão -- nenhum desenho é aprovado automaticamente, só por ação explícita do
+// usuário (aprovarDesenho). "gerado" existe no backend por completude (fichas_modelo.py) mas não
+// aparece de fato neste fluxo síncrono: toda versão já nasce AGUARDANDO_APROVACAO.
+export type StatusDesenho = "gerado" | "aguardando_aprovacao" | "aprovado";
+
+export interface VersaoDesenho {
+  versao: number;
+  prompt_visual: string;
+  instrucoes_acumuladas: string;
+  status: StatusDesenho;
+  criado_em: string;
+}
+
+export interface DesenhoFicha {
+  solicitado: boolean;
+  versoes: VersaoDesenho[];
+  versao_aprovada: number | null;
+}
+
 export interface Ficha {
   id: string;
   status: StatusFicha;
@@ -428,11 +447,7 @@ export interface Ficha {
   atualizado_em: string;
   texto_origem: string;
   dados: DadosFicha;
-  desenho: {
-    solicitado: boolean;
-    versoes: unknown[];
-    versao_aprovada: number | null;
-  };
+  desenho: DesenhoFicha;
   documentos: { docx: string; pdf: string; gerado_em: string };
 }
 
@@ -653,6 +668,37 @@ export async function baixarFichaDocumento(
   link.click();
   link.remove();
   window.URL.revokeObjectURL(objectUrl);
+}
+
+// ── Desenho técnico (Fase 11, Task 17) ───────────────────────────────────────
+// Recurso opt-in: `desenho.solicitado` só controla se a seção aparece no editor, sem custo
+// nenhum -- a chamada de API de verdade só acontece quando o usuário clica em "Gerar" (gerarDesenho).
+export function urlDesenho(tenantId: string, fichaId: string, versao: number): string {
+  return `${API_URL}/fichas/${encodeURIComponent(fichaId)}/desenho/${versao}?tenant_id=${encodeURIComponent(tenantId)}`;
+}
+
+// `instrucaoAdicional` é o pedido de ajuste da regeneração (ex: "a manga é 3/4, não curta") --
+// omitido na primeira geração. O backend acumula sobre as instruções de versões anteriores, já
+// que gpt-image-1 não tem seed/determinismo: cada geração é uma peça nova, nunca uma correção
+// pontual da anterior.
+export async function gerarDesenho(
+  tenantId: string,
+  fichaId: string,
+  instrucaoAdicional?: string
+): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/desenho`, {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, instrucao_adicional: instrucaoAdicional || null }),
+  });
+}
+
+// Sem custo de API -- só muda o estado persistido da ficha. Aprovar uma versão rebaixa
+// automaticamente qualquer outra que estivesse aprovada (só uma vale por vez).
+export async function aprovarDesenho(tenantId: string, fichaId: string, versao: number): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/desenho/${versao}/aprovar`, {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId }),
+  });
 }
 
 export async function deletarFicha(tenantId: string, fichaId: string): Promise<void> {

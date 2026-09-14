@@ -10,18 +10,22 @@ import {
   CampoFicha,
   CorBeneficiamento,
   DadosFicha,
+  DesenhoFicha,
   Ficha,
   Operacao,
   Tecido,
+  aprovarDesenho,
   aviamentoVazio,
   atualizarFicha,
   baixarFichaDocumento,
   campoEditado,
   corBeneficiamentoVazia,
+  gerarDesenho,
   obterFicha,
   operacaoVazia,
   parteModelagemVazia,
   tecidoVazio,
+  urlDesenho,
   urlPreviewFicha,
 } from "@/lib/api";
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
@@ -35,7 +39,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import OrigemIndicador from "@/components/fichas/OrigemIndicador";
-import { AlertTriangle, ArrowLeft, FileDown, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileDown, ImagePlus, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -150,6 +154,8 @@ export default function FichaDetalhePage() {
   const [gerandoPreview, setGerandoPreview] = useState(false);
   const [erroPreview, setErroPreview] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [gerandoDesenho, setGerandoDesenho] = useState(false);
+  const [instrucaoAdicional, setInstrucaoAdicional] = useState("");
 
   useEffect(() => {
     if (!fichaId) return;
@@ -182,6 +188,56 @@ export default function FichaDetalhePage() {
   // atualizada, mantendo o resto do documento (id/status/timestamps/desenho/documentos) intacto.
   function atualizarDados(atualizar: (dados: DadosFicha) => DadosFicha) {
     setFicha((atual) => (atual ? { ...atual, dados: atualizar(atual.dados) } : atual));
+  }
+
+  // Mesma ideia, para o campo irmão "desenho" (fora de "dados") -- hoje só o checkbox
+  // "solicitado" é editado diretamente aqui; versões/aprovação passam pelas funções abaixo, que
+  // chamam o backend em vez de só alterar o estado local.
+  function atualizarDesenho(atualizar: (desenho: DesenhoFicha) => DesenhoFicha) {
+    setFicha((atual) => (atual ? { ...atual, desenho: atualizar(atual.desenho) } : atual));
+  }
+
+  async function gerarOuRegenerarDesenho() {
+    if (!ficha) return;
+    setGerandoDesenho(true);
+    try {
+      // Salva antes de gerar, mesmo motivo do Word/PDF/prévia: o backend monta o prompt a partir
+      // dos dados que estão em disco, então uma edição não salva (ex: descrição da peça) ficaria
+      // de fora do desenho sem o usuário perceber.
+      const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
+      setFicha(salva.ficha);
+      setAlertas(salva.alertas);
+
+      const resultado = await gerarDesenho(TENANT_ID, salva.ficha.id, instrucaoAdicional || undefined);
+      setFicha(resultado.ficha);
+      setAlertas(resultado.alertas);
+      setInstrucaoAdicional("");
+      toast.success("Desenho técnico gerado.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 412) {
+        toast.error("Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de gerar o desenho.");
+      } else if (e instanceof ApiError && (e.status === 422 || e.status === 429)) {
+        // 422 = moderação reprovou o prompt; 429 = cota diária de imagens atingida. Nos dois
+        // casos a mensagem do backend já é a que deve chegar ao usuário, sem reformular.
+        toast.error(e.message);
+      } else {
+        toast.error(e instanceof ApiError ? e.message : "Falha ao gerar o desenho técnico.");
+      }
+    } finally {
+      setGerandoDesenho(false);
+    }
+  }
+
+  async function aprovarVersaoDesenho(versao: number) {
+    if (!ficha) return;
+    try {
+      const resultado = await aprovarDesenho(TENANT_ID, ficha.id, versao);
+      setFicha(resultado.ficha);
+      setAlertas(resultado.alertas);
+      toast.success(`Versão ${versao} aprovada.`);
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Falha ao aprovar a versão.");
+    }
   }
 
   async function salvar() {
@@ -405,6 +461,81 @@ export default function FichaDetalhePage() {
                   onChange={(v) => atualizarDados((d) => ({ ...d, ficha: { ...d.ficha, descricao: campoEditado(v) } }))}
                 />
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Desenho técnico (opcional)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <Checkbox
+                  checked={ficha.desenho.solicitado}
+                  onCheckedChange={(v) => atualizarDesenho((d) => ({ ...d, solicitado: v === true }))}
+                />
+                Solicitar desenho técnico para esta ficha
+              </label>
+
+              {ficha.desenho.solicitado && (
+                <div className="space-y-4">
+                  {ficha.desenho.versoes.length === 0 ? (
+                    <Button onClick={gerarOuRegenerarDesenho} disabled={gerandoDesenho} variant="outline" size="sm">
+                      {gerandoDesenho ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                      {gerandoDesenho ? "Gerando..." : "Gerar desenho técnico"}
+                    </Button>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {[...ficha.desenho.versoes].reverse().map((v) => (
+                          <div key={v.versao} className="space-y-2 rounded-lg border border-border p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-foreground">Versão {v.versao}</span>
+                              <Badge variant={v.status === "aprovado" ? "default" : "outline"}>
+                                {v.status === "aprovado" ? "Aprovado" : "Aguardando aprovação"}
+                              </Badge>
+                            </div>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={urlDesenho(TENANT_ID, ficha.id, v.versao)}
+                              alt={`Desenho técnico, versão ${v.versao}`}
+                              className="w-full rounded border border-border"
+                            />
+                            {v.status !== "aprovado" && (
+                              <Button
+                                onClick={() => aprovarVersaoDesenho(v.versao)}
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                              >
+                                Aprovar esta versão
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
+                        <p className="text-xs text-muted-foreground">
+                          gpt-image-1 não tem controle de repetição exata: cada regeneração cria uma
+                          peça nova a partir do ajuste pedido, não uma correção pontual da versão
+                          anterior.
+                        </p>
+                        <Textarea
+                          placeholder="Ex.: a manga é 3/4, não curta"
+                          value={instrucaoAdicional}
+                          onChange={(e) => setInstrucaoAdicional(e.target.value)}
+                          rows={2}
+                        />
+                        <Button onClick={gerarOuRegenerarDesenho} disabled={gerandoDesenho} variant="outline" size="sm">
+                          {gerandoDesenho ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                          {gerandoDesenho ? "Gerando..." : "Gerar nova versão"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
