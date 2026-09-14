@@ -342,22 +342,159 @@ export interface CampoFicha<T> {
   trecho: string;
 }
 
-// O documento completo -- "dados" fica solto como Record aqui porque seu formato detalhado
-// (ficha/grade/aviamentos/tecidos/custos/sequência operacional/modelagem) só importa a partir da
-// tela de revisão (Task 8); esta página (Task 7) só lista/cria/duplica/exclui.
+// Espelha fichas_modelo.py (backend) campo a campo -- os nomes de chave são os mesmos dos dois
+// lados de propósito, pra tornar o mapeamento request/response óbvio de olhar.
+export interface CamposIdentificacao {
+  ref: CampoFicha<string>;
+  nome: CampoFicha<string>;
+  colecao: CampoFicha<string>;
+  descricao: CampoFicha<string>;
+  designer: CampoFicha<string>;
+  tecnica: CampoFicha<string>;
+  empresa: CampoFicha<string>;
+  data: CampoFicha<string>;
+}
+
+export interface CorBeneficiamento {
+  item: CampoFicha<string>;
+  descricao: CampoFicha<string>;
+  cor: CampoFicha<string>;
+  beneficiamento: CampoFicha<string>;
+  observacoes: CampoFicha<string>;
+}
+
+export interface Aviamento {
+  descricao: CampoFicha<string>;
+  composicao: CampoFicha<string>;
+  cor: CampoFicha<string>;
+  quantidade: CampoFicha<number | null>;
+  fornecedor: CampoFicha<string>;
+  preco: CampoFicha<number | null>;
+}
+
+export interface Tecido {
+  descricao: CampoFicha<string>;
+  composicao: CampoFicha<string>;
+  cor: CampoFicha<string>;
+  quantidade: CampoFicha<number | null>;
+  largura: CampoFicha<number | null>;
+  fornecedor: CampoFicha<string>;
+  preco: CampoFicha<number | null>;
+}
+
+export interface CategoriaCusto {
+  custo: CampoFicha<number | null>;
+  observacao: CampoFicha<string>;
+}
+
+export interface Operacao {
+  descricao: CampoFicha<string>;
+  maquinas: CampoFicha<string>;
+}
+
+export interface ParteModelagem {
+  descricao: CampoFicha<string>;
+  observacoes: CampoFicha<string>;
+}
+
+export interface DadosFicha {
+  ficha: CamposIdentificacao;
+  cores_beneficiamentos: CorBeneficiamento[];
+  grade: {
+    numericos: CampoFicha<string[]>;
+    comerciais: CampoFicha<string[]>;
+  };
+  aviamentos: Aviamento[];
+  tecidos: Tecido[];
+  custos: {
+    aviamentos: CategoriaCusto;
+    tecidos: CategoriaCusto;
+    costura_beneficiamento: CategoriaCusto;
+    outros: CategoriaCusto;
+    preco_total: CategoriaCusto;
+  };
+  sequencia_operacional: Operacao[];
+  modelagem: {
+    modelista: CampoFicha<string>;
+    numero_moldes: CampoFicha<number | null>;
+    partes: ParteModelagem[];
+  };
+}
+
 export interface Ficha {
   id: string;
   status: StatusFicha;
   criado_em: string;
   atualizado_em: string;
   texto_origem: string;
-  dados: Record<string, unknown>;
+  dados: DadosFicha;
   desenho: {
     solicitado: boolean;
     versoes: unknown[];
     versao_aprovada: number | null;
   };
   documentos: { docx: string; pdf: string; gerado_em: string };
+}
+
+// Construtores de item vazio para as listas dinâmicas -- espelham fichas_modelo.py
+// (aviamento_vazio, tecido_vazio, cor_beneficiamento_vazia, operacao_vazia, parte_modelagem_vazia),
+// usados quando o usuário clica "Adicionar linha" no editor (Task 8), sem precisar de round-trip
+// com o backend só para obter a forma de um item novo.
+function campoTextoVazio(): CampoFicha<string> {
+  return { valor: "", origem: "DESCONHECIDO", trecho: "" };
+}
+
+function campoNumeroVazio(): CampoFicha<number | null> {
+  return { valor: null, origem: "DESCONHECIDO", trecho: "" };
+}
+
+export function corBeneficiamentoVazia(): CorBeneficiamento {
+  return {
+    item: campoTextoVazio(),
+    descricao: campoTextoVazio(),
+    cor: campoTextoVazio(),
+    beneficiamento: campoTextoVazio(),
+    observacoes: campoTextoVazio(),
+  };
+}
+
+export function aviamentoVazio(): Aviamento {
+  return {
+    descricao: campoTextoVazio(),
+    composicao: campoTextoVazio(),
+    cor: campoTextoVazio(),
+    quantidade: campoNumeroVazio(),
+    fornecedor: campoTextoVazio(),
+    preco: campoNumeroVazio(),
+  };
+}
+
+export function tecidoVazio(): Tecido {
+  return {
+    descricao: campoTextoVazio(),
+    composicao: campoTextoVazio(),
+    cor: campoTextoVazio(),
+    quantidade: campoNumeroVazio(),
+    largura: campoNumeroVazio(),
+    fornecedor: campoTextoVazio(),
+    preco: campoNumeroVazio(),
+  };
+}
+
+export function operacaoVazia(): Operacao {
+  return { descricao: campoTextoVazio(), maquinas: campoTextoVazio() };
+}
+
+export function parteModelagemVazia(): ParteModelagem {
+  return { descricao: campoTextoVazio(), observacoes: campoTextoVazio() };
+}
+
+// Constrói um CampoFicha marcado como editado manualmente pelo usuário -- FORNECIDO porque a
+// pessoa acabou de digitar/selecionar o valor com a própria mão, sem "trecho" porque não há um
+// texto livre de origem sendo citado (isso só existe logo após a extração da Task 3; edição
+// manual na revisão é uma fonte de verdade própria, não precisa de comprovação por substring).
+export function campoEditado<T>(valor: T): CampoFicha<T> {
+  return { valor, origem: "FORNECIDO", trecho: "" };
 }
 
 export interface AlertaFicha {
@@ -389,6 +526,25 @@ export async function obterFicha(tenantId: string, fichaId: string): Promise<Fic
   return request<FichaComAlertas>(
     `/fichas/${encodeURIComponent(fichaId)}?tenant_id=${encodeURIComponent(tenantId)}`
   );
+}
+
+// atualizadoEmEsperado é o timestamp que o cliente tinha ao carregar a ficha para edição --
+// divergência do valor salvo em disco vira HTTP 412 (fichas_repo.ConflitoDeVersaoError no
+// backend), indicando que outra aba/sessão salvou a ficha nesse meio-tempo. O chamador (Task 8)
+// trata ApiError com status 412 mostrando isso ao usuário em vez de sobrescrever silenciosamente.
+export async function atualizarFicha(
+  tenantId: string,
+  ficha: Ficha,
+  atualizadoEmEsperado?: string
+): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(ficha.id)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      ficha,
+      atualizado_em_esperado: atualizadoEmEsperado ?? null,
+    }),
+  });
 }
 
 export async function duplicarFicha(tenantId: string, fichaId: string): Promise<FichaComAlertas> {

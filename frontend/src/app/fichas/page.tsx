@@ -7,12 +7,12 @@ import Image from "next/image";
 import {
   ApiError,
   FichaResumo,
-  StatusFicha,
   criarFicha,
   deletarFicha,
   duplicarFicha,
   listarFichas,
 } from "@/lib/api";
+import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,26 +21,6 @@ import { ArrowLeft, Copy, FileStack, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
-
-const ROTULO_STATUS: Record<StatusFicha, string> = {
-  RASCUNHO: "Rascunho",
-  EM_REVISAO: "Em revisão",
-  DESENHO_GERADO: "Desenho gerado",
-  AGUARDANDO_APROVACAO: "Aguardando aprovação",
-  APROVADA: "Aprovada",
-  DOCUMENTO_GERADO: "Documento gerado",
-};
-
-// "default" (cor primária) pros estados que pedem atenção/ação do usuário; "secondary" pros
-// estados intermediários/concluídos; "outline" pro rascunho, o mais neutro de todos.
-const VARIANTE_STATUS: Record<StatusFicha, "default" | "secondary" | "outline"> = {
-  RASCUNHO: "outline",
-  EM_REVISAO: "secondary",
-  DESENHO_GERADO: "secondary",
-  AGUARDANDO_APROVACAO: "default",
-  APROVADA: "default",
-  DOCUMENTO_GERADO: "secondary",
-};
 
 function formatarData(iso: string): string {
   if (!iso) return "—";
@@ -154,8 +134,8 @@ export default function FichasPage() {
                       <span className="truncate text-sm font-medium text-foreground">
                         {f.nome || "Ficha sem nome"}
                       </span>
-                      <Badge variant={VARIANTE_STATUS[f.status]} className="shrink-0">
-                        {ROTULO_STATUS[f.status] ?? f.status}
+                      <Badge variant={VARIANTE_STATUS_FICHA[f.status]} className="shrink-0">
+                        {ROTULO_STATUS_FICHA[f.status] ?? f.status}
                       </Badge>
                     </div>
                     <p className="truncate text-xs text-muted-foreground">
