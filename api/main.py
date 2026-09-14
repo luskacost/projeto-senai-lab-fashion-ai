@@ -64,7 +64,7 @@ from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
-from fichas_modelo import STATUS_DOCUMENTO_GERADO, STATUS_EM_REVISAO, valor_de
+from fichas_modelo import STATUS_DESENHO_GERADO, STATUS_DOCUMENTO_GERADO, STATUS_EM_REVISAO, valor_de
 from fichas_extracao import extrair_dados
 import fichas_desenho
 import fichas_docx
@@ -1013,14 +1013,68 @@ def baixar_ficha_pdf(ficha_id: str, tenant_id: str) -> Response:
     )
 
 
+class GerarDesenhoRequest(BaseModel):
+    tenant_id: str
+    instrucao_adicional: Optional[str] = None
+
+
+@app.post("/fichas/{ficha_id}/desenho")
+def gerar_desenho_endpoint(ficha_id: str, payload: GerarDesenhoRequest) -> Dict[str, Any]:
+    """Gera uma nova versão do desenho técnico -- chamada real de API (moderação de texto +
+    gpt-image-1), protegida pelo mesmo limite diário de imagens do Gerador de Croqui.
+
+    `instrucao_adicional` é o pedido de ajuste da regeneração (ex: "a manga é 3/4, não curta") --
+    vazio na primeira geração de cada ficha.
+    """
+    ficha = _carregar_ficha_ou_404(payload.tenant_id, ficha_id)
+
+    config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
+    limite_imagens = config.get("limite_imagens_dia", 30)
+
+    api_key = obter_secret_tenant(payload.tenant_id, "OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
+    client = OpenAI(api_key=api_key)
+
+    try:
+        ficha = fichas_desenho.gerar_nova_versao(
+            client, payload.tenant_id, ficha, limite_imagens, instrucao_adicional=payload.instrucao_adicional or ""
+        )
+    except fichas_desenho.PromptReprovadoError as err:
+        raise HTTPException(status_code=422, detail=err.motivo)
+    except fichas_desenho.LimiteDeImagensExcedidoError as err:
+        raise HTTPException(status_code=429, detail=str(err))
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    ficha["status"] = STATUS_DESENHO_GERADO
+    ficha = salvar_ficha(payload.tenant_id, ficha)
+    return _ficha_com_alertas(ficha)
+
+
+class AprovarDesenhoRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/fichas/{ficha_id}/desenho/{versao}/aprovar")
+def aprovar_desenho_endpoint(ficha_id: str, versao: int, payload: AprovarDesenhoRequest) -> Dict[str, Any]:
+    """Marca uma versão do desenho como aprovada. Sem chamada de API -- só muda o estado
+    persistido da ficha."""
+    ficha = _carregar_ficha_ou_404(payload.tenant_id, ficha_id)
+
+    try:
+        ficha = fichas_desenho.aprovar_versao(ficha, versao)
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail=str(err))
+
+    ficha = salvar_ficha(payload.tenant_id, ficha)
+    return _ficha_com_alertas(ficha)
+
+
 @app.get("/fichas/{ficha_id}/desenho/{versao}")
 def obter_desenho_ficha(ficha_id: str, versao: int, tenant_id: str) -> Response:
-    """Devolve o PNG de uma versão do desenho técnico já salva em disco.
-
-    Só serve o que já existe -- gerar uma versão nova (chamada real de API, moderação, registro
-    de cota) é responsabilidade da Task 16/17, ainda não implementada. Esta rota é a camada de
-    leitura, simétrica ao que Task 15 escreve.
-    """
+    """Devolve o PNG de uma versão do desenho técnico já salva em disco (só leitura -- gerar uma
+    versão nova é POST /fichas/{id}/desenho, acima)."""
     _carregar_ficha_ou_404(tenant_id, ficha_id)  # valida tenant + ficha antes de tocar em arquivo
 
     try:

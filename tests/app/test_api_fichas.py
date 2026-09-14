@@ -387,6 +387,100 @@ class TestPrevisualizarFicha(TestApiFichasBase):
         self.assertIn("Nome Na Previa", texto)
 
 
+def _resposta_imagem_ok():
+    from unittest.mock import MagicMock
+    import base64
+    png = b"\x89PNG\r\n\x1a\n" + b"conteudo minimo"
+    item = MagicMock(b64_json=base64.b64encode(png).decode("ascii"))
+    return MagicMock(data=[item])
+
+
+class TestGerarDesenhoEndpoint(TestApiFichasBase):
+    """POST /fichas/{id}/desenho -- único ponto desta suíte que simula uma chamada de API real
+    (sempre via patch em api.main.OpenAI, nunca a rede de verdade)."""
+
+    def test_tenant_inexistente_404(self):
+        r = self.client.post(
+            f"/fichas/{UUID_INEXISTENTE}/desenho", json={"tenant_id": "tenant_que_nao_existe"}
+        )
+        self.assertEqual(r.status_code, 404)
+
+    def test_ficha_inexistente_404(self):
+        r = self.client.post(f"/fichas/{UUID_INEXISTENTE}/desenho", json={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_sem_api_key_configurada_devolve_500(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        os.environ.pop(ENV_API_KEY, None)
+        try:
+            r = self.client.post(f"/fichas/{criada['id']}/desenho", json={"tenant_id": TENANT_TESTE})
+            self.assertEqual(r.status_code, 500)
+        finally:
+            os.environ[ENV_API_KEY] = "sk-fake-key-de-teste"
+
+    @patch("api.main.OpenAI")
+    @patch("fichas_desenho.validar_prompt_imagem", return_value={"aprovado": True, "motivo": ""})
+    def test_gera_com_sucesso_e_muda_status(self, _mod, mock_openai_cls):
+        mock_openai_cls.return_value.images.generate.return_value = _resposta_imagem_ok()
+
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.post(f"/fichas/{criada['id']}/desenho", json={"tenant_id": TENANT_TESTE})
+
+        self.assertEqual(r.status_code, 200)
+        corpo = r.json()["ficha"]
+        self.assertEqual(len(corpo["desenho"]["versoes"]), 1)
+        self.assertEqual(corpo["status"], fm.STATUS_DESENHO_GERADO)
+
+    @patch("api.main.OpenAI")
+    @patch("fichas_desenho.validar_prompt_imagem", return_value={"aprovado": False, "motivo": "Fora de escopo."})
+    def test_prompt_reprovado_422(self, _mod, mock_openai_cls):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.post(f"/fichas/{criada['id']}/desenho", json={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 422)
+        self.assertEqual(r.json()["detail"], "Fora de escopo.")
+        mock_openai_cls.return_value.images.generate.assert_not_called()
+
+    @patch("api.main.OpenAI")
+    @patch("fichas_desenho.validar_prompt_imagem", return_value={"aprovado": True, "motivo": ""})
+    def test_limite_diario_bloqueia_com_429(self, _mod, mock_openai_cls):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        incrementar_uso(TENANT_TESTE, "imagens", quantidade=30)  # default limite_imagens_dia
+        r = self.client.post(f"/fichas/{criada['id']}/desenho", json={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 429)
+        mock_openai_cls.return_value.images.generate.assert_not_called()
+
+
+class TestAprovarDesenhoEndpoint(TestApiFichasBase):
+
+    def test_tenant_inexistente_404(self):
+        r = self.client.post(
+            f"/fichas/{UUID_INEXISTENTE}/desenho/1/aprovar", json={"tenant_id": "tenant_que_nao_existe"}
+        )
+        self.assertEqual(r.status_code, 404)
+
+    def test_ficha_inexistente_404(self):
+        r = self.client.post(f"/fichas/{UUID_INEXISTENTE}/desenho/1/aprovar", json={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_versao_inexistente_404(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.post(f"/fichas/{criada['id']}/desenho/1/aprovar", json={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    @patch("api.main.OpenAI")
+    @patch("fichas_desenho.validar_prompt_imagem", return_value={"aprovado": True, "motivo": ""})
+    def test_aprova_versao_existente(self, _mod, mock_openai_cls):
+        mock_openai_cls.return_value.images.generate.return_value = _resposta_imagem_ok()
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.client.post(f"/fichas/{criada['id']}/desenho", json={"tenant_id": TENANT_TESTE})
+
+        r = self.client.post(f"/fichas/{criada['id']}/desenho/1/aprovar", json={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 200)
+        corpo = r.json()["ficha"]
+        self.assertEqual(corpo["desenho"]["versao_aprovada"], 1)
+        self.assertEqual(corpo["desenho"]["versoes"][0]["status"], "aprovado")
+
+
 class TestObterDesenhoFicha(TestApiFichasBase):
     """GET /fichas/{id}/desenho/{versao} -- serve um PNG já salvo em disco (Task 15). Não gera
     nada novo: a geração fica para a Task 16/17."""
