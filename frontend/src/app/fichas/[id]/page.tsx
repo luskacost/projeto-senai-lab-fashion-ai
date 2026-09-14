@@ -22,6 +22,7 @@ import {
   operacaoVazia,
   parteModelagemVazia,
   tecidoVazio,
+  urlPreviewFicha,
 } from "@/lib/api";
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +35,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import OrigemIndicador from "@/components/fichas/OrigemIndicador";
-import { AlertTriangle, ArrowLeft, FileDown, Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileDown, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -145,6 +146,9 @@ export default function FichaDetalhePage() {
   // Guarda qual formato está sendo gerado (não só "gerando: sim/não"), para o spinner aparecer
   // no botão certo quando há dois.
   const [gerando, setGerando] = useState<"docx" | "pdf" | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [gerandoPreview, setGerandoPreview] = useState(false);
+  const [erroPreview, setErroPreview] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
@@ -232,6 +236,34 @@ export default function FichaDetalhePage() {
     }
   }
 
+  async function atualizarPreview() {
+    if (!ficha) return;
+    setGerandoPreview(true);
+    setErroPreview(null);
+    try {
+      // Salva antes de gerar, pelo mesmo motivo do Word/PDF: a prévia vem do que está em disco,
+      // então uma edição não salva ficaria de fora dela sem o usuário perceber.
+      const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
+      setFicha(salva.ficha);
+      setAlertas(salva.alertas);
+
+      // Cache-buster: sem isso, o navegador poderia reaproveitar o PDF antigo da mesma URL em
+      // vez de buscar a versão recém-atualizada.
+      setPreviewUrl(`${urlPreviewFicha(TENANT_ID, ficha.id)}&_=${Date.now()}`);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError && e.status === 412
+          ? "Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de atualizar a prévia."
+          : e instanceof ApiError
+            ? e.message
+            : "Falha ao gerar a pré-visualização.";
+      setErroPreview(msg);
+      toast.error(msg);
+    } finally {
+      setGerandoPreview(false);
+    }
+  }
+
   if (carregando) {
     return (
       <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
@@ -298,11 +330,21 @@ export default function FichaDetalhePage() {
         </Card>
       )}
 
-      <Tabs defaultValue="identificacao">
+      <Tabs
+        defaultValue="identificacao"
+        onValueChange={(valor) => {
+          // Carrega a prévia só na primeira vez que a aba é aberta -- gerar o PDF tem custo real
+          // (conversão via LibreOffice), então não faz sentido rodar isso a cada troca de aba.
+          if (valor === "previsualizacao" && !previewUrl && !gerandoPreview) {
+            atualizarPreview();
+          }
+        }}
+      >
         <TabsList>
           <TabsTrigger value="identificacao">1. Identificação</TabsTrigger>
           <TabsTrigger value="materiais">2. Tamanhos e Custos</TabsTrigger>
           <TabsTrigger value="producao">3. Produção</TabsTrigger>
+          <TabsTrigger value="previsualizacao">Pré-visualização</TabsTrigger>
         </TabsList>
 
         {/* ─── PÁGINA 1: IDENTIFICAÇÃO DO PRODUTO + CORES/BENEFICIAMENTOS ────────────────── */}
@@ -817,6 +859,44 @@ export default function FichaDetalhePage() {
                   Adicionar parte
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ─── PRÉ-VISUALIZAÇÃO: PDF real, gerado pelo mesmo pipeline do "Gerar PDF" ────── */}
+        <TabsContent value="previsualizacao" className="pt-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle>Pré-visualização</CardTitle>
+                <Button onClick={atualizarPreview} disabled={gerandoPreview} variant="outline" size="sm">
+                  {gerandoPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {gerandoPreview ? "Atualizando..." : "Atualizar prévia"}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {gerandoPreview && !previewUrl ? (
+                <div className="flex flex-col items-center gap-2 py-16 text-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Gerando pré-visualização...</p>
+                </div>
+              ) : erroPreview && !previewUrl ? (
+                <div className="flex flex-col items-center gap-2 py-16 text-center">
+                  <AlertTriangle className="h-6 w-6 text-destructive" />
+                  <p className="max-w-md text-sm text-muted-foreground">{erroPreview}</p>
+                </div>
+              ) : previewUrl ? (
+                <iframe
+                  src={previewUrl}
+                  title="Pré-visualização da ficha técnica"
+                  className="h-[70vh] w-full rounded-lg border border-border"
+                />
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  Clique em &quot;Atualizar prévia&quot; para ver como a ficha fica no documento final.
+                </p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

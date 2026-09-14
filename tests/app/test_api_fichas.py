@@ -21,6 +21,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import fichas_modelo as fm
+import fichas_pdf as fp
 import fichas_repo as fr
 import tenant_config
 from api.main import app
@@ -331,6 +332,58 @@ class TestBaixarDocx(TestApiFichasBase):
         doc = Document(_io.BytesIO(r.content))
         texto = "\n".join(c.text for t in doc.tables for linha in t.rows for c in linha.cells)
         self.assertIn("Nome Editado Depois", texto)
+
+
+@unittest.skipUnless(fp.libreoffice_disponivel(), "LibreOffice não instalado neste ambiente")
+class TestPrevisualizarFicha(TestApiFichasBase):
+    """GET /fichas/{id}/preview -- PDF para exibição na tela, sem marcar a ficha como emitida."""
+
+    def test_inexistente_404(self):
+        r = self.client.get(f"/fichas/{UUID_INEXISTENTE}/preview", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_id_malformado_400(self):
+        r = self.client.get("/fichas/nao-e-um-uuid/preview", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 400)
+
+    def test_devolve_um_pdf(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.get(f"/fichas/{criada['id']}/preview", params={"tenant_id": TENANT_TESTE})
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["content-type"], "application/pdf")
+        self.assertTrue(r.content.startswith(b"%PDF-"))
+
+    def test_inline_em_vez_de_attachment(self):
+        # "inline" faz o navegador exibir no lugar de baixar -- é o que permite embutir num
+        # <iframe> em vez de disparar um download toda vez que a prévia é aberta.
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.get(f"/fichas/{criada['id']}/preview", params={"tenant_id": TENANT_TESTE})
+        self.assertIn("inline", r.headers["content-disposition"])
+
+    def test_nao_muda_o_status_da_ficha(self):
+        # A diferença central entre preview e download: olhar a prévia não é emitir o documento.
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.assertEqual(criada["status"], fm.STATUS_RASCUNHO)
+
+        self.client.get(f"/fichas/{criada['id']}/preview", params={"tenant_id": TENANT_TESTE})
+
+        depois = self.client.get(f"/fichas/{criada['id']}", params={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.assertEqual(depois["status"], fm.STATUS_RASCUNHO)
+        self.assertEqual(depois["documentos"]["docx"], "")
+        self.assertEqual(depois["documentos"]["pdf"], "")
+
+    def test_reflete_edicao_mais_recente(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        criada["dados"]["ficha"]["nome"] = {"valor": "Nome Na Previa", "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        self.client.put(f"/fichas/{criada['id']}", json={"tenant_id": TENANT_TESTE, "ficha": criada})
+
+        r = self.client.get(f"/fichas/{criada['id']}/preview", params={"tenant_id": TENANT_TESTE})
+
+        from pypdf import PdfReader
+        import io as _io
+        texto = "\n".join(p.extract_text() or "" for p in PdfReader(_io.BytesIO(r.content)).pages)
+        self.assertIn("Nome Na Previa", texto)
 
 
 class TestDeletarFicha(TestApiFichasBase):

@@ -609,6 +609,13 @@ export async function duplicarFicha(tenantId: string, fichaId: string): Promise<
   });
 }
 
+// URL do PDF de pré-visualização -- usada como `src` de um <iframe>, não via fetch. O backend
+// não marca a ficha como emitida ao servir essa rota (diferente de /pdf), então abrir a prévia
+// nunca muda o status de "Rascunho" para "Documento gerado".
+export function urlPreviewFicha(tenantId: string, fichaId: string): string {
+  return `${API_URL}/fichas/${encodeURIComponent(fichaId)}/preview?tenant_id=${encodeURIComponent(tenantId)}`;
+}
+
 // Gera o documento da ficha e dispara o download no navegador. É renderizado na hora, a cada
 // chamada -- a ficha pode ter mudado desde a última geração, e entregar um arquivo desatualizado
 // sem avisar seria pior que renderizar de novo. O PDF sai do mesmo .docx (convertido pelo

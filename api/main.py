@@ -909,12 +909,15 @@ def _carregar_ficha_ou_404(tenant_id: str, ficha_id: str) -> Dict[str, Any]:
     return ficha
 
 
-def _gerar_docx_e_marcar(tenant_id: str, ficha: Dict[str, Any]) -> str:
-    """Renderiza o .docx da ficha e registra a geração no documento persistido.
+def _gerar_docx_e_marcar(tenant_id: str, ficha: Dict[str, Any], marcar: bool = True) -> str:
+    """Renderiza o .docx da ficha e, opcionalmente, registra a geração no documento persistido.
 
     Gera na hora, a cada chamada, em vez de servir um arquivo guardado: a ficha pode ter sido
     editada depois da última geração, e entregar um documento desatualizado sem avisar seria pior
     do que o custo de renderizar de novo (que é local e rápido -- nenhuma chamada de API).
+
+    `marcar=False` é usado pela pré-visualização: olhar a ficha não é o mesmo que emitir o
+    documento final, então o status não pode virar DOCUMENTO_GERADO só por abrir a prévia.
     """
     try:
         caminho = fichas_docx.gerar_docx_da_ficha(tenant_id, ficha)
@@ -922,10 +925,11 @@ def _gerar_docx_e_marcar(tenant_id: str, ficha: Dict[str, Any]) -> str:
         # gerar_docx_da_ficha já logou o erro com stack trace.
         raise HTTPException(status_code=500, detail="Falha ao gerar o documento da ficha técnica.")
 
-    ficha["documentos"]["docx"] = fichas_docx.NOME_ARQUIVO_DOCX
-    ficha["documentos"]["gerado_em"] = datetime.now().isoformat()
-    ficha["status"] = STATUS_DOCUMENTO_GERADO
-    salvar_ficha(tenant_id, ficha)
+    if marcar:
+        ficha["documentos"]["docx"] = fichas_docx.NOME_ARQUIVO_DOCX
+        ficha["documentos"]["gerado_em"] = datetime.now().isoformat()
+        ficha["status"] = STATUS_DOCUMENTO_GERADO
+        salvar_ficha(tenant_id, ficha)
     return caminho
 
 
@@ -942,6 +946,37 @@ def baixar_ficha_docx(ficha_id: str, tenant_id: str) -> Response:
         content=conteudo,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": f'attachment; filename="{_nome_arquivo_ficha(ficha, "docx")}"'},
+    )
+
+
+@app.get("/fichas/{ficha_id}/preview")
+def previsualizar_ficha(ficha_id: str, tenant_id: str) -> Response:
+    """PDF da ficha para exibição na tela, sem marcar a ficha como emitida.
+
+    Rota separada do download (em vez de um parâmetro) porque a diferença não é de formato, é de
+    intenção: pré-visualizar é conferir; baixar é emitir o documento. Só o segundo muda o status
+    da ficha para DOCUMENTO_GERADO -- caso contrário, abrir a prévia para revisar marcaria a
+    ficha como pronta, que é justamente o que o usuário ainda está decidindo.
+
+    `Content-Disposition: inline` para o navegador exibir no lugar de baixar.
+    """
+    ficha = _carregar_ficha_ou_404(tenant_id, ficha_id)
+    caminho_docx = _gerar_docx_e_marcar(tenant_id, ficha, marcar=False)
+
+    try:
+        caminho_pdf = fichas_pdf.gerar_pdf_da_ficha(tenant_id, ficha_id, caminho_docx)
+    except fichas_pdf.LibreOfficeIndisponivelError as err:
+        raise HTTPException(status_code=501, detail=str(err))
+    except fichas_pdf.ConversaoPdfError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    with open(caminho_pdf, "rb") as f:
+        conteudo = f.read()
+
+    return Response(
+        content=conteudo,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="previa.pdf"'},
     )
 
 
