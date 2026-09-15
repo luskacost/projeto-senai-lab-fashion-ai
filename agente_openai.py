@@ -31,11 +31,14 @@ DIFERENÇAS DE FORMATO EM RELAÇÃO AO MOTOR ANTERIOR:
 
 FLUXO DE CONFIRMAÇÃO (gerar_imagem_croqui/gerar_ficha_tecnica), preservado:
     Quando o modelo chama uma ferramenta marcada `exige_confirmacao=True` no registry, o loop
-    para e devolve `pendente` em vez de executar -- o custo real (chamada de geração de imagem)
-    só acontece depois que o usuário confirmar explicitamente (POST /chat/croqui/confirmar,
-    inalterado na forma, adaptado ao formato Responses API na Task 4). `pendente["input_previo"]`
-    e `pendente["function_call_item"]` carregam tudo que é preciso para retomar a mesma conversa
-    exatamente de onde parou.
+    para e devolve `pendente` em vez de executar -- o custo real (chamada de geração de imagem, ou,
+    desde a Fase 12, chamada de extração estruturada para gerar_ficha_tecnica) só acontece depois
+    que o usuário confirmar explicitamente (POST /chat/croqui/confirmar, inalterado na forma,
+    adaptado ao formato Responses API na Task 4). `pendente["input_previo"]` e
+    `pendente["function_call_item"]` carregam tudo que é preciso para retomar a mesma conversa
+    exatamente de onde parou; `pendente["mensagem_usuario"]` (Fase 12) carrega o texto original do
+    usuário, não reformulado pelo modelo, para gerar_ficha_tecnica usar como `texto_origem` da
+    extração.
 """
 
 import json
@@ -330,6 +333,10 @@ def chamar_agente(
                 "prompt_visual": argumentos.get("prompt_visual", ""),
                 "resumo_confirmacao": argumentos.get("resumo_confirmacao", ""),
                 "estilo_croqui": contexto.estilo_croqui,
+                # Fase 12: gerar_ficha_tecnica precisa do texto original (não reformulado pelo
+                # modelo) na retomada, para usar como `texto_origem` da extração -- ver a nota em
+                # ContextoExecucao.mensagem_usuario.
+                "mensagem_usuario": contexto.mensagem_usuario,
                 "input_previo": input_atual,
                 "function_call_item": _serializar_item(call_confirmacao),
                 # As instructions (prompt de sistema) usadas nesta chamada -- precisam ser as

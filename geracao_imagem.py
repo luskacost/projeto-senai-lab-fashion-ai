@@ -46,8 +46,9 @@ def chamar_api_geracao_imagem(client: Any, prompt_visual: str, tenant_id: str, t
     da imagem em base64 (`b64_json`), não uma URL -- por isso o retorno aqui é uma data URI, que
     o `<img src>` do front-end consome nativamente sem nenhuma mudança. NUNCA repassar esse valor
     de volta pro LLM como conteúdo de mensagem (é gigante em tokens) -- ver
-    agente_ferramentas._handler_gerar_imagem_croqui/_handler_gerar_ficha_tecnica, que só repassam
-    um indicador curto de sucesso/falha.
+    agente_ferramentas._handler_gerar_imagem_croqui, que só repassa um indicador curto de
+    sucesso/falha. (`_handler_gerar_ficha_tecnica` não chama mais esta função desde a Fase 12 --
+    virou um atalho que cria uma ficha real em `/fichas` em vez de gerar imagem.)
 
     `tamanho` default é retrato (1024x1536), mais próximo do enquadramento de figurino de moda que
     o antigo 512x768. Não há parâmetro de seed: nenhuma versão do DALL-E/gpt-image expõe controle

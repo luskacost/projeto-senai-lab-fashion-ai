@@ -61,7 +61,8 @@ Usuário → POST /chat → agente_openai.chamar_agente()
                                    ├── listar_documentos_disponiveis
                                    ├── consultar_resumo_planilha
                                    ├── consultar_unidades_senai (contato SENAI)
-                                   └── gerar_imagem_croqui / gerar_ficha_tecnica
+                                   ├── gerar_imagem_croqui (gera imagem)
+                                   └── gerar_ficha_tecnica (cria ficha real em /fichas -- não gera imagem)
                                           └── exigem confirmação explícita do usuário antes de executar
 ```
 
@@ -137,6 +138,12 @@ Texto livre → extração estruturada (Structured Outputs) → verificação de
 Ver `API_CONTRATO.md` (seções "Fichas técnicas" e "Logo da empresa") para o contrato completo das
 rotas, e `tests/app/test_fichas_cenarios_e2e.py` para os cenários de ponta a ponta (combinações de
 logo/desenho/grade/custos) que amarram o documento final ao template.
+
+A ferramenta `gerar_ficha_tecnica` do modo "Gerador de Croqui" (chat) é um **atalho** para esta
+área, não um caminho paralelo (Fase 12): ao confirmar, ela cria uma ficha de verdade a partir da
+mensagem do usuário (mesmo pipeline de extração de `POST /fichas`) e devolve um link para
+`/fichas/{id}` -- em vez do comportamento anterior (gerar uma imagem solta + pedir ao modelo para
+redigir uma tabela markdown que desaparecia ao fechar o chat).
 
 ## Como rodar localmente (sem Docker)
 

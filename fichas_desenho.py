@@ -21,8 +21,9 @@ necessidade num caminho cujo destino final é sempre "escrever num arquivo".
 Não modera o prompt, não decide versão, não muda status da ficha, não incrementa cota de uso. Essa
 orquestração é da Task 16/17 -- este módulo é só a camada de geração + persistência + leitura, o
 mesmo tipo de camada fina que `fichas_pdf.py` é para a conversão via LibreOffice. O handler do
-chat (`agente_ferramentas._handler_gerar_imagem_croqui`/`_handler_gerar_ficha_tecnica`) continua
-usando `geracao_imagem.chamar_api_geracao_imagem()` sem nenhuma mudança.
+chat (`agente_ferramentas._handler_gerar_imagem_croqui`) continua usando
+`geracao_imagem.chamar_api_geracao_imagem()` sem nenhuma mudança. (`_handler_gerar_ficha_tecnica`
+deixou de gerar imagem na Fase 12 -- virou um atalho que cria uma ficha real em `/fichas`.)
 """
 
 import base64

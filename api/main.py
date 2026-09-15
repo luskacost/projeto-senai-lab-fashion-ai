@@ -64,13 +64,12 @@ from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
-from fichas_modelo import STATUS_DESENHO_GERADO, STATUS_DOCUMENTO_GERADO, STATUS_EM_REVISAO, valor_de
-from fichas_extracao import extrair_dados
+from fichas_modelo import STATUS_DESENHO_GERADO, STATUS_DOCUMENTO_GERADO, valor_de
 import fichas_desenho
 import fichas_docx
 import fichas_logo
 import fichas_pdf
-from fichas_verificacao import verificar_proveniencia
+from fichas_service import criar_ficha_a_partir_de_texto
 from fichas_validacao import validar_ficha
 from fichas_repo import (
     ConflitoDeVersaoError,
@@ -349,6 +348,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
         perfil_usuario=payload.perfil_usuario,
         estilo_croqui=estilo,
         client=client,
+        mensagem_usuario=payload.mensagem,
     )
 
     # Fase 10, Task 8: limite_buscas_web_dia -- diferente do limite de imagens (que bloqueia a
@@ -484,13 +484,49 @@ class ConfirmarCroquiRequest(BaseModel):
     pendente: Dict[str, Any]
 
 
+def _confirmar_criacao_de_ficha(payload: "ConfirmarCroquiRequest", client: OpenAI) -> Dict[str, Any]:
+    """Ramo do gerar_ficha_tecnica (Fase 12): cria a ficha de verdade em /fichas, em vez de gerar
+    uma imagem. Chamada real de API (extração estruturada) -- por isso a cota diária ("fichas",
+    mesma de POST /fichas) é checada aqui antes de gastar qualquer coisa, no mesmo padrão que a
+    cota de imagens é checada abaixo antes de gerar_imagem_croqui.
+    """
+    config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
+    limite_fichas = config.get("limite_fichas_dia", 30)
+    if not verificar_limite(payload.tenant_id, "fichas", limite_fichas, quantidade_necessaria=1):
+        raise HTTPException(status_code=429, detail="Limite diário de fichas técnicas atingido. Novas extrações estarão disponíveis amanhã.")
+
+    contexto = ContextoExecucao(
+        tenant_id=payload.tenant_id,
+        client=client,
+        mensagem_usuario=payload.pendente.get("mensagem_usuario", ""),
+    )
+    resultado_ferramenta = executar_ferramenta(
+        "gerar_ficha_tecnica", payload.pendente.get("argumentos", {}), contexto
+    )
+
+    instructions = payload.pendente.get("instructions", "")
+    texto_final = retomar_apos_confirmacao(
+        client, instructions, payload.pendente, resultado_ferramenta.conteudo, tenant_id=payload.tenant_id
+    )
+
+    return {
+        "resposta": texto_final,
+        "imagem_url": None,
+        "ficha_id": resultado_ferramenta.dados_extras.get("ficha_id"),
+        "redirecionar_para": resultado_ferramenta.dados_extras.get("redirecionar_para"),
+    }
+
+
 @app.post("/chat/croqui/confirmar")
 def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
-    """Segundo passo do modo "Gerador de Croqui": confirma ou cancela a geração de imagem.
+    """Segundo passo dos modos com ferramenta cara: confirma ou cancela a execução.
 
     `payload.pendente` é o mesmo dict retornado em `pendente_confirmacao` por POST /chat --
     o front-end o mantém em memória e o devolve aqui inalterado, evitando qualquer estado
-    guardado no servidor entre as duas chamadas.
+    guardado no servidor entre as duas chamadas. `nome_ferramenta` decide o caminho:
+    gerar_imagem_croqui gera uma imagem (fluxo original, Fase 8); gerar_ficha_tecnica virou, na
+    Fase 12, um atalho que cria uma ficha real em /fichas em vez de imagem + tabela solta no chat
+    -- ver `_confirmar_criacao_de_ficha`.
     """
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
@@ -506,12 +542,12 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
     client = OpenAI(api_key=api_key)
 
+    nome_ferramenta = payload.pendente.get("nome_ferramenta", "gerar_imagem_croqui")
+    if nome_ferramenta == "gerar_ficha_tecnica":
+        return _confirmar_criacao_de_ficha(payload, client)
+
     prompt_vis = payload.pendente.get("prompt_visual", "")
     estilo = payload.pendente.get("estilo_croqui", ESTILO_ILUSTRACAO)
-    # gerar_ficha_tecnica só faz sentido pareada com o fluxo frente/costas do Desenho Técnico
-    # (Fase 8) -- força esse caminho mesmo no caso hipotético de o modelo tê-la chamado fora do
-    # estilo técnico, já que não existe um equivalente de ficha técnica para Ilustração de Moda.
-    eh_ficha_tecnica = payload.pendente.get("nome_ferramenta") == "gerar_ficha_tecnica"
 
     resultado_mod = validar_prompt_imagem(client, prompt_vis, payload.tenant_id)
     if not resultado_mod.get("aprovado", False):
@@ -531,7 +567,7 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
     # abaixo, vai reconstruir por conta própria para a chamada real de geração -- duplicar essa
     # concatenação aqui é o preço de manter a checagem de moderação exatamente sobre o prompt
     # final, sem precisar que o registry exponha um hook só para isso).
-    if estilo == ESTILO_TECNICO or eh_ficha_tecnica:
+    if estilo == ESTILO_TECNICO:
         prompt_final = f"{prompt_vis}{SUFIXO_TECNICO}"
         resultado_mod_final = validar_prompt_imagem(client, prompt_final, payload.tenant_id)
         if not resultado_mod_final.get("aprovado", False):
@@ -540,7 +576,6 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
                 detail=resultado_mod_final.get("motivo", "O pedido contém elementos fora do escopo de moda e vestuário.")
             )
 
-    nome_ferramenta = payload.pendente.get("nome_ferramenta", "gerar_imagem_croqui")
     contexto = ContextoExecucao(tenant_id=payload.tenant_id, estilo_croqui=estilo, client=client)
     resultado_ferramenta = executar_ferramenta(nome_ferramenta, payload.pendente.get("argumentos", {}), contexto)
 
@@ -808,7 +843,6 @@ def criar_ficha_endpoint(payload: CriarFichaRequest) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
 
-    ficha = criar_ficha(payload.tenant_id, texto_origem=payload.texto_origem or "")
     alertas_proveniencia: List[Dict[str, Any]] = []
 
     if payload.texto_origem:
@@ -822,13 +856,9 @@ def criar_ficha_endpoint(payload: CriarFichaRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
         client = OpenAI(api_key=api_key)
 
-        dados_extraidos = extrair_dados(client, payload.texto_origem, payload.tenant_id)
-        dados_corrigidos, alertas_proveniencia = verificar_proveniencia(dados_extraidos, payload.texto_origem)
-
-        ficha["dados"] = dados_corrigidos
-        ficha["status"] = STATUS_EM_REVISAO
-        ficha = salvar_ficha(payload.tenant_id, ficha)
-        incrementar_uso(payload.tenant_id, "fichas")
+        ficha, alertas_proveniencia = criar_ficha_a_partir_de_texto(payload.tenant_id, payload.texto_origem, client)
+    else:
+        ficha = criar_ficha(payload.tenant_id, texto_origem="")
 
     return _ficha_com_alertas(ficha, alertas_proveniencia)
 

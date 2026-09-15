@@ -56,6 +56,12 @@ class ContextoExecucao:
     # imagem). Fica no contexto em vez de ser criado dentro do handler para não espalhar leitura
     # de credencial por todo o código.
     client: Any = None
+    # A mensagem que o usuário digitou nesta rodada de chat, tal como chegou em POST /chat (Fase
+    # 12) -- usada por gerar_ficha_tecnica como `texto_origem` da extração estruturada. Precisa vir
+    # daqui, não de um argumento que o modelo preenche: fichas_verificacao confere que cada trecho
+    # extraído é substring literal do texto de origem, e um resumo/tradução gerado pelo modelo
+    # (como o prompt_visual em inglês do croqui) quebraria essa checagem.
+    mensagem_usuario: Optional[str] = None
 
 
 @dataclass
@@ -306,9 +312,6 @@ def executar_ferramenta(nome: str, argumentos: Dict[str, Any], contexto: Context
 # registry na Task 6 -- ver a nota logo após gerar_ficha_tecnica abaixo.
 # ─────────────────────────────────────────────────────────────────────────────
 
-DESCRICAO_PROMPT_VISUAL = "Descrição detalhada da peça em inglês: pose, silhueta, cores, tecido, fundo"
-
-
 def _handler_gerar_imagem_croqui(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
     """Gera o croqui de fato. Só é alcançado após confirmação explícita do usuário."""
     from geracao_imagem import (
@@ -336,22 +339,45 @@ def _handler_gerar_imagem_croqui(argumentos: Dict[str, Any], contexto: ContextoE
 
 
 def _handler_gerar_ficha_tecnica(argumentos: Dict[str, Any], contexto: ContextoExecucao) -> ResultadoFerramenta:
-    """Desenho técnico da ficha. A tabela de medidas é redigida pelo modelo na resposta final --
-    modelos de imagem não renderizam números legíveis, decisão validada na Fase 8."""
-    from geracao_imagem import SUFIXO_TECNICO, chamar_api_geracao_imagem
+    """Atalho para a área /fichas (Fase 12): cria uma ficha técnica real -- mesmo pipeline de
+    POST /fichas (extração estruturada + verificação de proveniência + persistência) -- a partir
+    da própria mensagem do usuário nesta conversa, e devolve o id/link para o front-end levar o
+    usuário até lá.
 
-    prompt_visual = f"{argumentos.get('prompt_visual', '')}{SUFIXO_TECNICO}"
-    imagem = chamar_api_geracao_imagem(contexto.client, prompt_visual, contexto.tenant_id)
+    Antes da Fase 12, esta ferramenta gerava uma imagem via gpt-image-1 e pedia ao modelo para
+    redigir à mão uma tabela markdown de medidas/materiais -- um resultado solto na conversa, sem
+    validação nem persistência, que desaparecia quando o chat fechava. A área /fichas (Fase 11) já
+    faz essa mesma coisa de verdade (com histórico, revisão editável e exportação Word/PDF), então
+    a ferramenta do chat virou um atalho para lá em vez de duplicar o trabalho de outro jeito.
 
-    sucesso_txt = "sucesso" if imagem else "falhou"
+    A cota diária ("fichas") é responsabilidade de quem chama esta ferramenta
+    (POST /chat/croqui/confirmar), do mesmo jeito que a cota de imagens é checada antes de chegar
+    em _handler_gerar_imagem_croqui -- este handler assume que, se foi chamado, a cota já está ok.
+    """
+    from fichas_service import criar_ficha_a_partir_de_texto
+
+    texto_origem = (contexto.mensagem_usuario or "").strip()
+    if not texto_origem:
+        return ResultadoFerramenta(
+            conteudo=(
+                "[Erro] Não encontrei uma descrição da peça nesta mensagem para criar a ficha "
+                "técnica. Peça ao usuário para descrever a peça e tente de novo."
+            ),
+            erro=True,
+        )
+
+    ficha, _alertas = criar_ficha_a_partir_de_texto(contexto.tenant_id, texto_origem, contexto.client)
+
     conteudo = (
-        f"Desenho técnico gerado ({sucesso_txt}, mostrando frente e costas na mesma imagem). "
-        "Agora monte a tabela markdown estruturada de medidas/materiais/aviamentos conforme instruído."
+        "Ficha técnica criada com sucesso na área /fichas, com os dados extraídos da descrição do "
+        "usuário. NÃO redija nenhuma tabela de medidas/materiais/aviamentos você mesmo -- os dados "
+        "reais já estão na ficha, prontos para revisão. Informe ao usuário, em poucas frases, que "
+        "a ficha foi criada e já está disponível para ele revisar, adicionar um desenho técnico "
+        "opcional e exportar em Word/PDF."
     )
     return ResultadoFerramenta(
         conteudo=conteudo,
-        erro=imagem is None,
-        dados_extras={"imagem_url": imagem} if imagem else {},
+        dados_extras={"ficha_id": ficha["id"], "redirecionar_para": f"/fichas/{ficha['id']}"},
     )
 
 
@@ -382,22 +408,23 @@ registrar(Ferramenta(
 registrar(Ferramenta(
     nome="gerar_ficha_tecnica",
     descricao=(
-        "Gera uma ficha técnica de moda completa: desenho técnico (frente e costas) mais uma tabela "
-        "estruturada de medidas, materiais e aviamentos, a partir da descrição de uma peça. Use em vez "
-        "de gerar_imagem_croqui quando o usuário pedir explicitamente uma ficha técnica, medidas, "
-        "materiais ou aviamentos -- não apenas um desenho."
+        "Cria uma ficha técnica de moda real na área /fichas do sistema, a partir da descrição da "
+        "peça que o próprio usuário já escreveu na conversa (extração estruturada + revisão editável "
+        "+ exportação Word/PDF). Use em vez de gerar_imagem_croqui quando o usuário pedir "
+        "explicitamente uma ficha técnica, medidas, materiais ou aviamentos -- não apenas um desenho. "
+        "NÃO gera imagem nenhuma; não precisa (nem deve) receber um prompt visual em inglês."
     ),
     propriedades={
-        "prompt_visual": {"type": "string", "description": DESCRICAO_PROMPT_VISUAL},
         "resumo_confirmacao": {
             "type": "string",
             "description": (
-                "Frase curta em português simples confirmando que o usuário quer uma FICHA TÉCNICA "
-                "completa (desenho + tabela de dados) da peça descrita, não só o desenho"
+                "Frase curta em português simples confirmando que o usuário quer criar uma FICHA "
+                "TÉCNICA completa da peça descrita (ex: 'Uma ficha técnica completa de um vestido "
+                "midi floral')"
             ),
         },
     },
-    obrigatorios=["prompt_visual", "resumo_confirmacao"],
+    obrigatorios=["resumo_confirmacao"],
     handler=_handler_gerar_ficha_tecnica,
     exige_confirmacao=True,
 ))

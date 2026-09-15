@@ -71,11 +71,20 @@ Convenção: `tenant_id` é sempre obrigatório. Multi-tenant na estrutura, uso 
 - **Body:** `{ tenant_id, confirmado: bool, pendente: <objeto de pendente_confirmacao> }`
 - **Se `confirmado: false`:** cancela, devolve `{ resposta: "Entendido! ...", imagem_url: null }`
   sem gastar nenhuma chamada.
-- **Se `confirmado: true`:** modera o prompt visual (`validar_prompt_imagem`), checa
-  `limite_imagens_dia` (`429` se excedido), executa a ferramenta de verdade (gera a imagem via
-  gpt-image-1), incrementa o uso, e retoma a conversa até obter a resposta final (síntese/tabela
-  de medidas).
-- **Resposta:** `{ resposta: "string", imagem_url: "string | null" }`
+- **Se `confirmado: true`, o caminho depende de `pendente.nome_ferramenta`:**
+  - **`gerar_imagem_croqui`:** modera o prompt visual (`validar_prompt_imagem`), checa
+    `limite_imagens_dia` (`429` se excedido), executa a ferramenta de verdade (gera a imagem via
+    gpt-image-1), incrementa o uso, e retoma a conversa até obter a resposta final (síntese em
+    texto). **Resposta:** `{ resposta: "string", imagem_url: "string | null" }`
+  - **`gerar_ficha_tecnica` (Fase 12):** checa `limite_fichas_dia` (`429` se excedido) e cria uma
+    ficha real — mesmo pipeline de `POST /fichas` com `texto_origem` (extração estruturada +
+    verificação de proveniência + persistência), usando a mensagem que o usuário digitou nesta
+    conversa (não um prompt reformulado pelo modelo). Não gera imagem nenhuma; é um atalho para a
+    área `/fichas`, não um substituto dela. **Resposta:**
+    `{ resposta: "string", imagem_url: null, ficha_id: "string | null", redirecionar_para: "string | null" }`
+    — `redirecionar_para` é o caminho `/fichas/{ficha_id}` para o frontend oferecer um link; ambos
+    vêm `null` se a extração falhar (erro relatado só na `resposta`, mesmo padrão de falha de
+    `gerar_imagem_croqui`).
 
 ## Conversas
 
@@ -199,7 +208,7 @@ credenciais do modelo; esses valores vêm sempre do `ContextoExecucao` montado p
 | Ferramenta | Exige confirmação? | O que faz |
 |---|---|---|
 | `gerar_imagem_croqui` | Sim | Gera imagem via gpt-image-1 (OpenAI). |
-| `gerar_ficha_tecnica` | Sim | Idem, mais instrução para montar a tabela de medidas na resposta final. |
+| `gerar_ficha_tecnica` | Sim | **Não gera imagem.** Atalho para a área `/fichas` (Fase 12): cria uma ficha real a partir da mensagem do usuário (mesmo pipeline de `POST /fichas`) e devolve `ficha_id`/`redirecionar_para` para o frontend levar o usuário até lá. |
 | `buscar_documentos_internos` | Não | Busca semântica no RAG do tenant (mesmo pipeline do modo "Base de Conhecimento"). |
 | `listar_documentos_disponiveis` | Não | Lista nomes de documentos indexados, sem gerar embeddings. |
 | `consultar_resumo_planilha` | Não | Resumo estatístico da planilha enviada na conversa atual. |

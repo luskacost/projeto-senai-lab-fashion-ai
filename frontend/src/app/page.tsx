@@ -32,11 +32,11 @@ import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
 import { MODO_PADRAO_POR_PERFIL, PERGUNTAS_POR_PERFIL, PerfilId } from "@/lib/perfis";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, FileStack, Globe, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
+import { Bot, Download, FileStack, FileText, Globe, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -367,6 +367,7 @@ export default function ChatPage() {
           mode: "Gerador de Croqui",
           tenant_id: TENANT_ID,
           imagem_url: resultado.imagem_url,
+          ficha_link: resultado.redirecionar_para ?? null,
         },
       ];
       setMensagens(mensagensFinais);
@@ -545,6 +546,16 @@ export default function ChatPage() {
                   <div className="mt-2 w-48">
                     <ImagemGerada src={m.imagem_url} alt="Croqui gerado pela IA" />
                   </div>
+                )}
+
+                {m.ficha_link && (
+                  <Link
+                    href={m.ficha_link}
+                    className={buttonVariants({ variant: "outline", size: "sm", className: "mt-2 gap-1.5" })}
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    Abrir ficha técnica
+                  </Link>
                 )}
 
                 {m.usou_busca_web && (

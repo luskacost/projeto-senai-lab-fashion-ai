@@ -154,6 +154,30 @@ class TestConfirmacaoObrigatoria(unittest.TestCase):
         self.assertIn("input_previo", pendente)
         self.assertEqual(pendente["instructions"], "instrucoes")
 
+    def test_gerar_ficha_tecnica_carrega_a_mensagem_original_no_pendente(self):
+        # Fase 12: a retomada precisa do texto literal do usuário (não reformulado pelo modelo)
+        # para gerar_ficha_tecnica usar como texto_origem da extração -- ver
+        # ContextoExecucao.mensagem_usuario.
+        client = MagicMock()
+        call = _function_call_item(
+            "call_2", "gerar_ficha_tecnica", '{"resumo_confirmacao": "Uma ficha técnica completa"}',
+        )
+        client.responses.create.return_value = _resposta([call], "")
+
+        with patch("agente_openai.executar_ferramenta"):
+            resultado = chamar_agente(
+                client, "instrucoes", ["gerar_ficha_tecnica"],
+                [{"role": "user", "content": "quero uma ficha técnica de uma camisa social branca"}],
+                ContextoExecucao(
+                    tenant_id="senai_labfashion",
+                    mensagem_usuario="quero uma ficha técnica de uma camisa social branca",
+                ),
+            )
+
+        pendente = resultado.pendente_confirmacao
+        self.assertEqual(pendente["nome_ferramenta"], "gerar_ficha_tecnica")
+        self.assertEqual(pendente["mensagem_usuario"], "quero uma ficha técnica de uma camisa social branca")
+
 
 class TestRetomarAposConfirmacao(unittest.TestCase):
 

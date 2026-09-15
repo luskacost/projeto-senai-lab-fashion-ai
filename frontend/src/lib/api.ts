@@ -86,6 +86,10 @@ export async function enviarMensagemChat(params: {
 export interface ConfirmarCroquiResponse {
   resposta: string;
   imagem_url: string | null;
+  // Só presentes quando pendente.nome_ferramenta é "gerar_ficha_tecnica" (Fase 12) -- a ferramenta
+  // não gera imagem, cria uma ficha real em /fichas e devolve o link pra lá.
+  ficha_id?: string | null;
+  redirecionar_para?: string | null;
 }
 
 export async function confirmarCroqui(
@@ -158,6 +162,9 @@ export interface MensagemConversa {
   imagem_url?: string | null;
   arquivo_anexado?: ArquivoAnexado | null;
   usou_busca_web?: boolean;
+  // Fase 12: presente quando esta resposta veio do atalho gerar_ficha_tecnica -- link para a
+  // ficha real recém-criada em /fichas.
+  ficha_link?: string | null;
 }
 
 export interface Conversa {

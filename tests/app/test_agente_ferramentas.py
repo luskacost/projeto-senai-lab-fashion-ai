@@ -203,14 +203,64 @@ class TestHandlersDeImagem(unittest.TestCase):
         self.assertTrue(resultado.erro)
         self.assertEqual(resultado.dados_extras, {})
 
-    def test_ficha_tecnica_pede_tabela_ao_modelo(self):
-        resultado = executar_ferramenta(
-            "gerar_ficha_tecnica",
-            {"prompt_visual": "denim jacket", "resumo_confirmacao": "Ficha técnica de jaqueta jeans"},
-            self.ctx,
+
+
+class TestHandlerFichaTecnica(unittest.TestCase):
+    """Fase 12: gerar_ficha_tecnica deixou de gerar imagem -- vira um atalho que cria uma ficha
+    real em /fichas via fichas_service, usando a mensagem original do usuário (não um argumento
+    reformulado pelo modelo) como texto de origem."""
+
+    def test_cria_ficha_a_partir_da_mensagem_do_usuario(self):
+        ctx = ContextoExecucao(
+            tenant_id="senai_labfashion",
+            client=MagicMock(),
+            mensagem_usuario="Camisa social branca, manga longa, gola italiana",
         )
-        self.assertEqual(resultado.dados_extras["imagem_url"], FAKE_DATA_URI)
-        self.assertIn("tabela markdown", resultado.conteudo)
+        ficha_fake = {"id": "abc123"}
+
+        with patch("fichas_service.criar_ficha_a_partir_de_texto", return_value=(ficha_fake, [])) as mock_criar:
+            resultado = executar_ferramenta(
+                "gerar_ficha_tecnica", {"resumo_confirmacao": "Uma ficha técnica completa"}, ctx
+            )
+
+        mock_criar.assert_called_once_with(
+            "senai_labfashion", "Camisa social branca, manga longa, gola italiana", ctx.client
+        )
+        self.assertFalse(resultado.erro)
+        self.assertEqual(resultado.dados_extras["ficha_id"], "abc123")
+        self.assertEqual(resultado.dados_extras["redirecionar_para"], "/fichas/abc123")
+
+    def test_nao_gera_imagem_nem_pede_tabela_ao_modelo(self):
+        ctx = ContextoExecucao(
+            tenant_id="senai_labfashion", client=MagicMock(), mensagem_usuario="Vestido midi floral"
+        )
+        with patch("fichas_service.criar_ficha_a_partir_de_texto", return_value=({"id": "x"}, [])):
+            resultado = executar_ferramenta(
+                "gerar_ficha_tecnica", {"resumo_confirmacao": "Uma ficha técnica completa"}, ctx
+            )
+        self.assertNotIn("imagem_url", resultado.dados_extras)
+        self.assertNotIn("tabela markdown", resultado.conteudo)
+        self.assertIn("NÃO redija", resultado.conteudo)
+
+    def test_sem_mensagem_do_usuario_devolve_erro_sem_chamar_o_servico(self):
+        ctx = ContextoExecucao(tenant_id="senai_labfashion", client=MagicMock(), mensagem_usuario="")
+        with patch("fichas_service.criar_ficha_a_partir_de_texto") as mock_criar:
+            resultado = executar_ferramenta(
+                "gerar_ficha_tecnica", {"resumo_confirmacao": "Uma ficha técnica completa"}, ctx
+            )
+        mock_criar.assert_not_called()
+        self.assertTrue(resultado.erro)
+        self.assertEqual(resultado.dados_extras, {})
+
+    def test_mensagem_usuario_ausente_e_tratada_como_vazia(self):
+        # mensagem_usuario default é None -- não pode explodir com AttributeError ao tentar .strip().
+        ctx = ContextoExecucao(tenant_id="senai_labfashion", client=MagicMock())
+        with patch("fichas_service.criar_ficha_a_partir_de_texto") as mock_criar:
+            resultado = executar_ferramenta(
+                "gerar_ficha_tecnica", {"resumo_confirmacao": "Uma ficha técnica completa"}, ctx
+            )
+        mock_criar.assert_not_called()
+        self.assertTrue(resultado.erro)
 
 
 class TestConfirmacaoObrigatoria(unittest.TestCase):

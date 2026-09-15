@@ -123,14 +123,14 @@ Recuse perguntas fora do escopo educadamente.""",
                     "técnico de jaqueta jeans com bolsos frontais'). Após gerar, descreva os detalhes construtivos ao "
                     "usuário em português.\n"
                     "2) gerar_ficha_tecnica: quando o usuário pedir explicitamente uma FICHA TÉCNICA completa, ou mencionar "
-                    "medidas, materiais ou aviamentos. Mesmos parâmetros de gerar_imagem_croqui, mas o resumo_confirmacao "
-                    "deve deixar claro que é uma ficha técnica completa (desenho técnico + tabela de dados), ex: 'Uma "
-                    "ficha técnica completa de um vestido midi floral, com desenho técnico e tabela de medidas'. Após a "
-                    "ferramenta retornar sucesso, monte a resposta final com uma tabela markdown estruturada (medidas, "
-                    "materiais, aviamentos, notas de costura) com base na descrição da peça. IMPORTANTE: se o usuário não "
-                    "informou uma grade de tamanho/medidas reais, deixe EXPLÍCITO que os valores de medida são de "
-                    "referência/exemplo e precisam ser ajustados conforme a grade de tamanho real da empresa -- nunca "
-                    "apresente um número inventado como se fosse um dado confirmado."
+                    "medidas, materiais ou aviamentos. Chame só com resumo_confirmacao (frase curta em português "
+                    "confirmando que o usuário quer criar uma ficha técnica completa da peça descrita, ex: 'Uma ficha "
+                    "técnica completa de um vestido midi floral') -- esta ferramenta NÃO usa prompt_visual e NÃO gera "
+                    "imagem nenhuma: ela cria de verdade uma ficha na área /fichas do sistema, a partir da descrição que "
+                    "o próprio usuário já escreveu nesta conversa, com extração estruturada e revisão editável. Após a "
+                    "ferramenta retornar sucesso, NÃO invente uma tabela de medidas/materiais/aviamentos -- diga ao "
+                    "usuário, em poucas frases, que a ficha foi criada e já está pronta para ele revisar, adicionar um "
+                    "desenho técnico opcional e exportar em Word/PDF na área de Fichas Técnicas."
                 ),
                 # Schemas completos (nome, descrição, parâmetros) saíram daqui na Fase 10 -- vivem
                 # agora só no registry (agente_ferramentas.py), fonte única de verdade que

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Testes das rotas HTTP /fichas (Fase 11, Task 6).
 
-`api.main.extrair_dados` é sempre mockado (`unittest.mock.patch`) -- nenhum destes testes faz uma
+`fichas_service.extrair_dados` é sempre mockado (`unittest.mock.patch`) -- nenhum destes testes faz uma
 chamada real de API, mesmo os que exercitam o caminho "criar ficha a partir de texto livre" (que,
 numa chamada real, dispararia a extração estruturada da Task 3). Antes de rodar qualquer teste
 contra a API de verdade, o usuário pediu para ser avisado e dar autorização explícita primeiro.
@@ -107,7 +107,7 @@ class TestCriarFichaSemTexto(TestApiFichasBase):
         self.assertIn("grade_vazia", codigos)
 
     def test_nao_chama_extracao_sem_texto(self):
-        with patch("api.main.extrair_dados") as mock_extrair:
+        with patch("fichas_service.extrair_dados") as mock_extrair:
             self.client.post("/fichas", json={"tenant_id": TENANT_TESTE})
             mock_extrair.assert_not_called()
 
@@ -125,7 +125,7 @@ class TestCriarFichaComTexto(TestApiFichasBase):
         return dados
 
     def test_chama_extracao_com_texto(self):
-        with patch("api.main.extrair_dados", return_value=self._dados_mockados()) as mock_extrair:
+        with patch("fichas_service.extrair_dados", return_value=self._dados_mockados()) as mock_extrair:
             r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE, "texto_origem": "uma camisa social"})
             self.assertEqual(r.status_code, 200)
             mock_extrair.assert_called_once()
@@ -134,7 +134,7 @@ class TestCriarFichaComTexto(TestApiFichasBase):
             self.assertEqual(args[2], TENANT_TESTE)
 
     def test_ficha_criada_com_dados_extraidos_e_verificados(self):
-        with patch("api.main.extrair_dados", return_value=self._dados_mockados()):
+        with patch("fichas_service.extrair_dados", return_value=self._dados_mockados()):
             r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE, "texto_origem": "uma camisa social"})
         corpo = r.json()
         self.assertEqual(corpo["ficha"]["dados"]["ficha"]["nome"]["valor"], "Camisa Social")
@@ -144,7 +144,7 @@ class TestCriarFichaComTexto(TestApiFichasBase):
     def test_alerta_de_proveniencia_quando_trecho_nao_bate(self):
         dados = fm.dados_vazios()
         dados["tecidos"] = [{**fm.tecido_vazio(), "preco": {"valor": 99.0, "origem": fm.ORIGEM_FORNECIDO, "trecho": "isso não existe no texto"}}]
-        with patch("api.main.extrair_dados", return_value=dados):
+        with patch("fichas_service.extrair_dados", return_value=dados):
             r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE, "texto_origem": "quero uma camisa qualquer"})
         corpo = r.json()
         codigos = [a["codigo"] for a in corpo["alertas"]]
@@ -152,14 +152,14 @@ class TestCriarFichaComTexto(TestApiFichasBase):
         self.assertIsNone(corpo["ficha"]["dados"]["tecidos"][0]["preco"]["valor"])
 
     def test_incrementa_uso_de_fichas(self):
-        with patch("api.main.extrair_dados", return_value=self._dados_mockados()):
+        with patch("fichas_service.extrair_dados", return_value=self._dados_mockados()):
             self.client.post("/fichas", json={"tenant_id": TENANT_TESTE, "texto_origem": "uma camisa social"})
         from usage_tracker import carregar_uso_do_dia
         self.assertEqual(carregar_uso_do_dia(TENANT_TESTE).get("fichas"), 1)
 
     def test_limite_diario_bloqueia_com_429(self):
         incrementar_uso(TENANT_TESTE, "fichas", quantidade=30)  # default limite_fichas_dia
-        with patch("api.main.extrair_dados", return_value=self._dados_mockados()) as mock_extrair:
+        with patch("fichas_service.extrair_dados", return_value=self._dados_mockados()) as mock_extrair:
             r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE, "texto_origem": "uma camisa qualquer"})
             self.assertEqual(r.status_code, 429)
             mock_extrair.assert_not_called()  # nao gasta a chamada de API depois de recusar por limite
@@ -167,7 +167,7 @@ class TestCriarFichaComTexto(TestApiFichasBase):
     def test_sem_api_key_configurada_devolve_500(self):
         os.environ.pop(ENV_API_KEY, None)
         try:
-            with patch("api.main.extrair_dados") as mock_extrair:
+            with patch("fichas_service.extrair_dados") as mock_extrair:
                 r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE, "texto_origem": "uma camisa qualquer"})
                 self.assertEqual(r.status_code, 500)
                 mock_extrair.assert_not_called()
