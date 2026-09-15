@@ -178,6 +178,18 @@ LINHAS_A_REMOVER = {
 GRADE_TABELA_3 = ["PP", "P", "M", "G", "GG", "XG", "34", "36", "38", "40", "42", "44"]
 GRADE_TABELA_4 = ["46", "48", "50", "52", "54", "56"]
 
+# Rótulos que separam visualmente os dois grupos de tamanhos. O formulário original diagramou
+# comerciais (PP..XG) e numéricos (34..56) numa faixa contínua de colunas, sem nada indicando onde
+# um grupo termina e o outro começa -- o editor web já separava, o documento impresso não.
+# Faixas são (primeira_coluna, ultima_coluna) inclusivas, na linha de rótulos de cada tabela.
+ROTULOS_GRADE_TABELA_3 = [
+    ((0, 5), "TAMANHOS COMERCIAIS"),   # PP..XG
+    ((6, 11), "TAMANHOS NUMÉRICOS"),   # 34..44
+]
+ROTULOS_GRADE_TABELA_4 = [
+    ((0, 5), "TAMANHOS NUMÉRICOS (CONT.)"),  # 46..56, continuação do bloco acima
+]
+
 # Altura reservada para o desenho técnico. Valor inicial conservador: grande o bastante para um
 # desenho legível, pequeno o bastante para não empurrar a ficha de 3 para 4 páginas. A checagem
 # real de paginação só é possível quando houver renderização em PDF (Task 13/14) -- ajustar lá se
@@ -276,6 +288,29 @@ def _adicionar_linha_de_marcas(tabela, tamanhos) -> None:
             run.bold = False  # o cabeçalho é negrito; a linha de marcas não deve ser
 
 
+def _adicionar_linha_de_rotulos(tabela, faixas) -> None:
+    """Insere, acima do cabeçalho da grade, uma linha de rótulos mesclados por grupo de tamanhos.
+
+    A linha nasce como cópia do próprio cabeçalho para herdar larguras de coluna, bordas e negrito
+    sem recriar formatação -- mesma técnica de `_adicionar_linha_de_marcas`. Depois cada faixa de
+    colunas vira uma célula só, com o rótulo do grupo.
+    """
+    nova_linha = copy.deepcopy(tabela.rows[0]._tr)
+    tabela.rows[0]._tr.addprevious(nova_linha)
+
+    for (primeira, ultima), rotulo in faixas:
+        celulas = tabela.rows[0].cells
+        celula = celulas[primeira].merge(celulas[ultima])
+
+        # Mesclar concatena os parágrafos de todas as células envolvidas: sem limpar, o rótulo
+        # sairia seguido dos nomes de tamanho que vieram do cabeçalho copiado.
+        for paragrafo in celula.paragraphs[1:]:
+            paragrafo._p.getparent().remove(paragrafo._p)
+        _definir_texto_celula(celula, rotulo)
+        for run in celula.paragraphs[0].runs:
+            run.bold = True
+
+
 def anotar(caminho: str) -> None:
     doc = Document(caminho)
     _validar_estrutura(doc)
@@ -297,6 +332,10 @@ def anotar(caminho: str) -> None:
 
     for indice_tabela, indices in LINHAS_A_REMOVER.items():
         _remover_linhas(doc.tables[indice_tabela], indices)
+
+    # Depois das remoções por índice acima, senão a linha de rótulos deslocaria tudo.
+    _adicionar_linha_de_rotulos(doc.tables[3], ROTULOS_GRADE_TABELA_3)
+    _adicionar_linha_de_rotulos(doc.tables[4], ROTULOS_GRADE_TABELA_4)
 
     # Por último: inserir uma tabela nova desloca os índices de todas as tabelas seguintes, então
     # isso só pode acontecer depois de todas as operações endereçadas por índice acima.

@@ -86,6 +86,71 @@ class TestContratoComORender(unittest.TestCase):
                 self.assertIn(f"grade['{tamanho}']", placeholders)
 
 
+class TestRotulosDaGrade(unittest.TestCase):
+    """A grade impressa precisa dizer onde acaba o bloco de tamanhos comerciais e começa o numérico.
+
+    O formulário original diagramou PP..XG e 34..56 numa faixa contínua de colunas, sem nada
+    separando os dois grupos -- quem lê a ficha impressa não tem como saber que "P" e "42" são
+    sistemas de numeração diferentes. Estes testes amarram o rótulo à coluna: se alguém reordenar
+    os tamanhos no template, o rótulo deixa de bater e o teste acusa.
+    """
+
+    ROTULO_COMERCIAL = "TAMANHOS COMERCIAIS"
+    ROTULO_NUMERICO = "TAMANHOS NUMÉRICOS"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = Document(ft.CAMINHO_TEMPLATE)
+
+    def _tabelas_da_grade(self):
+        """As tabelas que contêm placeholders `grade[...]`, achadas por conteúdo (não por índice:
+        inserir qualquer tabela antes delas deslocaria a numeração)."""
+        tabelas = [
+            tabela for tabela in self.doc.tables
+            if any("grade[" in celula.text for linha in tabela.rows for celula in linha.cells)
+        ]
+        self.assertTrue(tabelas, "Nenhuma tabela do template contém placeholders da grade.")
+        return tabelas
+
+    def test_cada_tamanho_tem_o_rotulo_do_seu_grupo_acima(self):
+        for tabela in self._tabelas_da_grade():
+            rotulos = [celula.text.strip() for celula in tabela.rows[0].cells]
+            cabecalho = [celula.text.strip() for celula in tabela.rows[1].cells]
+
+            for coluna, tamanho in enumerate(cabecalho):
+                with self.subTest(tamanho=tamanho):
+                    self.assertIn(tamanho, ft.TAMANHOS_GRADE)
+                    esperado = (
+                        self.ROTULO_NUMERICO if tamanho.isdigit() else self.ROTULO_COMERCIAL
+                    )
+                    self.assertTrue(
+                        rotulos[coluna].startswith(esperado),
+                        f"O tamanho {tamanho} está sob o rótulo {rotulos[coluna]!r}, "
+                        f"mas pertence ao grupo {esperado!r}.",
+                    )
+
+    def test_marcas_ficam_na_linha_abaixo_do_cabecalho(self):
+        # A linha de rótulos foi inserida no topo; se ela acabar no lugar errado, as marcações de
+        # tamanho deixam de ficar sob os nomes e a ficha impressa fica ilegível.
+        for tabela in self._tabelas_da_grade():
+            for coluna, celula in enumerate(tabela.rows[1].cells):
+                tamanho = celula.text.strip()
+                with self.subTest(tamanho=tamanho):
+                    self.assertEqual(
+                        tabela.rows[2].cells[coluna].text.strip(),
+                        "{{ grade['" + tamanho + "'] }}",
+                    )
+
+    def test_os_dois_grupos_aparecem_rotulados(self):
+        rotulos = {
+            celula.text.strip()
+            for tabela in self._tabelas_da_grade()
+            for celula in tabela.rows[0].cells
+        }
+        self.assertTrue(any(r.startswith(self.ROTULO_COMERCIAL) for r in rotulos))
+        self.assertTrue(any(r.startswith(self.ROTULO_NUMERICO) for r in rotulos))
+
+
 class TestDetectorDeRunSplitting(unittest.TestCase):
     """Prova que o detector de fato dispara.
 
