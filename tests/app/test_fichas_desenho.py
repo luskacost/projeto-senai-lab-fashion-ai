@@ -213,6 +213,19 @@ class TestGerarNovaVersao(unittest.TestCase):
         if os.path.isdir(diretorio):
             shutil.rmtree(diretorio, ignore_errors=True)
 
+        # gerar_nova_versao() incrementa a cota real do usage_tracker, que é um arquivo em disco
+        # por tenant e por dia. Sem zerar aqui, cada execução da suíte consome de verdade a cota
+        # deste tenant de teste -- e por volta da quinta execução no mesmo dia todos os testes
+        # desta classe passariam a falhar com LimiteDeImagensExcedidoError, por acúmulo das
+        # execuções anteriores e não por nada no código.
+        for sufixo in ("_usage.json", "_usage.json.lock"):
+            caminho = os.path.join("tenant_data", f"{TENANT_TESTE}{sufixo}")
+            if os.path.exists(caminho):
+                try:
+                    os.remove(caminho)
+                except OSError:
+                    pass
+
     @patch("fichas_desenho.validar_prompt_imagem", return_value={"aprovado": True, "motivo": ""})
     def test_primeira_versao_e_numero_1(self, _mod):
         ficha = fdz.gerar_nova_versao(self._client_ok(), TENANT_TESTE, _ficha_com_dados(), limite_imagens_dia=30)
@@ -324,6 +337,72 @@ class TestAprovarVersao(unittest.TestCase):
     def test_versao_inexistente_levanta_value_error(self):
         with self.assertRaises(ValueError):
             fdz.aprovar_versao(self._ficha_com_versoes(), 99)
+
+
+class TestCalcularDimensoes(unittest.TestCase):
+    """A caixa do desenho no template é larga e baixa (18,99 x 6,00 cm) e o gpt-image-1 gera em
+    retrato (1024x1536). O risco real aqui é a altura: qualquer imagem mais alta que a área
+    reservada faz a linha crescer (regra AT_LEAST) e empurra a ficha para uma página a mais."""
+
+    def test_nunca_estoura_a_area_reservada(self):
+        for largura, altura in [(1024, 1536), (1536, 1024), (1024, 1024), (4000, 100), (100, 4000)]:
+            with self.subTest(px=(largura, altura)):
+                w, h = fdz.calcular_dimensoes_cm(largura, altura)
+                self.assertLessEqual(round(w, 6), fdz.LARGURA_MAX_DESENHO_CM)
+                self.assertLessEqual(round(h, 6), fdz.ALTURA_MAX_DESENHO_CM)
+
+    def test_preserva_a_proporcao(self):
+        w, h = fdz.calcular_dimensoes_cm(1024, 1536)
+        self.assertAlmostEqual(w / h, 1024 / 1536, places=6)
+
+    def test_dimensoes_invalidas_caem_no_tamanho_da_area(self):
+        self.assertEqual(
+            fdz.calcular_dimensoes_cm(0, 0),
+            (fdz.LARGURA_MAX_DESENHO_CM, fdz.ALTURA_MAX_DESENHO_CM),
+        )
+
+
+class TestDesenhoAprovadoNoDocumento(TestFichaDesenhoBase):
+    """Só a versão aprovada entra no documento -- a regra central da Task 18."""
+
+    def _ficha_com_arquivos(self, quantas=2) -> dict:
+        ficha = _ficha_com_dados()
+        ficha["desenho"]["versoes"] = [
+            {"versao": i, "prompt_visual": "x", "instrucoes_acumuladas": "",
+             "status": fm.DESENHO_AGUARDANDO_APROVACAO, "criado_em": ""}
+            for i in range(1, quantas + 1)
+        ]
+        for i in range(1, quantas + 1):
+            fdz.salvar_desenho(TENANT_TESTE, FICHA_TESTE, i, PNG_MINIMO)
+        return ficha
+
+    def test_sem_desenho_nao_devolve_caminho(self):
+        ficha = _ficha_com_dados()
+        self.assertIsNone(fdz.caminho_desenho_aprovado(TENANT_TESTE, ficha))
+
+    def test_versao_gerada_mas_nao_aprovada_nao_entra(self):
+        # O cenário mais importante: o usuário gerou, ainda não aprovou, e baixa o .docx.
+        ficha = self._ficha_com_arquivos()
+        self.assertIsNone(fdz.caminho_desenho_aprovado(TENANT_TESTE, ficha))
+
+    def test_devolve_o_arquivo_da_versao_aprovada(self):
+        ficha = fdz.aprovar_versao(self._ficha_com_arquivos(), 2)
+        caminho = fdz.caminho_desenho_aprovado(TENANT_TESTE, ficha)
+        self.assertIsNotNone(caminho)
+        self.assertTrue(caminho.endswith("desenho_v2.png"))
+
+    def test_status_e_versao_aprovada_em_desacordo_nao_entram(self):
+        # A ficha vem de um JSON em disco que passou por edição e duplicação: se os dois campos
+        # discordarem, a leitura conservadora é "não aprovado".
+        ficha = self._ficha_com_arquivos()
+        ficha["desenho"]["versao_aprovada"] = 1  # sem marcar o status da versão 1
+        self.assertIsNone(fdz.caminho_desenho_aprovado(TENANT_TESTE, ficha))
+
+    def test_versao_aprovada_sem_arquivo_em_disco_nao_quebra(self):
+        ficha = self._ficha_com_arquivos(quantas=1)
+        ficha = fdz.aprovar_versao(ficha, 1)
+        os.remove(fdz.caminho_desenho(TENANT_TESTE, FICHA_TESTE, 1))
+        self.assertIsNone(fdz.caminho_desenho_aprovado(TENANT_TESTE, ficha))
 
 
 if __name__ == "__main__":

@@ -28,7 +28,11 @@ usando `geracao_imagem.chamar_api_geracao_imagem()` sem nenhuma mudança.
 import base64
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+
+from PIL import Image
+from docx.shared import Cm
+from docxtpl import DocxTemplate, InlineImage
 
 import fichas_modelo as fm
 import fichas_repo
@@ -38,6 +42,14 @@ from moderacao import validar_prompt_imagem
 from usage_tracker import incrementar_uso, verificar_limite
 
 PREFIXO_ARQUIVO = "desenho_v"
+
+# Área reservada para o desenho no template: a caixa da seção DESENHO TÉCNICO mede 18,99 x 6,00 cm
+# (`scripts/anotar_template.py:ALTURA_AREA_DESENHO_CM`). Os tetos abaixo deixam uma folga para a
+# margem interna da célula. O teto de altura é o que de fato importa: a linha tem regra AT_LEAST,
+# então uma imagem mais alta que 6 cm faria a caixa crescer, empurrando a ficha para uma página a
+# mais -- exatamente o que a Task 18 não pode causar.
+LARGURA_MAX_DESENHO_CM = 18.4
+ALTURA_MAX_DESENHO_CM = 5.8
 
 
 class PromptReprovadoError(ValueError):
@@ -240,3 +252,72 @@ def aprovar_versao(ficha: Dict[str, Any], numero_versao: int) -> Dict[str, Any]:
 
     ficha["desenho"]["versao_aprovada"] = numero_versao
     return ficha
+
+
+# --- Entrada no documento final (Fase 11, Task 18) ---------------------------------------------
+
+def calcular_dimensoes_cm(largura_px: int, altura_px: int) -> Tuple[float, float]:
+    """Dimensões de impressão que cabem na área reservada, mantendo a proporção original.
+
+    Mesma regra do logo (`fichas_logo.calcular_dimensoes_cm`): a MENOR escala entre os dois eixos,
+    para a imagem caber inteira sem nunca ser esticada. Aqui o eixo que costuma mandar é a altura
+    -- o gpt-image-1 gera em 1024x1536 (retrato) e a caixa do desenho é larga e baixa.
+    """
+    if largura_px <= 0 or altura_px <= 0:
+        return (LARGURA_MAX_DESENHO_CM, ALTURA_MAX_DESENHO_CM)
+
+    escala = min(LARGURA_MAX_DESENHO_CM / largura_px, ALTURA_MAX_DESENHO_CM / altura_px)
+    return (largura_px * escala, altura_px * escala)
+
+
+def caminho_desenho_aprovado(tenant_id: str, ficha: Dict[str, Any]) -> Optional[str]:
+    """Caminho do arquivo da versão aprovada, ou None se não há nenhuma.
+
+    A condição é dupla de propósito: `versao_aprovada` precisa apontar para alguma versão **e**
+    aquela versão precisa estar de fato com status `aprovado`. São dois campos que `aprovar_versao`
+    mantém em sincronia, mas a ficha vem de um JSON em disco que já passou por edição pelo usuário
+    e por rotas de duplicação -- se os dois discordarem, a leitura conservadora é "não aprovado".
+    Desenho não aprovado nunca entra no documento; essa é a regra central da Task 18.
+    """
+    desenho = ficha.get("desenho") or {}
+    versao_aprovada = desenho.get("versao_aprovada")
+    if not versao_aprovada:
+        return None
+
+    aprovada = next(
+        (
+            v for v in (desenho.get("versoes") or [])
+            if v.get("versao") == versao_aprovada and v.get("status") == fm.DESENHO_APROVADO
+        ),
+        None,
+    )
+    if aprovada is None:
+        return None
+
+    return caminho_desenho(tenant_id, ficha["id"], versao_aprovada)
+
+
+def desenho_para_documento(
+    modelo: DocxTemplate, tenant_id: str, ficha: Dict[str, Any]
+) -> Optional[InlineImage]:
+    """InlineImage da versão aprovada, pronto para o contexto do docxtpl -- ou None.
+
+    None vira string vazia no render e a caixa da seção DESENHO TÉCNICO sai em branco, com a mesma
+    altura de sempre: é o estado correto de uma ficha sem desenho (ou com desenho ainda não
+    aprovado), e o layout não se mexe nos dois casos.
+    """
+    caminho = caminho_desenho_aprovado(tenant_id, ficha)
+    if not caminho:
+        return None
+
+    try:
+        with Image.open(caminho) as imagem:
+            largura_cm, altura_cm = calcular_dimensoes_cm(imagem.width, imagem.height)
+        return InlineImage(modelo, caminho, width=Cm(largura_cm), height=Cm(altura_cm))
+    except Exception as e:
+        # Um desenho ilegível não pode impedir a geração da ficha inteira -- o documento sai sem
+        # ele, igual ao tratamento do logo.
+        obter_logger(tenant_id).error(
+            f"Erro ao preparar o desenho técnico para o documento: {e}", exc_info=True
+        )
+        return None

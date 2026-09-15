@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 from docxtpl import DocxTemplate
 from jinja2 import Environment, StrictUndefined
 
+import fichas_desenho
 import fichas_logo
 import fichas_modelo as fm
 import fichas_repo
@@ -181,7 +182,8 @@ def montar_contexto(ficha: Dict[str, Any]) -> Dict[str, Any]:
         return _texto((custos.get(categoria) or {}).get("observacao"))
 
     return {
-        # Imagens: preenchidas pelo logo (Task 11) e pelo desenho aprovado (Task 18). Vazias aqui
+        # Imagens: resolvidas em renderizar_para_arquivo (logo, Task 11; desenho aprovado, Task
+        # 18), que é onde existe a instância do DocxTemplate exigida pelo InlineImage. Vazias aqui
         # renderizam como espaço em branco, que é o estado correto de uma ficha sem elas.
         "logo": "",
         "desenho_tecnico": "",
@@ -244,9 +246,12 @@ def renderizar_para_arquivo(
     contexto = montar_contexto(ficha)
     if tenant_id:
         # O InlineImage precisa da instância do template (ele registra a imagem como relação
-        # interna do .docx), então o logo só pode ser resolvido aqui, não em montar_contexto --
-        # que é puro de propósito, para ser testável sem tocar em arquivo nenhum.
+        # interna do .docx), então as imagens só podem ser resolvidas aqui, não em montar_contexto
+        # -- que é puro de propósito, para ser testável sem tocar em arquivo nenhum.
         contexto["logo"] = fichas_logo.logo_para_documento(modelo, tenant_id) or ""
+        contexto["desenho_tecnico"] = (
+            fichas_desenho.desenho_para_documento(modelo, tenant_id, ficha) or ""
+        )
 
     ambiente = Environment(undefined=StrictUndefined)
     modelo.render(contexto, ambiente, autoescape=True)

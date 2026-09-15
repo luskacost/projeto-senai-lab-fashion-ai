@@ -15,9 +15,19 @@ import unittest
 
 from docx import Document
 
+import fichas_desenho as fdz
 import fichas_docx as fd
 import fichas_modelo as fm
+import fichas_repo as fr
 import fichas_template as ft
+
+# PNG 1x1 válido -- o conteúdo da imagem não importa aqui, só que o Pillow consiga abri-la e que o
+# docxtpl a embuta no arquivo final.
+PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+    b"\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\x18\xdd\x8d\xb0"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 REGEX_PLACEHOLDER = re.compile(r"\{\{.*?\}\}|\{%.*?%\}")
 
@@ -289,6 +299,77 @@ class TestRenderCompleto(unittest.TestCase):
         doc_modelo = Document(ft.CAMINHO_TEMPLATE)
         doc_final = Document(self._renderizar(_ficha_preenchida()))
         self.assertEqual(len(doc_final.tables), len(doc_modelo.tables))
+
+
+class TestDesenhoNoDocumento(unittest.TestCase):
+    """Task 18: o desenho aprovado é embutido no .docx; qualquer outro estado sai em branco.
+
+    Estes testes olham as imagens embutidas no arquivo final (não o contexto do render), porque é
+    isso que o usuário recebe -- um contexto correto que não vira imagem no documento seria uma
+    falha invisível para qualquer teste que parasse antes do `save()`.
+    """
+
+    TENANT = "teste_task18_desenho_docx"
+    FICHA_ID = "77777777-7777-7777-7777-777777777777"
+
+    def setUp(self):
+        self.diretorio = tempfile.mkdtemp()
+        self._limpar()
+
+    def tearDown(self):
+        shutil.rmtree(self.diretorio, ignore_errors=True)
+        self._limpar()
+
+    def _limpar(self):
+        pasta = fr._dir_ficha(self.TENANT, self.FICHA_ID)
+        if os.path.isdir(pasta):
+            shutil.rmtree(pasta, ignore_errors=True)
+
+    def _ficha_com_desenho(self, aprovar: bool):
+        ficha = _ficha_preenchida()
+        ficha["id"] = self.FICHA_ID
+        ficha["desenho"]["solicitado"] = True
+        ficha["desenho"]["versoes"] = [{
+            "versao": 1, "prompt_visual": "x", "instrucoes_acumuladas": "",
+            "status": fm.DESENHO_AGUARDANDO_APROVACAO, "criado_em": "",
+        }]
+        fdz.salvar_desenho(self.TENANT, self.FICHA_ID, 1, PNG_1X1)
+        return fdz.aprovar_versao(ficha, 1) if aprovar else ficha
+
+    def _imagens_embutidas(self, ficha) -> int:
+        caminho = os.path.join(self.diretorio, "ficha.docx")
+        fd.renderizar_para_arquivo(ficha, caminho, tenant_id=self.TENANT)
+        return len(Document(caminho).inline_shapes)
+
+    def test_desenho_aprovado_entra_no_documento(self):
+        self.assertEqual(self._imagens_embutidas(self._ficha_com_desenho(aprovar=True)), 1)
+
+    def test_desenho_nao_aprovado_nao_entra(self):
+        self.assertEqual(self._imagens_embutidas(self._ficha_com_desenho(aprovar=False)), 0)
+
+    def test_ficha_sem_desenho_renderiza_a_caixa_vazia(self):
+        ficha = _ficha_preenchida()
+        ficha["id"] = self.FICHA_ID
+        self.assertEqual(self._imagens_embutidas(ficha), 0)
+
+    def test_desenho_nao_altera_a_estrutura_do_template(self):
+        # A imagem entra dentro da célula reservada -- não pode criar tabela, nem seção, nem
+        # empurrar o layout. Contagem de tabelas é o sinal mais barato de que isso aconteceu.
+        caminho = os.path.join(self.diretorio, "ficha.docx")
+        fd.renderizar_para_arquivo(
+            self._ficha_com_desenho(aprovar=True), caminho, tenant_id=self.TENANT
+        )
+        self.assertEqual(
+            len(Document(caminho).tables), len(Document(ft.CAMINHO_TEMPLATE).tables)
+        )
+
+    def test_render_sem_tenant_nunca_embute_imagem(self):
+        # Sem tenant não há de onde resolver logo nem desenho; o documento precisa sair mesmo
+        # assim, com as duas áreas em branco.
+        ficha = self._ficha_com_desenho(aprovar=True)
+        caminho = os.path.join(self.diretorio, "sem_tenant.docx")
+        fd.renderizar_para_arquivo(ficha, caminho)
+        self.assertEqual(len(Document(caminho).inline_shapes), 0)
 
 
 if __name__ == "__main__":
