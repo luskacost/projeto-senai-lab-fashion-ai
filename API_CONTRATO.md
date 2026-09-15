@@ -100,6 +100,88 @@ protegida por `FileLock` desde a Fase 9.
 - Gera e persiste o resumo estatístico por `conversation_id`, reaproveitado pelas próximas
   mensagens de chat no modo "Análise de Dados" na mesma conversa.
 
+## Fichas técnicas (`/fichas`, Fase 11)
+
+Área dedicada, fora do chat, que preenche um template `.docx` real (`templates/ficha_tecnica_v1.docx`)
+e exporta Word/PDF -- ver a seção "Gerador de fichas técnicas" no `README.md` para a arquitetura por
+trás. Distinta da ferramenta `gerar_ficha_tecnica` do chat (só devolve imagem + tabela markdown na
+conversa, não produz documento nenhum).
+
+### `POST /fichas` — `{ tenant_id, texto_origem? }`
+- Sem `texto_origem`: cria uma ficha em branco (`RASCUNHO`), sem chamada de API.
+- Com `texto_origem`: checa `limite_fichas_dia` (`429` se excedido) → extração estruturada
+  (`fichas_extracao`, Structured Outputs, chamada real de API) → verificação de proveniência
+  (`fichas_verificacao`, zera campos não-inferíveis sem origem `FORNECIDO`) → persiste com status
+  `EM_REVISAO`.
+- **Resposta** (mesmo envelope em toda rota que devolve uma ficha):
+  ```jsonc
+  { "ficha": { ... }, "alertas": [ { "codigo", "severidade", "campo", "mensagem" }, ... ] }
+  ```
+  `alertas` é recalculado a cada leitura/escrita (`fichas_validacao.validar_ficha`) — nunca um
+  snapshot congelado de quando a ficha foi criada.
+
+### `GET /fichas?tenant_id=`
+Lista o histórico leve (id, ref, nome, status, datas) — `fichas_repo`, sem carregar o JSON completo
+de cada ficha.
+
+### `GET /fichas/{ficha_id}?tenant_id=`
+### `PUT /fichas/{ficha_id}` — `{ tenant_id, ficha, atualizado_em_esperado? }`
+- `atualizado_em_esperado` é o timestamp que o cliente tinha ao abrir a ficha para edição;
+  divergência do valor salvo em disco (edição concorrente em outra aba/sessão) devolve `412`.
+- O `id` do path é sempre a fonte de verdade — um `id` divergente no corpo é ignorado.
+
+### `POST /fichas/{ficha_id}/duplicar` — `{ tenant_id }`
+Cópia com novo `id`, mesma finalidade de "vou usar como base para outro modelo".
+
+### `DELETE /fichas/{ficha_id}?tenant_id=`
+
+### `GET /fichas/{ficha_id}/docx?tenant_id=`
+Renderiza (`docxtpl`) e devolve o `.docx` para download; marca `status = DOCUMENTO_GERADO` e grava
+`documentos.docx`/`documentos.gerado_em`. Sempre gerado na hora a partir dos dados atuais — nunca
+serve um arquivo desatualizado de uma geração anterior.
+
+### `GET /fichas/{ficha_id}/preview?tenant_id=`
+PDF (`Content-Disposition: inline`) para exibir na tela sem marcar a ficha como emitida — rota
+separada do download porque a diferença é de intenção (conferir vs. emitir), não de formato.
+
+### `GET /fichas/{ficha_id}/pdf?tenant_id=`
+PDF para download (`attachment`), convertido pelo LibreOffice a partir do mesmo `.docx` que
+`GET .../docx` geraria — garante que os dois arquivos sejam visualmente idênticos. `501` se o
+LibreOffice não estiver instalado neste ambiente (`LIBREOFFICE_PATH`); `500` em falha de conversão.
+
+### `POST /fichas/{ficha_id}/desenho` — `{ tenant_id, instrucao_adicional? }`
+Gera uma nova versão do desenho técnico (chamada real de API: moderação de texto + `gpt-image-1`),
+protegida por `limite_imagens_dia` (mesma cota do Gerador de Croqui do chat). `instrucao_adicional`
+é o ajuste da regeneração ("a manga é 3/4, não curta") — acumulado com as instruções de versões
+anteriores, porque `gpt-image-1` não tem seed/determinismo e cada geração produz uma peça nova, não
+uma correção pontual. `422` se o prompt for reprovado na moderação, `429` se a cota diária estourar.
+
+### `POST /fichas/{ficha_id}/desenho/{versao}/aprovar` — `{ tenant_id }`
+Marca uma versão como aprovada (rebaixando qualquer outra que estivesse). Sem chamada de API. Só a
+versão aprovada entra no documento final — nenhuma é aprovada automaticamente.
+
+### `GET /fichas/{ficha_id}/desenho/{versao}?tenant_id=`
+PNG de uma versão já gerada (só leitura).
+
+## Logo da empresa (`/branding/logo`, Fase 11)
+
+Cadastrado uma vez por tenant e reaproveitado em toda ficha gerada (`InlineImage`, redimensionado
+proporcionalmente, nunca deformado). Mesma natureza de `PUT /config/tenant`: upload e remoção
+exigem `X-Admin-Token`; leitura é aberta (a tela de configuração precisa exibir a prévia sem login).
+
+### `POST /branding/logo?tenant_id=` — multipart (`arquivo`), headers `X-Admin-Token`
+Aceita PNG/JPG/JPEG (SVG é recusado — o Word não o embute por este caminho); normalizado para PNG,
+preservando transparência. `400` para arquivo inválido, formato não suportado ou maior que 5MB.
+
+### `GET /branding/logo?tenant_id=`
+Imagem PNG cadastrada. `404` se não houver logo.
+
+### `GET /branding/logo/info?tenant_id=`
+Metadados (`{ cadastrado: bool, metadados: { nome_original, formato_origem, largura_px, altura_px } | null }`)
+sem trafegar a imagem — usado para decidir se vale a pena buscar `GET /branding/logo`.
+
+### `DELETE /branding/logo?tenant_id=` — headers `X-Admin-Token`
+
 ## Debug/Observabilidade (uso interno)
 
 ### `GET /debug/rag?tenant_id=`

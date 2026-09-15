@@ -103,6 +103,41 @@ página, e apresentar fontes contraditórias com honestidade em vez de inventar 
 dependem do comportamento do LLM em si, não de código -- não são testáveis de forma
 determinística, só via validação manual/real (ver `tests/app/test_cenarios_agente.py`).
 
+## Gerador de fichas técnicas (`/fichas`)
+
+Área dedicada, fora do chat, para gerar a ficha técnica de uma peça como documento Word/PDF fiel a
+um template real -- distinta da ferramenta `gerar_ficha_tecnica` do chat (que só devolve imagem +
+tabela markdown na conversa, sem produzir arquivo nenhum). Fluxo:
+
+```
+Texto livre → extração estruturada (Structured Outputs) → verificação de proveniência
+    → revisão editável (tabelas dinâmicas, alertas) → desenho técnico opcional (com aprovação)
+    → preenche templates/ficha_tecnica_v1.docx (docxtpl) → exporta .docx / .pdf (LibreOffice)
+```
+
+- **Fidelidade ao template.** O `.docx` de 3 páginas é aberto e preenchido, nunca reconstruído --
+  `docxtpl` renderiza o `document.xml` original como template Jinja, preservando margens, estilos e
+  células mescladas por construção. `scripts/anotar_template.py` documenta e reproduz a anotação
+  (placeholders + tabelas dinâmicas) caso uma v2 do formulário em branco chegue algum dia.
+- **Não-invenção garantida por código, não por prompt.** Cada campo carrega `origem`/`trecho`; um
+  verificador determinístico (`fichas_verificacao.py`) confirma que o trecho é substring real do
+  texto do usuário, e uma allowlist de campos não-inferíveis (preço, fornecedor, composição, nº de
+  moldes, data, designer...) é **zerada pelo código** se a origem não for `FORNECIDO` -- o prompt é
+  só reforço, a garantia é mecânica.
+- **Desenho técnico opcional** (`gpt-image-1`), versionado (v1, v2, ...) e sujeito a aprovação
+  explícita do usuário -- só a versão aprovada entra no documento final. Como o modelo não tem
+  seed/determinismo, regenerar produz uma peça nova, não uma correção pontual: instruções de ajuste
+  são acumuladas entre versões (`fichas_desenho.acumular_instrucao`).
+- **PDF via LibreOffice headless** (`fichas_pdf.py`) -- único caminho de conversão docx→PDF, tanto
+  em dev quanto na imagem Docker; requer `LIBREOFFICE_PATH` ou o executável no `PATH` (ver seção de
+  variáveis de ambiente abaixo). Sem ele, as rotas de PDF devolvem `501` com instrução do que fazer.
+- **Logo da empresa** (`/branding/logo`) cadastrado uma vez por tenant e reaproveitado em toda
+  ficha, redimensionado proporcionalmente (nunca deformado, nunca estoura a célula do cabeçalho).
+
+Ver `API_CONTRATO.md` (seções "Fichas técnicas" e "Logo da empresa") para o contrato completo das
+rotas, e `tests/app/test_fichas_cenarios_e2e.py` para os cenários de ponta a ponta (combinações de
+logo/desenho/grade/custos) que amarram o documento final ao template.
+
 ## Como rodar localmente (sem Docker)
 
 **Backend:**
@@ -153,6 +188,7 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 | `NEXT_PUBLIC_API_URL` | Build arg do frontend (`frontend/Dockerfile`) | URL pública da API, alcançável pelo navegador do usuário final. Embutida em tempo de build, não de execução. |
 | `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend. Default: `senai_labfashion`. |
 | `LOG_LEVEL` | Ambiente do backend | Nível de log (default `INFO`). |
+| `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- sem ele, o backend procura no `PATH`/locais padrão; se não encontrar, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
 
 ## Deploy em produção (VPS)
 
@@ -185,6 +221,14 @@ testes do agente ficam em `tests/app/test_agente_ferramentas*.py` (registry de f
 uso agentivo -- pergunta sem web, com web, múltiplas ferramentas, falha de tool, tool não
 autorizada, etc.). Testes de mudanças no chat/agente que dependem da API real da OpenAI (não
 mockáveis) são validados manualmente contra um servidor isolado antes de cada commit.
+
+Os testes do gerador de fichas técnicas ficam em `tests/app/test_fichas_*.py` -- um arquivo por
+módulo (modelo, validação, extração, verificação de proveniência, repositório, template, docx,
+logo, desenho, pdf) mais `test_api_fichas.py` (rotas HTTP) e `test_fichas_cenarios_e2e.py`
+(cenários de ponta a ponta: combinações de logo/desenho/grade/custos que só aparecem quando várias
+peças do sistema se juntam no mesmo documento). Extração e geração de imagem são sempre mockadas;
+os testes que exigem o LibreOffice de verdade (conversão PDF, contagem de página) se pulam sozinhos
+via `skipUnless` quando ele não está instalado no ambiente -- o CI não o tem.
 
 ## Logs e diagnóstico
 
