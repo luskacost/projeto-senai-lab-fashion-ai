@@ -357,6 +357,90 @@ def obter_modelo_embeddings():
         raise
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# GARANTIA DE JANELA DE TOKENS DO MODELO DE EMBEDDINGS (Fase 13, Task 2)
+#
+# `chunk_size` (rag_config.py) é um orçamento em CARACTERES -- útil para decidir onde quebrar um
+# bloco de texto, mas não é uma garantia de que o resultado cabe na janela de TOKENS do modelo de
+# embeddings (128 tokens para o MiniLM atual). Português técnico roda ~3,3-4,3 caracteres por
+# token dependendo do texto -- qualquer limite fixo de caracteres é uma aposta calibrada, não uma
+# garantia. O sentence-transformers trunca silenciosamente o que exceder `max_seq_length` no
+# forward (sem erro, sem aviso): a cauda de um chunk cheio simplesmente nunca é embeddada, embora
+# apareça inteira no texto enviado ao LLM -- uma discrepância entre "o que foi buscado" e "o que
+# foi mostrado" que não aparece em nenhum log.
+#
+# A correção aqui mede o tamanho real via o tokenizer do próprio modelo (não estima por
+# caracteres) e, só quando um chunk de fato excede a janela, o bisseca recursivamente até caber --
+# preservando os metadados originais em cada metade. Roda uma vez por documento indexado, depois
+# que a reconstrução do storage tabular (que precisa dos chunks originais e inteiros) já rodou.
+# ─────────────────────────────────────────────────────────────────────────────
+def _limite_de_tokens_do_modelo(modelo) -> int:
+    return int(getattr(modelo, "max_seq_length", None) or 128)
+
+
+def _contar_tokens_em_lote(modelo, textos: List[str]) -> List[int]:
+    if not textos:
+        return []
+    codificado = modelo.tokenizer(list(textos), add_special_tokens=True)
+    return [len(ids) for ids in codificado["input_ids"]]
+
+
+def _bissectar_chunk_por_tokens(chunk: Dict[str, Any], modelo, limite: int) -> List[Dict[str, Any]]:
+    """Divide um chunk ao meio (por caracteres, no espaço mais próximo do centro) até que cada
+    metade caiba na janela de tokens do modelo -- recursivo, preserva todo metadado original em
+    cada metade (só `texto` muda)."""
+    texto = chunk.get("texto", "")
+    n_tokens = _contar_tokens_em_lote(modelo, [texto])[0]
+    if n_tokens <= limite:
+        return [chunk]
+
+    meio = len(texto) // 2
+    ponto_quebra = texto.rfind(" ", 0, meio)
+    if ponto_quebra <= 0:
+        ponto_quebra = meio  # sem espaço antes do meio (palavra/token gigante) -- corta bruto
+
+    metade_a = texto[:ponto_quebra].strip()
+    metade_b = texto[ponto_quebra:].strip()
+    if not metade_a or not metade_b:
+        metade_a, metade_b = texto[:meio].strip(), texto[meio:].strip()
+    if not metade_a or not metade_b:
+        # Texto vazio ou só espaços de um lado -- não há como bissectar mais; devolve como está
+        # em vez de entrar em recursão infinita sobre uma string que não encolhe.
+        return [chunk]
+
+    partes: List[Dict[str, Any]] = []
+    for metade in (metade_a, metade_b):
+        partes.extend(_bissectar_chunk_por_tokens({**chunk, "texto": metade}, modelo, limite))
+    return partes
+
+
+def _garantir_limite_de_tokens(chunks_estruturados: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Verifica todos os chunks contra a janela real de tokens do modelo ativo e bisseca só os
+    que excedem. A maioria dos chunks (curtos) passa pela checagem em lote sem custo extra."""
+    if not chunks_estruturados:
+        return chunks_estruturados
+
+    modelo = obter_modelo_embeddings()
+    limite = _limite_de_tokens_do_modelo(modelo)
+    contagens = _contar_tokens_em_lote(modelo, [c.get("texto", "") for c in chunks_estruturados])
+
+    resultado: List[Dict[str, Any]] = []
+    excedentes = 0
+    for chunk, n_tokens in zip(chunks_estruturados, contagens):
+        if n_tokens <= limite:
+            resultado.append(chunk)
+        else:
+            excedentes += 1
+            resultado.extend(_bissectar_chunk_por_tokens(chunk, modelo, limite))
+
+    if excedentes:
+        obter_logger().warning(
+            f"{excedentes} chunk(s) excediam a janela de {limite} tokens do modelo de embeddings "
+            f"e foram divididos antes da indexação."
+        )
+    return resultado
+
+
 def gerar_embeddings_normalizados(textos: List[str]) -> List[List[float]]:
     """Gera embeddings normalizados (L2 normalized) para textos garantindo equivalência de cosseno."""
     if not textos:
@@ -851,6 +935,12 @@ def indexar_documento(
 
                 if sheets_reconstruidos:
                     salvar_documento_tabular(tenant_id, nome_arquivo, ext, sheets_reconstruidos)
+
+        # Garantia de janela de tokens (Fase 13, Task 2): roda DEPOIS da reconstrução tabular
+        # acima, que precisa dos chunks originais e inteiros (ela lê pares "chave: valor" linha a
+        # linha; bissectar antes correria o risco de partir uma linha ao meio). O que a indexação
+        # vetorial recebe daqui pra frente é a versão garantidamente dentro da janela do modelo.
+        chunks_estruturados = _garantir_limite_de_tokens(chunks_estruturados)
 
         textos = [c["texto"] for c in chunks_estruturados]
         embeddings = gerar_embeddings_normalizados(textos)
