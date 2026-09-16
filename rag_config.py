@@ -108,6 +108,38 @@ RAG_CONFIG: Dict[str, Any] = {
     "enable_diversity": os.environ.get("RAG_ENABLE_DIVERSITY", "True").lower() in ("true", "1", "yes"),
     "enable_llm_query_expansion": os.environ.get("RAG_ENABLE_LLM_EXPANSION", "False").lower() in ("true", "1", "yes"),
 
+    # Classificação de metadados por palavra-chave, configurável por tenant (Fase 13, Task 3).
+    # Generaliza o que antes era uma lista fixa de vocabulário têxtil hardcoded em
+    # rag_manager._inferir_metadados_trecho (seção/produto/modelo/variante/material de UM
+    # documento específico que não está mais na base). Formato:
+    #   {"<campo_de_metadado>": {"<rótulo>": ["<termo>", ...], ...}, ...}
+    # Cada campo é conferido contra o texto do chunk (case-insensitive); dentro de um campo, os
+    # rótulos são testados na ordem declarada e o primeiro que casar vence. Default vazio: nenhum
+    # tenant classifica metadado nenhum até configurar as próprias regras.
+    "metadata_keyword_rules": {},
+
+    # Injeção de texto sintético num chunk quando um campo de metadado (já classificado pelas
+    # regras acima) bate com um rótulo configurado -- generaliza o que antes era a injeção fixa de
+    # "PRODUTO: Camisa Jeans (...)" no chunker. Cada item:
+    #   {"quando_metadado": {"campo": "variante", "rotulo": "Jeans"}, "texto_injetado": "...",
+    #    "somente_se_ausente_termos": ["jeans"]}
+    # Só injeta se NENHUM termo de "somente_se_ausente_termos" já aparecer no chunk (evita
+    # duplicar informação que o texto já tem). Default vazio.
+    "chunk_text_injection_rules": [],
+
+    # Bônus/penalidade de alinhamento de variante no reranker (Fase 13, Task 3) -- generaliza o
+    # que antes eram as regras hardcoded de contaminação cruzada jeans/M518 e masculino/feminino.
+    # Cada regra define um "eixo" de variação mutuamente exclusiva do produto (tecido/lavagem,
+    # gênero, etc.); quando a query menciona palavras-chave de exatamente 1 grupo do eixo, um
+    # chunk alinhado com esse grupo ganha `bonus`, e um chunk alinhado com OUTRO grupo do mesmo
+    # eixo perde `penalidade` (evita a contaminação cruzada entre variantes do mesmo produto).
+    # Quando a query menciona 2+ grupos (comparação explícita), qualquer chunk alinhado com um dos
+    # grupos mencionados ganha `bonus`, sem penalidade. Formato:
+    #   [{"campo_metadado": "variante", "grupos": {"jeans": ["jeans","millie"], "m518": ["m518"]},
+    #     "bonus": 0.25, "penalidade": 0.40}, ...]
+    # Default vazio: nenhum tenant tem esse ajuste até configurar.
+    "variant_alignment_rules": [],
+
     # Modo Debug e Observabilidade
     "debug": os.environ.get("RAG_DEBUG", "True").lower() in ("true", "1", "yes"),
 

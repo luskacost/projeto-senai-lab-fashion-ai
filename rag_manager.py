@@ -513,66 +513,61 @@ def extrair_texto_pdf(arquivo: Union[io.BytesIO, bytes, str, Any]) -> str:
 # INFERÊNCIA DE METADADOS TÉCNICOS
 # ─────────────────────────────────────────────────────────────────────────────
 def _inferir_metadados_trecho(texto: str) -> Dict[str, str]:
-    """
-    Inferência heurística de metadados enriquecidos para têxteis e confecção.
-    Classifica Seção, Produto, Modelo (Feminino/Masculino), Variante (Jeans/M518/Tradicional) e Material.
+    """Classifica metadados do chunk (seção/produto/modelo/variante/material/...) por
+    palavras-chave configuráveis por tenant (`RAG_CONFIG["metadata_keyword_rules"]`, Fase 13,
+    Task 3).
+
+    Generaliza o que antes era uma lista fixa de vocabulário têxtil hardcoded aqui (seção,
+    produto, modelo, variante Jeans/M518/Tradicional de um documento específico que não está mais
+    na base) -- sem configuração (default), nenhuma classificação acontece: um chunk sem metadado
+    nenhum não é um bug, é o estado esperado até um tenant configurar suas próprias regras.
+
+    Para cada campo, os rótulos são testados na ordem declarada no dict de configuração (que
+    preserva ordem de inserção) e o primeiro que casar vence -- equivalente ao encadeamento
+    if/elif que existia aqui antes, só que dirigido por dado em vez de código.
     """
     meta: Dict[str, str] = {}
     texto_upper = texto.upper()
+    regras = RAG_CONFIG.get("metadata_keyword_rules") or {}
 
-    # 1. Seção
-    if "FICHA TÉCNICA" in texto_upper or "FICHA TECNICA" in texto_upper:
-        meta["secao"] = "Ficha Técnica"
-    elif "DESENHO TÉCNICO" in texto_upper or "DESENHO TECNICO" in texto_upper:
-        meta["secao"] = "Desenho Técnico"
-    elif "TABELA DE MEDIDAS" in texto_upper or "MEDIDAS BÁSICAS" in texto_upper or "MEDIDAS BASICAS" in texto_upper:
-        meta["secao"] = "Tabela de Medidas"
-    elif "ESTAMPA" in texto_upper or "ESTAMPARIA" in texto_upper:
-        meta["secao"] = "Estamparia"
-    elif "AVIAMENTO" in texto_upper:
-        meta["secao"] = "Aviamentos"
-    elif "ETIQUETA" in texto_upper:
-        meta["secao"] = "Etiquetas"
-    elif "DESCRIÇÃO TÉCNICA" in texto_upper or "DESCRICAO TECNICA" in texto_upper or "ESPECIFICAÇÕES" in texto_upper:
-        meta["secao"] = "Especificações Técnicas"
-
-    # 2. Produto
-    if "CAMISA" in texto_upper or "CAMISETE" in texto_upper:
-        meta["produto"] = "Camisa"
-    elif "CALÇA" in texto_upper or "CALCA" in texto_upper:
-        meta["produto"] = "Calça"
-
-    # 3. Modelo / Gênero
-    if re.search(r'\bFEMININ[AO]\b', texto_upper) or "CAMISETE" in texto_upper:
-        meta["modelo"] = "Feminino"
-    elif re.search(r'\bMASCULIN[AO]\b', texto_upper):
-        meta["modelo"] = "Masculino"
-    elif re.search(r'\bINFANTIL\b', texto_upper):
-        meta["modelo"] = "Infantil"
-    elif re.search(r'\bUNISSEX\b', texto_upper):
-        meta["modelo"] = "Unissex"
-
-    # 4. Variante e Material
-    tem_millie = ("MILLIE DENIM" in texto_upper or "MASKSKIN" in texto_upper)
-    tem_jeans = ("JEANS" in texto_upper or "LAVAGEM CLARA" in texto_upper)
-    tem_m518 = ("M518" in texto_upper)
-    tem_tradicional = ("TRADICIONAL" in texto_upper or "BRANCO, AZUL CLARO E AZUL MARINHO" in texto_upper)
-
-    if (tem_millie or tem_jeans) and not tem_m518:
-        meta["variante"] = "Jeans"
-        meta["material"] = "Millie Denim Maskskin"
-    elif tem_m518 and not tem_millie:
-        meta["variante"] = "M518"
-        meta["material"] = "M518"
-    elif tem_tradicional and not tem_millie:
-        meta["variante"] = "Tradicional"
-
-    if "100% LIOCEL" in texto_upper or "LIOCEL" in texto_upper:
-        meta["material"] = "100% Liocel"
-    elif "100% ALGODÃO" in texto_upper or "100% ALGODAO" in texto_upper:
-        meta["material"] = "100% Algodão"
+    for campo, grupos in regras.items():
+        for rotulo, termos in grupos.items():
+            if any(termo.upper() in texto_upper for termo in termos):
+                meta[campo] = rotulo
+                break
 
     return meta
+
+
+def _aplicar_injecoes_de_texto(texto_chunk: str, meta: Dict[str, str]) -> str:
+    """Prepende texto sintético a um chunk quando um metadado já classificado bate com uma regra
+    configurada (`RAG_CONFIG["chunk_text_injection_rules"]`, Fase 13, Task 3).
+
+    Generaliza o que antes era a injeção fixa de "PRODUTO: Camisa Jeans (...)" no chunker: útil
+    quando o texto de um sub-bloco menciona uma variante (ex: um material de tecido específico)
+    sem literalmente conter o termo pelo qual os usuários costumam buscá-la (ex: "jeans") -- sem
+    isso, uma busca por esse termo nunca encontraria o sub-bloco. Default vazio: nenhuma injeção
+    até um tenant configurar.
+    """
+    regras = RAG_CONFIG.get("chunk_text_injection_rules") or []
+    texto_upper = texto_chunk.upper()
+
+    for regra in regras:
+        condicao = regra.get("quando_metadado") or {}
+        campo, rotulo = condicao.get("campo"), condicao.get("rotulo")
+        if not campo or meta.get(campo) != rotulo:
+            continue
+
+        termos_ausentes = regra.get("somente_se_ausente_termos") or []
+        if any(termo.upper() in texto_upper for termo in termos_ausentes):
+            continue  # o chunk já menciona o termo -- nada a esclarecer
+
+        texto_injetado = regra.get("texto_injetado", "")
+        if texto_injetado:
+            texto_chunk = f"{texto_injetado}\n{texto_chunk}"
+            texto_upper = texto_chunk.upper()
+
+    return texto_chunk
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -751,12 +746,15 @@ def dividir_pagina_em_chunks(
         }
         return [chunk_dict]
 
+    # Cabeçalho de contexto: repete a primeira linha da página nos sub-blocos que não a
+    # carregam, para um bloco no meio da página não ficar sem o título que o identifica (Fase 13,
+    # Task 3 -- antes disparava só para uma lista fixa de palavras-chave de um documento
+    # específico; título é heurística de forma, não de vocabulário, então funciona para qualquer
+    # documento: curto o bastante para parecer um título, sem terminar em pontuação de frase).
     linhas = [l.strip() for l in txt_pag_limpo.splitlines() if l.strip()]
     cabecalho_contexto = ""
-    for l in linhas[:3]:
-        if any(w in l.upper() for w in ["CAMISA", "CAMISETE", "CORPORATIVO", "DESENHO TÉCNICO", "AVIAMENTOS", "ESTAMPARIA"]):
-            cabecalho_contexto = l
-            break
+    if linhas and 0 < len(linhas[0]) <= 80 and not linhas[0].endswith((".", ";", ",")):
+        cabecalho_contexto = linhas[0]
 
     # Padrão para separar blocos técnicos independentes na mesma página
     padrao_quebra = re.compile(
@@ -774,13 +772,11 @@ def dividir_pagina_em_chunks(
     for p in partes:
         texto_chunk = p
 
-        # Enriquece sub-blocos específicos com contexto explícito da variante têxtil
-        if "MILLIE DENIM" in p.upper() or "LAVAGEM CLARA" in p.upper():
-            if "JEANS" not in texto_chunk.upper():
-                texto_chunk = f"PRODUTO: Camisa Jeans (Variante Jeans / Denim - Tecido Millie Denim Maskskin - Lavagem Clara)\n{texto_chunk}"
-        elif "M518" in p.upper():
-            if "TRADICIONAL" not in texto_chunk.upper() and "M518" in texto_chunk.upper():
-                texto_chunk = f"PRODUTO: Camisa Tradicional (Cores: Branco, Azul Claro, Azul Marinho - Tecido M518)\n{texto_chunk}"
+        # Enriquece sub-blocos com texto sintético configurado por tenant (Fase 13, Task 3),
+        # baseado no metadado já classificado pelas regras de RAG_CONFIG -- generaliza a injeção
+        # fixa que existia aqui antes; default vazio não altera o texto.
+        meta_bloco = _inferir_metadados_trecho(texto_chunk)
+        texto_chunk = _aplicar_injecoes_de_texto(texto_chunk, meta_bloco)
 
         if cabecalho_contexto and cabecalho_contexto.upper() not in texto_chunk.upper() and len(texto_chunk) > 30:
             texto_chunk = f"[{cabecalho_contexto}]\n{texto_chunk}"

@@ -24,6 +24,89 @@ from fpdf import FPDF
 
 import document_extractors
 import rag_manager
+from rag_config import RAG_CONFIG
+
+# Config de teste para o manual técnico M518/Millie Denim (Fase 13, Task 3): reproduz, via
+# RAG_CONFIG (default vazio em produção), o mesmo comportamento de classificação de metadado e
+# alinhamento de variante que antes era hardcoded em rag_manager._inferir_metadados_trecho e
+# reranker.HeuristicReranker.rerank. Sem isso, os testes que dependem de distinguir a variante
+# Jeans/M518 (ex: "composição da camisa jeans" não deve trazer o algodão do M518) deixariam de
+# funcionar -- não porque o mecanismo quebrou, mas porque ele virou opt-in e nenhum tenant de
+# teste estava configurando as próprias regras.
+CONFIG_HEURISTICAS_TEXTEIS_DE_TESTE = {
+    "metadata_keyword_rules": {
+        "secao": {
+            "Ficha Técnica": ["FICHA TÉCNICA", "FICHA TECNICA"],
+            "Desenho Técnico": ["DESENHO TÉCNICO", "DESENHO TECNICO"],
+            "Tabela de Medidas": ["TABELA DE MEDIDAS", "MEDIDAS BÁSICAS", "MEDIDAS BASICAS"],
+            "Estamparia": ["ESTAMPA", "ESTAMPARIA"],
+            "Aviamentos": ["AVIAMENTO"],
+            "Etiquetas": ["ETIQUETA"],
+            "Especificações Técnicas": ["DESCRIÇÃO TÉCNICA", "DESCRICAO TECNICA", "ESPECIFICAÇÕES"],
+        },
+        "produto": {
+            "Camisa": ["CAMISA", "CAMISETE"],
+            "Calça": ["CALÇA", "CALCA"],
+        },
+        "modelo": {
+            "Feminino": ["FEMININA", "FEMININO", "CAMISETE"],
+            "Masculino": ["MASCULINA", "MASCULINO"],
+            "Infantil": ["INFANTIL"],
+            "Unissex": ["UNISSEX"],
+        },
+        "variante": {
+            "Jeans": ["MILLIE DENIM", "MASKSKIN", "JEANS", "LAVAGEM CLARA"],
+            "M518": ["M518"],
+            "Tradicional": ["TRADICIONAL", "BRANCO, AZUL CLARO E AZUL MARINHO"],
+        },
+        # Ordem importa: composição (Liocel/Algodão) checada antes do nome de variante, para
+        # reproduzir a prioridade que existia no código antigo (a composição, quando presente,
+        # sempre prevalecia sobre o material inferido só pelo nome da variante).
+        "material": {
+            "100% Liocel": ["100% LIOCEL", "LIOCEL"],
+            "100% Algodão": ["100% ALGODÃO", "100% ALGODAO"],
+            "Millie Denim Maskskin": ["MILLIE DENIM", "MASKSKIN"],
+            "M518": ["M518"],
+        },
+    },
+    "variant_alignment_rules": [
+        {
+            "campo_metadado": "variante",
+            "grupos": {"jeans": ["jeans", "millie", "denim"], "m518": ["m518"]},
+            "bonus": 0.25,
+            "penalidade": 0.40,
+        },
+        {
+            "campo_metadado": "modelo",
+            "grupos": {
+                "masculino": ["masculin", "homem"],
+                "feminino": ["feminin", "camisete", "mulher"],
+            },
+            "bonus": 0.20,
+            "penalidade": 0.20,
+        },
+    ],
+}
+
+_config_original: dict = {}
+_contagem_ativacoes = 0
+
+
+def _ativar_config_de_teste() -> None:
+    """Ativa a config acima em RAG_CONFIG, salvando o valor original só na primeira ativação --
+    suporta chamadas aninhadas de diferentes suítes sem perder o valor a restaurar depois."""
+    global _config_original, _contagem_ativacoes
+    if _contagem_ativacoes == 0:
+        _config_original = {chave: RAG_CONFIG.get(chave) for chave in CONFIG_HEURISTICAS_TEXTEIS_DE_TESTE}
+    _contagem_ativacoes += 1
+    RAG_CONFIG.update(CONFIG_HEURISTICAS_TEXTEIS_DE_TESTE)
+
+
+def _restaurar_config_de_teste() -> None:
+    global _contagem_ativacoes
+    _contagem_ativacoes = max(0, _contagem_ativacoes - 1)
+    if _contagem_ativacoes == 0:
+        RAG_CONFIG.update(_config_original)
 
 NOME_MANUAL_TECNICO = "Manual Tecnico - UNIFORMES CAMISA.pdf"
 NOME_EMPRESAS_CONSULTORES = "empresas_consultores.csv"
@@ -91,6 +174,7 @@ def _construir_pdf_manual_tecnico(caminho: str) -> None:
 def indexar_fixtures_prioridades(tenant_id: str, caminho_pdf_temp: str) -> None:
     """Indexa os 3 documentos sintéticos no tenant informado. Chamar em setUpClass;
     remover_fixtures_prioridades() correspondente deve rodar em tearDownClass."""
+    _ativar_config_de_teste()
     _construir_pdf_manual_tecnico(caminho_pdf_temp)
     paginas = rag_manager.extrair_paginas_pdf(caminho_pdf_temp)
     rag_manager.indexar_documento(tenant_id, NOME_MANUAL_TECNICO, paginas)
@@ -110,3 +194,4 @@ def remover_fixtures_prioridades(tenant_id: str) -> None:
     rag_manager.remover_documento(tenant_id, NOME_MANUAL_TECNICO)
     rag_manager.remover_documento(tenant_id, NOME_EMPRESAS_CONSULTORES)
     rag_manager.remover_documento(tenant_id, NOME_PRE_AUDITORIA)
+    _restaurar_config_de_teste()

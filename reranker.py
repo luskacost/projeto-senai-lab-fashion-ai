@@ -217,6 +217,57 @@ def calcular_score_lexical(
     return min(1.0, score), matched_concepts
 
 
+def _score_alinhamento_de_variante(
+    q_norm: str, chunk_norm: str, metadata: Dict[str, Any], regras: List[Dict[str, Any]]
+) -> float:
+    """Bônus/penalidade configurável por tenant para alinhamento de variante de produto entre a
+    query e o chunk (Fase 13, Task 3).
+
+    Generaliza o que antes eram duas regras hardcoded (jeans/M518, masculino/feminino) de um
+    documento específico que não está mais na base -- ver `RAG_CONFIG["variant_alignment_rules"]`
+    para o formato. Default vazio: sem regras configuradas, sempre devolve 0.0 (nenhum efeito).
+    """
+    ajuste = 0.0
+
+    for regra in regras:
+        grupos: Dict[str, List[str]] = regra.get("grupos") or {}
+        if not grupos:
+            continue
+        campo = regra.get("campo_metadado", "")
+        bonus = float(regra.get("bonus", 0.0))
+        penalidade = float(regra.get("penalidade", 0.0))
+        valor_meta = normalizar_texto(str(metadata.get(campo, "")))
+
+        def _grupo_presente(termos: List[str]) -> bool:
+            termos_norm = [normalizar_texto(t) for t in termos]
+            if any(t and t in chunk_norm for t in termos_norm):
+                return True
+            return bool(valor_meta) and valor_meta in termos_norm
+
+        grupos_da_query = [
+            rotulo for rotulo, termos in grupos.items()
+            if any(normalizar_texto(t) in q_norm for t in termos)
+        ]
+        if not grupos_da_query:
+            continue  # a query não menciona nenhum grupo deste eixo -- sem preferência
+
+        grupos_do_chunk = [rotulo for rotulo, termos in grupos.items() if _grupo_presente(termos)]
+
+        if len(grupos_da_query) >= 2:
+            # Comparação explícita entre grupos (ex: "diferença entre X e Y") -- bonifica
+            # qualquer um dos grupos mencionados, nunca penaliza (a pergunta já reconhece os dois).
+            if any(g in grupos_do_chunk for g in grupos_da_query):
+                ajuste += bonus
+        else:
+            alvo = grupos_da_query[0]
+            if alvo in grupos_do_chunk:
+                ajuste += bonus
+            elif any(g != alvo for g in grupos_do_chunk):
+                ajuste -= penalidade
+
+    return ajuste
+
+
 # ==============================================================================
 # FASE 8: INTERFACE DE RERANKING DESACOPLADA
 # ==============================================================================
@@ -250,9 +301,9 @@ class HeuristicReranker(BaseReranker):
             "metadata": 0.10
         })
 
-        q_lower = query_analysis.original_query.lower()
         q_norm = normalizar_texto(query_analysis.original_query)
         num_queries_total = max(1, len(query_analysis.all_queries))
+        regras_variante = cfg.get("variant_alignment_rules") or []
 
         for cand in candidates:
             # 1. Score Lexical (com normalização de acentos)
@@ -263,50 +314,11 @@ class HeuristicReranker(BaseReranker):
             # 2. Score de Frequência de Recuperação Multi-Query
             cand.frequency_score = min(1.0, (cand.retrieval_count / num_queries_total) * 1.5)
 
-            # 3. Score de Metadados e Isolamento de Variantes
-            meta_score = 0.0
+            # 3. Score de Metadados: alinhamento de variante (configurável por tenant, Fase 13
+            # Task 3 -- default vazio não altera nada) + bônus de fonte estruturada abaixo.
             meta = cand.metadata
-            chunk_low = cand.texto.lower()
-
-            pede_jeans = ("jeans" in q_norm or "millie" in q_norm or "denim" in q_norm)
-            pede_m518 = ("m518" in q_norm)
-            pede_masculina = ("masculin" in q_norm or "homem" in q_norm)
-            pede_feminina = ("feminin" in q_norm or "camisete" in q_norm or "mulher" in q_norm)
-
-            tem_jeans = ("jeans" in chunk_low or "millie" in chunk_low or meta.get("variante") == "Jeans")
-            tem_m518 = ("m518" in chunk_low or meta.get("variante") == "M518")
-
-            if pede_jeans and pede_m518:
-                if tem_jeans or tem_m518:
-                    meta_score += 0.25
-            elif pede_jeans:
-                if tem_jeans:
-                    meta_score += 0.25
-                elif tem_m518:
-                    meta_score -= 0.40
-            elif pede_m518:
-                if tem_m518:
-                    meta_score += 0.25
-                elif tem_jeans:
-                    meta_score -= 0.40
-
-            if pede_masculina and not pede_feminina:
-                if meta.get("modelo") == "Masculino":
-                    meta_score += 0.20
-                elif meta.get("modelo") == "Feminino":
-                    meta_score -= 0.20
-            elif pede_feminina and not pede_masculina:
-                if meta.get("modelo") == "Feminino":
-                    meta_score += 0.20
-                elif meta.get("modelo") == "Masculino":
-                    meta_score -= 0.20
-
-            # Priorização de especificações de modelagem vs referências espaciais
-            if "tipo de gola" in q_norm or ("gola" in q_norm and "altura" not in q_norm and "logotipo" not in q_norm):
-                if "pe de gola" in normalizar_texto(chunk_low) or "gola camisa" in normalizar_texto(chunk_low):
-                    meta_score += 0.30
-                elif "abaixo da gola" in normalizar_texto(chunk_low) and "estamparia" in normalizar_texto(meta.get("secao", "")):
-                    meta_score -= 0.20
+            chunk_norm = normalizar_texto(cand.texto)
+            meta_score = _score_alinhamento_de_variante(q_norm, chunk_norm, meta, regras_variante)
 
             # 3.1 Bônus de Fonte Estruturada para Queries Tabulares (Requisitos 15, 16)
             is_tab_query = (

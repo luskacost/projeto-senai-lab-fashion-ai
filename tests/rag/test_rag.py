@@ -31,6 +31,7 @@ from rag_manager import (
     remover_documento,
     RAG_SIMILARITY_THRESHOLD,
 )
+from .fixtures_prioridades_rag import _ativar_config_de_teste, _restaurar_config_de_teste
 
 # Documento de teste realista simulando um manual técnico com múltiplas páginas e variantes
 DOC_TECNICO_PAGINA_1 = """SENAI LABFASHION - FICHA TÉCNICA DE PRODUTO
@@ -84,6 +85,12 @@ class TestRAGAvancado(unittest.TestCase):
             if os.path.exists(caminho):
                 shutil.rmtree(caminho, ignore_errors=True)
 
+        # Fase 13, Task 3: a classificação de metadado (variante Jeans/M518) e o bônus/penalidade
+        # de alinhamento no reranker viraram opt-in por tenant (default vazio) -- este fixture
+        # ativa a config equivalente à que antes era hardcoded, para os testes de desambiguação
+        # abaixo continuarem provando que o MECANISMO funciona quando configurado.
+        _ativar_config_de_teste()
+
         # Cria PDF multi-páginas de teste
         cls.pdf_teste_path = "temp_ficha_tecnica_teste.pdf"
         _criar_pdf_multi_pagina(cls.pdf_teste_path)
@@ -103,6 +110,7 @@ class TestRAGAvancado(unittest.TestCase):
                 os.remove(cls.pdf_teste_path)
             except Exception:
                 pass
+        _restaurar_config_de_teste()
 
     def test_01_extracao_paginas(self):
         """Valida que o PDF é extraído mantendo 3 páginas individuais com metadados corretos."""
