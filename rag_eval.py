@@ -54,9 +54,22 @@ class CasoAvaliacao:
     # ele conte como relevante. Lista vazia + deve_abster=False não deveria acontecer (nenhum
     # chunk contaria como relevante nunca) -- ver validação em executar_caso.
     termos_relevantes: List[str] = field(default_factory=list)
+    # Qualquer um destes termos no chunk o desqualifica, mesmo que todos os termos_relevantes
+    # estejam presentes (Fase 13, Task 7). Existe por um motivo concreto: numa consulta do tipo
+    # "quais tecidos têm gramatura acima de 300", um motor tabular com o filtro quebrado devolve
+    # TODAS as linhas da tabela -- que naturalmente contêm também as duas linhas certas. Sem uma
+    # forma de dizer "e não pode conter as linhas que deveriam ter sido filtradas", o julgamento
+    # daria esse resultado como relevante e a métrica esconderia justamente o defeito.
+    termos_proibidos: List[str] = field(default_factory=list)
     # Opcional: além dos termos, exige que o chunk venha de um destes arquivos (nome_arquivo/
     # metadata "fonte"). Lista vazia = qualquer fonte serve, desde que os termos batam.
     fontes_relevantes: List[str] = field(default_factory=list)
+    # True quando a resposta certa NÃO existe literalmente em nenhum chunk do corpus e só pode
+    # surgir de um cálculo (soma, média, contagem distinta). A distinção importa para dois
+    # consumidores: a checagem de integridade do golden set (não faz sentido exigir que a resposta
+    # já esteja no corpus) e as métricas de IR da Task 8 (não se calcula recall de um documento
+    # que não existe -- esses casos medem o motor tabular, não a recuperação).
+    resposta_computada: bool = False
     # Casos de anti-alucinação (Task 7 vai povoar vários): a pergunta não deveria ter resposta na
     # base, e o critério de sucesso é o INVERSO -- nenhum chunk relevante deveria ser recuperado.
     deve_abster: bool = False
@@ -108,11 +121,24 @@ class ResultadoCaso:
 def _chunk_e_relevante(chunk: Dict[str, Any], caso: CasoAvaliacao) -> bool:
     if caso.fontes_relevantes and chunk.get("fonte") not in caso.fontes_relevantes:
         return False
+
+    texto_norm = normalizar_texto(chunk.get("texto", ""))
+
+    # Um chunk não ganha crédito por repetir a pergunta (Fase 13, Task 7). O motor tabular
+    # devolve um bloco [TABULAR_RESULT] que começa ecoando "Consulta: <pergunta do usuário>" --
+    # sem esta linha, um caso de abstenção como "qual o prazo de entrega do tecido TX-200?" seria
+    # julgado respondido porque o termo "prazo de entrega" aparece... no eco da própria pergunta.
+    # Remover o eco antes de julgar é agnóstico ao motor: só afeta chunk que cita a pergunta
+    # literalmente, coisa que nenhum trecho de documento real faz.
+    texto_norm = texto_norm.replace(normalizar_texto(caso.query), " ")
+
+    if any(normalizar_texto(termo) in texto_norm for termo in caso.termos_proibidos):
+        return False
+
     if not caso.termos_relevantes:
         # Só fontes_relevantes foi declarado -- a fonte já bateu (linha acima não retornou), então
         # o chunk conta como relevante.
         return True
-    texto_norm = normalizar_texto(chunk.get("texto", ""))
     return all(normalizar_texto(termo) in texto_norm for termo in caso.termos_relevantes)
 
 

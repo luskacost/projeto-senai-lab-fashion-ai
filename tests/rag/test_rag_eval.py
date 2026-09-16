@@ -149,6 +149,57 @@ class TestExecutarConjuntoESerializacao(TestExecutarCasoBase):
             self.assertEqual(conteudo[0]["caso_id"], "a")
 
 
+class TestTermosProibidos(TestExecutarCasoBase):
+    """Fase 13, Task 7: um chunk que contém um termo proibido não conta como relevante, mesmo
+    tendo todos os termos esperados -- o caso de uso real é um filtro tabular quebrado que
+    devolve a tabela inteira (e portanto também as linhas certas)."""
+
+    def test_termo_proibido_desqualifica_chunk_que_tem_os_termos_esperados(self):
+        caso_sem_proibicao = re_.CasoAvaliacao(
+            id="p1", tenant_id=TENANT_TESTE, query="camisa social",
+            termos_relevantes=["tricoline"],
+        )
+        caso_com_proibicao = re_.CasoAvaliacao(
+            id="p2", tenant_id=TENANT_TESTE, query="camisa social",
+            termos_relevantes=["tricoline"],
+            termos_proibidos=["denim"],  # o chunk único do fixture tem as três peças juntas
+        )
+        self.assertTrue(any(re_.executar_caso(caso_sem_proibicao, k=5).relevancias))
+        self.assertFalse(any(re_.executar_caso(caso_com_proibicao, k=5).relevancias))
+
+
+class TestEcoDaPerguntaNaoContaComoEvidencia(unittest.TestCase):
+    """Fase 13, Task 7: o motor tabular devolve um bloco que começa ecoando a pergunta do
+    usuário. Sem descontar esse eco, um caso de abstenção seria julgado respondido porque o termo
+    proibido aparece... na própria pergunta repetida."""
+
+    def test_chunk_que_so_repete_a_pergunta_nao_e_relevante(self):
+        caso = re_.CasoAvaliacao(
+            id="e1", tenant_id="irrelevante", query="Qual o prazo de entrega do tecido TX-200?",
+            termos_relevantes=["prazo de entrega"], deve_abster=True,
+        )
+        chunk_que_ecoa = {
+            "texto": "[TABULAR_RESULT]\nConsulta: Qual o prazo de entrega do tecido TX-200?\n"
+                     "Resultado: Codigo: TX-200, Nome: Oxford",
+            "fonte": "catalogo.csv",
+        }
+        self.assertFalse(re_._chunk_e_relevante(chunk_que_ecoa, caso))
+
+    def test_chunk_com_o_termo_fora_do_eco_continua_relevante(self):
+        # A regra não pode ser tão agressiva a ponto de descartar evidência de verdade: se o termo
+        # aparece ALÉM do eco da pergunta, o chunk continua contando.
+        caso = re_.CasoAvaliacao(
+            id="e2", tenant_id="irrelevante", query="Qual o prazo de entrega do tecido TX-200?",
+            termos_relevantes=["prazo de entrega"],
+        )
+        chunk_com_conteudo = {
+            "texto": "[TABULAR_RESULT]\nConsulta: Qual o prazo de entrega do tecido TX-200?\n"
+                     "Resultado: prazo de entrega contratual de 15 dias uteis.",
+            "fonte": "catalogo.csv",
+        }
+        self.assertTrue(re_._chunk_e_relevante(chunk_com_conteudo, caso))
+
+
 class TestCarregarCasosDeJson(unittest.TestCase):
 
     def test_carrega_casos_e_permite_sobrescrever_tenant(self):
