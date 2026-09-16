@@ -802,6 +802,27 @@ def dividir_pagina_em_chunks(
 # ─────────────────────────────────────────────────────────────────────────────
 # INDEXAÇÃO NO CHROMADB (COM METADADOS E NORMALIZAÇÃO)
 # ─────────────────────────────────────────────────────────────────────────────
+def _gerar_id_chunk(nome_arquivo: str, indice: int, texto: str) -> str:
+    """Id determinístico de um chunk (Fase 13, Task 5): a mesma combinação de arquivo, posição e
+    conteúdo sempre produz o mesmo id.
+
+    Antes, o id incluía `int(datetime.now().timestamp())` -- reindexar o mesmo documento sem
+    mudança nenhuma produzia um id DIFERENTE a cada vez, e a única forma de evitar duplicação era
+    apagar a coleção inteira do arquivo antes de reinserir (`remover_documento` no início de
+    `indexar_documento`). Com o id dependendo só do conteúdo, reindexar sem mudanças produz
+    exatamente os mesmos ids -- o que permite trocar `collection.add()` por `collection.upsert()`
+    (sobrescreve em vez de duplicar) e reconciliar por diferença em vez de destruir e reconstruir
+    tudo a cada chamada.
+
+    `indice` entra no hash para não colidir quando duas linhas de uma tabela têm texto idêntico
+    (célula vazia repetida, por exemplo) -- sem ele, ambas gerariam o mesmo id e uma sobrescreveria
+    a outra silenciosamente no upsert.
+    """
+    hash_arquivo = hashlib.md5(nome_arquivo.encode("utf-8")).hexdigest()[:8]
+    hash_conteudo = hashlib.sha256(texto.encode("utf-8")).hexdigest()[:16]
+    return f"{hash_arquivo}_{indice}_{hash_conteudo}"
+
+
 def indexar_documento(
     tenant_id: str,
     nome_arquivo: str,
@@ -811,6 +832,13 @@ def indexar_documento(
     """Indexa um documento no ChromaDB com isolamento por tenant e metadados estruturados,
 
     e persiste a representação estruturada completa se for um arquivo tabular (CSV/XLSX/XLS).
+
+    A reindexação é incremental (Fase 13, Task 5): usa `collection.upsert()` com ids
+    determinísticos (`_gerar_id_chunk`) em vez de apagar e reconstruir a coleção inteira do
+    arquivo a cada chamada -- chunks cujo conteúdo não mudou desde a última indexação recebem o
+    mesmo id de antes e são simplesmente sobrescritos com o mesmo valor (upsert idempotente);
+    só os chunks que sobraram de uma versão anterior e não existem mais no conjunto atual (linha
+    removida, documento encolheu) são de fato apagados, ao final, por diferença de id.
     """
     logger = obter_logger(tenant_id)
     try:
@@ -858,8 +886,13 @@ def indexar_documento(
             logger.warning(f"Nenhum chunk gerado para indexação do arquivo '{nome_arquivo}' (tenant={tenant_id})")
             return 0
 
-        # Remove versões anteriores do mesmo documento para evitar duplicidade (ChromaDB e Tabular Storage)
-        remover_documento(tenant_id, nome_arquivo)
+        # Storage tabular é sempre substituído por completo logo abaixo (salvar_documento_tabular
+        # grava um JSON novo, nunca mescla) -- remover antes só importa se este arquivo ERA
+        # tabular numa indexação anterior e deixou de ser (extensão trocada, ou a reconstrução
+        # não gerar nenhuma aba desta vez). O lado do ChromaDB não precisa mais de remoção
+        # antecipada (Fase 13, Task 5): ids determinísticos + upsert cuidam disso por diferença,
+        # ao final desta função.
+        remover_documento_tabular(tenant_id, nome_arquivo)
 
         # Gestão de Persistência Tabular Estruturada (Prioridade 3)
         ext = nome_arquivo.lower().split(".")[-1] if "." in nome_arquivo else ""
@@ -916,9 +949,8 @@ def indexar_documento(
 
         collection = _obter_colecao_tenant(tenant_id)
         timestamp_iso = datetime.now().isoformat()
-        hash_arquivo = hashlib.md5(nome_arquivo.encode("utf-8")).hexdigest()[:8]
 
-        ids = [f"{hash_arquivo}_{i}_{int(datetime.now().timestamp())}" for i in range(len(chunks_estruturados))]
+        ids = [_gerar_id_chunk(nome_arquivo, i, c["texto"]) for i, c in enumerate(chunks_estruturados)]
         metadatas = []
         for i, c in enumerate(chunks_estruturados):
             meta = {
@@ -943,12 +975,21 @@ def indexar_documento(
 
             metadatas.append(meta)
 
-        collection.add(
+        collection.upsert(
             ids=ids,
             documents=textos,
             embeddings=embeddings,
             metadatas=metadatas,
         )
+
+        # Reconciliação: remove só os chunks que pertenciam a uma versão anterior deste arquivo
+        # e não existem no conjunto atual (linha/parágrafo removido, documento encolheu) -- os
+        # que continuam iguais já foram sobrescritos pelo upsert acima com o mesmo id de sempre,
+        # e nunca chegam a ser tocados por este delete.
+        existentes = collection.get(where={"fonte": str(nome_arquivo)}, include=[])
+        ids_orfaos = [i for i in existentes["ids"] if i not in set(ids)]
+        if ids_orfaos:
+            collection.delete(ids=ids_orfaos)
 
         logger.info(f"Documento '{nome_arquivo}' indexado com sucesso (tenant={tenant_id}): {len(chunks_estruturados)} chunks v2 gravados.")
         return len(chunks_estruturados)
