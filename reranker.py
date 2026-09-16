@@ -87,8 +87,13 @@ def fundir_e_deduplicar_candidatos(
             meta = cand.get("meta") or cand.get("metadata") or {}
             dist = float(cand.get("dist") if cand.get("dist") is not None else cand.get("distance", 1.0))
 
-            # Similaridade de cosseno a partir da distância euclidiana normalizada do ChromaDB
-            cos_sim = max(0.0, 1.0 - (dist ** 2) / 2.0)
+            # A coleção é criada com hnsw:space="cosine" (rag_manager._obter_colecao_tenant,
+            # Fase 13, Task 1): nesse espaço o Chroma devolve `dist = 1 - cos_sim` diretamente --
+            # não é distância euclidiana, não precisa (nem pode) elevar nada ao quadrado. Uma
+            # coleção criada por engano sob o espaço padrão `l2` devolveria `dist = 2 - 2*cos_sim`
+            # e esta mesma fórmula ficaria sutilmente errada; por isso o bump de
+            # `COLLECTION_VERSION` que acompanha essa mudança.
+            cos_sim = max(0.0, min(1.0, 1.0 - dist))
 
             # Chave de unicidade (chunk_id ou hash do texto)
             chave = c_id if c_id else f"h_{hash(texto)}"

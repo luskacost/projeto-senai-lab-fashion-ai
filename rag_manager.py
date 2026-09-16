@@ -120,7 +120,7 @@ from reranker import (
 
 RAG_DEBUG: bool = RAG_CONFIG.get("debug", True)
 RAG_SIMILARITY_THRESHOLD: float = RAG_CONFIG.get("similarity_threshold", 0.20)
-COLLECTION_VERSION: str = "v2"  # Versionamento para garantir integridade do novo schema
+COLLECTION_VERSION: str = "v3"  # v3 (Fase 13, Task 1): bump forçado pela troca de hnsw:space l2 -> cosine
 DEFAULT_INITIAL_TOP_K: int = RAG_CONFIG.get("base_retrieval_top_k", 10)
 FINAL_RERANK_K: int = RAG_CONFIG.get("final_context_top_k", 5)
 
@@ -272,10 +272,22 @@ def obter_cliente_chroma(tenant_id: str) -> chromadb.PersistentClient:
 
 
 def _obter_colecao_tenant(tenant_id: str):
-    """Retorna a coleção ChromaDB versionada específica do tenant."""
+    """Retorna a coleção ChromaDB versionada específica do tenant.
+
+    `hnsw:space="cosine"` é declarado explicitamente na criação -- sem isso, o Chroma usa `l2`
+    por padrão silencioso, que devolve distância euclidiana ao quadrado (`d² = 2 - 2·cos`), não
+    diretamente utilizável como similaridade. Com cosine, `distancia_chroma = 1 - cos_sim`: a
+    conversão em `reranker.fundir_e_deduplicar_candidatos` fica `cos_sim = 1 - dist`, sem
+    elevar nada ao quadrado (Fase 13, Task 1).
+
+    O Chroma não permite mudar o `space` de uma coleção já criada -- por isso o bump de
+    `COLLECTION_VERSION` para "v3": garante que nenhum tenant reutilize, sem querer, uma coleção
+    antiga criada sob `l2`, o que faria as distâncias devolvidas parecerem certas mas estarem na
+    escala errada, silenciosamente.
+    """
     client = obter_cliente_chroma(tenant_id)
     nome_colecao = f"docs_{COLLECTION_VERSION}_{tenant_id}"
-    return client.get_or_create_collection(name=nome_colecao)
+    return client.get_or_create_collection(name=nome_colecao, metadata={"hnsw:space": "cosine"})
 
 
 def limpar_indices_orfaos(tenant_id: str) -> Dict[str, Any]:
