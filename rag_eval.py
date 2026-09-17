@@ -32,8 +32,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+import rag_metrics
 from query_engine import normalizar_texto
 from rag_manager import buscar_contexto_relevante
+
+# Tamanho mínimo (em caracteres normalizados) para uma pergunta ser descontada do texto do chunk
+# como eco. Ver a justificativa em `_chunk_e_relevante`.
+TAMANHO_MINIMO_ECO = 20
 
 
 @dataclass
@@ -126,11 +131,17 @@ def _chunk_e_relevante(chunk: Dict[str, Any], caso: CasoAvaliacao) -> bool:
 
     # Um chunk não ganha crédito por repetir a pergunta (Fase 13, Task 7). O motor tabular
     # devolve um bloco [TABULAR_RESULT] que começa ecoando "Consulta: <pergunta do usuário>" --
-    # sem esta linha, um caso de abstenção como "qual o prazo de entrega do tecido TX-200?" seria
-    # julgado respondido porque o termo "prazo de entrega" aparece... no eco da própria pergunta.
-    # Remover o eco antes de julgar é agnóstico ao motor: só afeta chunk que cita a pergunta
-    # literalmente, coisa que nenhum trecho de documento real faz.
-    texto_norm = texto_norm.replace(normalizar_texto(caso.query), " ")
+    # sem descontar isso, um caso de abstenção como "qual o prazo de entrega do tecido TX-200?"
+    # seria julgado respondido porque o termo "prazo de entrega" aparece... no eco da própria
+    # pergunta.
+    #
+    # O desconto só vale para pergunta longa o bastante (TAMANHO_MINIMO_ECO). Uma string de 20+
+    # caracteres aparecendo literalmente num chunk é eco da pergunta, não coincidência do
+    # documento; já uma query curta costuma ser um termo isolado ("tricoline") que legitimamente
+    # aparece no conteúdo -- descontá-la apagaria justamente a evidência que se quer medir.
+    query_norm = normalizar_texto(caso.query)
+    if len(query_norm) >= TAMANHO_MINIMO_ECO:
+        texto_norm = texto_norm.replace(query_norm, " ")
 
     if any(normalizar_texto(termo) in texto_norm for termo in caso.termos_proibidos):
         return False
@@ -172,6 +183,199 @@ def executar_conjunto(casos: List[CasoAvaliacao], k: int = 10) -> List[Resultado
     return [executar_caso(caso, k=k) for caso in casos]
 
 
+def carregar_chunks_do_tenant(tenant_id: str) -> List[Dict[str, Any]]:
+    """Todos os chunks indexados do tenant, no formato mínimo que o julgamento de relevância usa.
+
+    Necessário para recall e nDCG: as duas precisam saber quantos chunks relevantes existem no
+    corpus INTEIRO, não só entre os recuperados.
+    """
+    import rag_manager
+
+    colecao = rag_manager._obter_colecao_tenant(tenant_id)
+    dados = colecao.get(include=["documents", "metadatas"])
+    return [
+        {"texto": texto, "fonte": (meta or {}).get("fonte")}
+        for texto, meta in zip(dados["documents"], dados["metadatas"])
+    ]
+
+
+def contar_relevantes_no_corpus(caso: CasoAvaliacao, chunks_do_corpus: List[Dict[str, Any]]) -> int:
+    return sum(1 for chunk in chunks_do_corpus if _chunk_e_relevante(chunk, caso))
+
+
+def _metricas_de_um_caso(
+    resultado: ResultadoCaso, total_relevantes: int, k: int
+) -> Dict[str, float]:
+    return {
+        "recall": rag_metrics.recall_em_k(resultado.relevancias, k, total_relevantes),
+        "precision_em_k": rag_metrics.precision_em_k(resultado.relevancias, k),
+        "precision_dos_recuperados": rag_metrics.precision_dos_recuperados(resultado.relevancias),
+        "reciprocal_rank": rag_metrics.reciprocal_rank(resultado.relevancias),
+        "ndcg": rag_metrics.ndcg_em_k(resultado.relevancias, k, total_relevantes),
+    }
+
+
+def resumir_avaliacao(
+    casos: List[CasoAvaliacao],
+    resultados: List[ResultadoCaso],
+    chunks_do_corpus: List[Dict[str, Any]],
+    k: int,
+    rotulo: str = "",
+) -> Dict[str, Any]:
+    """Agrega os resultados num relatório comparável entre execuções.
+
+    Os casos são separados em **três grupos que não podem ser somados numa média só**:
+
+    - `recuperaveis`: a resposta existe em algum chunk do corpus. Só aqui recall/precision/nDCG/
+      MRR fazem sentido, e é aqui que se mede qualidade de recuperação.
+    - `abstencao`: a resposta não existe -- sucesso é não devolver nada relevante. Recall seria
+      divisão por zero; a métrica certa é a taxa de abstenção correta.
+    - `computados`: a resposta só existe se o motor tabular calcular (soma, média, contagem
+      distinta). Não se mede recall de um documento que não existe; mede-se acerto do cálculo.
+
+    Misturar os três numa "acurácia geral" é exatamente o tipo de média que esconde qual metade
+    está quebrada -- foi o que aconteceu com os números de setembro, em que 65% de "acurácia útil"
+    convivia com categorias inteiras em 0%.
+    """
+    por_id = {r.caso_id: r for r in resultados}
+    grupos: Dict[str, List[Dict[str, Any]]] = {"recuperaveis": [], "abstencao": [], "computados": []}
+    # categoria -> grupo -> registros. Uma categoria PODE abranger mais de um grupo: em
+    # "tabular_filtro", um filtro de resultado multi-linha só existe calculado, enquanto os de
+    # resultado de uma linha são satisfeitos recuperando aquela linha. Forçar uma categoria a ter
+    # um grupo só obrigaria a classificar um caso errado para caber no formato do relatório.
+    por_categoria: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+
+    for caso in casos:
+        resultado = por_id.get(caso.id)
+        if resultado is None:
+            continue
+
+        if caso.deve_abster:
+            grupo, registro = "abstencao", {"caso_id": caso.id, "acertou": resultado.abstencao_correta()}
+        elif caso.resposta_computada:
+            grupo, registro = "computados", {"caso_id": caso.id, "acertou": any(resultado.relevancias)}
+        else:
+            total = contar_relevantes_no_corpus(caso, chunks_do_corpus)
+            grupo = "recuperaveis"
+            registro = {
+                "caso_id": caso.id,
+                "total_relevantes_no_corpus": total,
+                **_metricas_de_um_caso(resultado, total, k),
+            }
+
+        grupos[grupo].append(registro)
+        por_categoria.setdefault(caso.categoria, {}).setdefault(grupo, []).append(registro)
+
+    def _agregar(tipo: str, registros: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not registros:
+            return {"n": 0}
+        if tipo == "recuperaveis":
+            return {
+                "n": len(registros),
+                # Média de quantos chunks relevantes existem no corpus por caso. Sem esse número,
+                # a precision é facilmente mal lida: se existe 1 único chunk relevante, precision@5
+                # não passa de 0,20 por construção, por melhor que o sistema seja.
+                "relevantes_no_corpus_medio": round(
+                    rag_metrics.media([float(r["total_relevantes_no_corpus"]) for r in registros]), 2
+                ),
+                "recall_medio": round(rag_metrics.media([r["recall"] for r in registros]), 4),
+                "precision_em_k_media": round(rag_metrics.media([r["precision_em_k"] for r in registros]), 4),
+                "precision_dos_recuperados_media": round(
+                    rag_metrics.media([r["precision_dos_recuperados"] for r in registros]), 4
+                ),
+                "mrr": round(rag_metrics.media([r["reciprocal_rank"] for r in registros]), 4),
+                "ndcg_medio": round(rag_metrics.media([r["ndcg"] for r in registros]), 4),
+            }
+        acertos = sum(1 for r in registros if r["acertou"])
+        return {"n": len(registros), "acertos": acertos, "taxa": round(acertos / len(registros), 4)}
+
+    return {
+        "rotulo": rotulo,
+        "k": k,
+        "total_casos": len(casos),
+        "recuperaveis": _agregar("recuperaveis", grupos["recuperaveis"]),
+        "abstencao": _agregar("abstencao", grupos["abstencao"]),
+        "computados": _agregar("computados", grupos["computados"]),
+        "por_categoria": {
+            categoria: {
+                "n": sum(len(registros) for registros in por_grupo.values()),
+                **{grupo: _agregar(grupo, registros) for grupo, registros in sorted(por_grupo.items())},
+            }
+            for categoria, por_grupo in sorted(por_categoria.items())
+        },
+    }
+
+
+def comparar_resumos(antes: Dict[str, Any], depois: Dict[str, Any]) -> Dict[str, Any]:
+    """Delta entre dois relatórios, para uma mudança de pipeline só entrar se o número melhorar.
+
+    Compara apenas as chaves numéricas que existem nos dois lados -- se o `k` mudou entre as
+    execuções, a comparação é sinalizada como não confiável em vez de produzir um delta que
+    parece significativo e não é.
+    """
+    deltas: Dict[str, Any] = {
+        "k_comparavel": antes.get("k") == depois.get("k"),
+        "de": antes.get("rotulo", ""),
+        "para": depois.get("rotulo", ""),
+    }
+
+    for grupo in ("recuperaveis", "abstencao", "computados"):
+        bloco_antes, bloco_depois = antes.get(grupo, {}), depois.get(grupo, {})
+        deltas[grupo] = {
+            chave: round(valor - bloco_antes[chave], 4)
+            for chave, valor in bloco_depois.items()
+            if isinstance(valor, (int, float)) and isinstance(bloco_antes.get(chave), (int, float))
+        }
+
+    return deltas
+
+
+def formatar_resumo(resumo: Dict[str, Any]) -> str:
+    """Relatório legível no terminal, com os três grupos separados e a quebra por categoria."""
+    linhas = [
+        f"RELATÓRIO DE AVALIAÇÃO DO RAG{(' -- ' + resumo['rotulo']) if resumo.get('rotulo') else ''}",
+        f"k={resumo['k']} | {resumo['total_casos']} casos",
+        "",
+    ]
+
+    recup = resumo.get("recuperaveis", {})
+    if recup.get("n"):
+        linhas += [
+            f"RECUPERAÇÃO ({recup['n']} casos -- a resposta existe em algum chunk do corpus)",
+            f"  recall@{resumo['k']}           {recup['recall_medio']:.4f}",
+            f"  nDCG@{resumo['k']}             {recup['ndcg_medio']:.4f}",
+            f"  MRR                  {recup['mrr']:.4f}",
+            f"  precision@{resumo['k']}        {recup['precision_em_k_media']:.4f}   (dividido por k)",
+            f"  precision devolvida  {recup['precision_dos_recuperados_media']:.4f}   (sobre o que foi entregue)",
+            f"  relevantes/caso      {recup['relevantes_no_corpus_medio']:.2f}     "
+            f"(teto de precision@{resumo['k']} ~ {min(1.0, recup['relevantes_no_corpus_medio'] / resumo['k']):.2f})",
+            "",
+        ]
+
+    for grupo, titulo in (("abstencao", "ABSTENÇÃO"), ("computados", "RESPOSTA CALCULADA")):
+        bloco = resumo.get(grupo, {})
+        if bloco.get("n"):
+            linhas += [f"{titulo} ({bloco['n']} casos): {bloco['acertos']}/{bloco['n']} = {bloco['taxa']:.4f}", ""]
+
+    linhas.append("POR CATEGORIA")
+    for categoria, bloco in resumo.get("por_categoria", {}).items():
+        linhas.append(f"  {categoria} (n={bloco['n']})")
+        for grupo in ("recuperaveis", "abstencao", "computados"):
+            sub = bloco.get(grupo)
+            if not sub or not sub.get("n"):
+                continue
+            if grupo == "recuperaveis":
+                detalhe = (
+                    f"recall={sub['recall_medio']:.3f}  nDCG={sub['ndcg_medio']:.3f}  "
+                    f"MRR={sub['mrr']:.3f}"
+                )
+            else:
+                detalhe = f"acertos={sub['acertos']}/{sub['n']}"
+            linhas.append(f"      {grupo:13s} n={sub['n']:2d}  {detalhe}")
+
+    return "\n".join(linhas)
+
+
 def salvar_relatorio_json(resultados: List[ResultadoCaso], caminho: str) -> None:
     """Serializa os resultados brutos (sem métricas agregadas -- isso é Task 8) para inspeção ou
     para uma métrica externa consumir depois, sem precisar rodar o pipeline de novo."""
@@ -205,6 +409,7 @@ if __name__ == "__main__":
     parser.add_argument("--tenant", default=None, help="Sobrescreve o tenant_id de todos os casos.")
     parser.add_argument("--k", type=int, default=10, help="Quantidade de chunks avaliados por caso.")
     parser.add_argument("--saida", default=None, help="Caminho para salvar o relatório JSON bruto.")
+    parser.add_argument("--rotulo", default="", help="Rótulo da execução, para comparar relatórios.")
     args = parser.parse_args()
 
     casos_carregados = carregar_casos_de_json(args.casos_json, tenant_id=args.tenant)
@@ -213,6 +418,13 @@ if __name__ == "__main__":
     for resultado in resultados_execucao:
         situacao = "OK" if (resultado.abstencao_correta() if resultado.deve_abster else any(resultado.relevancias)) else "FALHOU"
         print(f"[{situacao}] {resultado.caso_id} ({resultado.categoria}) -- {resultado.tempo_ms:.0f}ms")
+
+    tenant_dos_casos = casos_carregados[0].tenant_id if casos_carregados else ""
+    resumo_execucao = resumir_avaliacao(
+        casos_carregados, resultados_execucao,
+        carregar_chunks_do_tenant(tenant_dos_casos), k=args.k, rotulo=args.rotulo,
+    )
+    print("\n" + formatar_resumo(resumo_execucao))
 
     if args.saida:
         salvar_relatorio_json(resultados_execucao, args.saida)

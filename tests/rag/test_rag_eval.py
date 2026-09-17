@@ -185,6 +185,17 @@ class TestEcoDaPerguntaNaoContaComoEvidencia(unittest.TestCase):
         }
         self.assertFalse(re_._chunk_e_relevante(chunk_que_ecoa, caso))
 
+    def test_query_curta_nao_e_descontada_do_texto(self):
+        # Limite da regra: uma query de uma palavra só ("tricoline") aparece legitimamente no
+        # conteúdo. Descontá-la apagaria justamente a evidência que se quer medir -- por isso o
+        # desconto só vale para pergunta com pelo menos TAMANHO_MINIMO_ECO caracteres.
+        caso = re_.CasoAvaliacao(
+            id="e3", tenant_id="irrelevante", query="tricoline", termos_relevantes=["tricoline"],
+        )
+        chunk = {"texto": "O tecido tricoline tem gramatura 120.", "fonte": "cat.csv"}
+        self.assertLess(len(caso.query), re_.TAMANHO_MINIMO_ECO)
+        self.assertTrue(re_._chunk_e_relevante(chunk, caso))
+
     def test_chunk_com_o_termo_fora_do_eco_continua_relevante(self):
         # A regra não pode ser tão agressiva a ponto de descartar evidência de verdade: se o termo
         # aparece ALÉM do eco da pergunta, o chunk continua contando.
@@ -198,6 +209,157 @@ class TestEcoDaPerguntaNaoContaComoEvidencia(unittest.TestCase):
             "fonte": "catalogo.csv",
         }
         self.assertTrue(re_._chunk_e_relevante(chunk_com_conteudo, caso))
+
+
+class TestResumoSeparaOsTresGruposDeCaso(unittest.TestCase):
+    """Fase 13, Task 8: a decisão central do relatório é NÃO somar os três tipos de caso numa
+    média só -- recall é indefinido para abstenção e para resposta calculada, e uma acurácia
+    geral esconderia qual metade está quebrada."""
+
+    def _resultado(self, caso_id, relevancias, deve_abster=False):
+        return re_.ResultadoCaso(
+            caso_id=caso_id, categoria="x", query="q", tempo_ms=1.0,
+            chunks_recuperados=[{"texto": "t", "fonte": "f"} for _ in relevancias],
+            relevancias=relevancias, deve_abster=deve_abster,
+        )
+
+    def setUp(self):
+        self.chunks_corpus = [
+            {"texto": "o tecido tricoline tem gramatura 120", "fonte": "cat.csv"},
+            {"texto": "o tecido denim tem gramatura 240", "fonte": "cat.csv"},
+        ]
+        self.casos = [
+            re_.CasoAvaliacao(id="R1", tenant_id="t", query="tricoline", categoria="lookup",
+                              termos_relevantes=["tricoline"]),
+            re_.CasoAvaliacao(id="A1", tenant_id="t", query="cnpj", categoria="anti_alucinacao",
+                              termos_relevantes=["cnpj"], deve_abster=True),
+            re_.CasoAvaliacao(id="C1", tenant_id="t", query="soma", categoria="tabular_agregacao",
+                              termos_relevantes=["999.99"], resposta_computada=True),
+        ]
+
+    def test_cada_caso_cai_no_grupo_certo(self):
+        resultados = [
+            self._resultado("R1", [True, False]),
+            self._resultado("A1", [False], deve_abster=True),
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5)
+        self.assertEqual(resumo["recuperaveis"]["n"], 1)
+        self.assertEqual(resumo["abstencao"]["n"], 1)
+        self.assertEqual(resumo["computados"]["n"], 1)
+
+    def test_abstencao_correta_conta_como_acerto(self):
+        resultados = [
+            self._resultado("R1", [True]),
+            self._resultado("A1", [False], deve_abster=True),  # não trouxe nada relevante = acertou
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5)
+        self.assertEqual(resumo["abstencao"]["taxa"], 1.0)
+
+    def test_abstencao_que_trouxe_conteudo_relevante_conta_como_erro(self):
+        resultados = [
+            self._resultado("R1", [True]),
+            self._resultado("A1", [True], deve_abster=True),
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5)
+        self.assertEqual(resumo["abstencao"]["taxa"], 0.0)
+
+    def test_grupo_recuperavel_traz_as_metricas_de_ir(self):
+        resultados = [
+            self._resultado("R1", [True]),
+            self._resultado("A1", [False], deve_abster=True),
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5)
+        bloco = resumo["recuperaveis"]
+        for chave in ("recall_medio", "precision_em_k_media", "precision_dos_recuperados_media", "mrr", "ndcg_medio"):
+            self.assertIn(chave, bloco)
+        # 1 chunk relevante existe no corpus ("tricoline") e foi recuperado na posição 1.
+        self.assertAlmostEqual(bloco["recall_medio"], 1.0)
+        self.assertAlmostEqual(bloco["mrr"], 1.0)
+
+    def test_grupos_de_abstencao_e_computado_nao_expõem_recall(self):
+        # A garantia central: nenhuma métrica de recuperação aparece onde ela é indefinida.
+        resultados = [
+            self._resultado("R1", [True]),
+            self._resultado("A1", [False], deve_abster=True),
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5)
+        for grupo in ("abstencao", "computados"):
+            self.assertNotIn("recall_medio", resumo[grupo])
+            self.assertNotIn("ndcg_medio", resumo[grupo])
+
+    def test_quebra_por_categoria_agrupa_por_tipo_de_caso(self):
+        resultados = [
+            self._resultado("R1", [True]),
+            self._resultado("A1", [False], deve_abster=True),
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5)
+        self.assertIn("recuperaveis", resumo["por_categoria"]["lookup"])
+        self.assertIn("abstencao", resumo["por_categoria"]["anti_alucinacao"])
+        self.assertIn("computados", resumo["por_categoria"]["tabular_agregacao"])
+
+    def test_categoria_mista_reporta_cada_grupo_separado(self):
+        # Caso real do golden set: "tabular_filtro" tem um filtro de resposta multi-linha
+        # (calculado) e filtros de uma linha só (recuperáveis). Os dois formatos de registro não
+        # podem ser agregados juntos -- era um KeyError antes desta separação.
+        casos = [
+            re_.CasoAvaliacao(id="F1", tenant_id="t", query="filtro de uma linha", categoria="filtro",
+                              termos_relevantes=["tricoline"]),
+            re_.CasoAvaliacao(id="F2", tenant_id="t", query="filtro de varias linhas", categoria="filtro",
+                              termos_relevantes=["999.99"], resposta_computada=True),
+        ]
+        resultados = [self._resultado("F1", [True]), self._resultado("F2", [False])]
+        resumo = re_.resumir_avaliacao(casos, resultados, self.chunks_corpus, k=5)
+        bloco = resumo["por_categoria"]["filtro"]
+        self.assertEqual(bloco["n"], 2)
+        self.assertEqual(bloco["recuperaveis"]["n"], 1)
+        self.assertEqual(bloco["computados"]["n"], 1)
+
+    def test_formatar_resumo_nao_quebra_com_categoria_mista(self):
+        casos = [
+            re_.CasoAvaliacao(id="F1", tenant_id="t", query="filtro de uma linha", categoria="filtro",
+                              termos_relevantes=["tricoline"]),
+            re_.CasoAvaliacao(id="F2", tenant_id="t", query="filtro de varias linhas", categoria="filtro",
+                              termos_relevantes=["999.99"], resposta_computada=True),
+        ]
+        resultados = [self._resultado("F1", [True]), self._resultado("F2", [False])]
+        texto = re_.formatar_resumo(re_.resumir_avaliacao(casos, resultados, self.chunks_corpus, k=5))
+        self.assertIn("filtro", texto)
+        self.assertIn("relevantes/caso", texto)
+
+    def test_resumo_e_serializavel_em_json(self):
+        import json
+        resultados = [
+            self._resultado("R1", [True]),
+            self._resultado("A1", [False], deve_abster=True),
+            self._resultado("C1", [False]),
+        ]
+        resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5, rotulo="teste")
+        self.assertIn("teste", json.dumps(resumo, ensure_ascii=False))
+
+
+class TestCompararResumos(unittest.TestCase):
+
+    def test_delta_positivo_quando_melhora(self):
+        antes = {"rotulo": "a", "k": 5, "recuperaveis": {"n": 2, "recall_medio": 0.5},
+                 "abstencao": {"n": 1, "taxa": 1.0}, "computados": {"n": 1, "taxa": 0.0}}
+        depois = {"rotulo": "b", "k": 5, "recuperaveis": {"n": 2, "recall_medio": 0.8},
+                  "abstencao": {"n": 1, "taxa": 1.0}, "computados": {"n": 1, "taxa": 0.5}}
+        delta = re_.comparar_resumos(antes, depois)
+        self.assertTrue(delta["k_comparavel"])
+        self.assertAlmostEqual(delta["recuperaveis"]["recall_medio"], 0.3)
+        self.assertAlmostEqual(delta["computados"]["taxa"], 0.5)
+
+    def test_k_diferente_marca_comparacao_como_nao_confiavel(self):
+        # Comparar recall@5 com recall@10 produziria um delta que parece significativo e não é.
+        antes = {"k": 5, "recuperaveis": {"recall_medio": 0.5}, "abstencao": {}, "computados": {}}
+        depois = {"k": 10, "recuperaveis": {"recall_medio": 0.9}, "abstencao": {}, "computados": {}}
+        self.assertFalse(re_.comparar_resumos(antes, depois)["k_comparavel"])
 
 
 class TestCarregarCasosDeJson(unittest.TestCase):
