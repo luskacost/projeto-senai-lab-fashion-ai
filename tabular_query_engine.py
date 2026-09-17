@@ -347,6 +347,128 @@ _INTENTS_NUMERICOS = (TabularIntent.SUM, TabularIntent.AVG, TabularIntent.MIN, T
 
 _MARCADORES_DISTINCT = ("diferentes", "distintos", "distintas", "unicos", "unicas")
 
+_TAMANHO_MINIMO_TOKEN_VALOR = 4
+_STOPWORDS_NORM_VALOR = {
+    "quais", "qual", "liste", "listar", "lista", "mostre", "mostrar", "relacione", "todos", "todas",
+    "sao", "estao", "existem", "possui", "possuem", "contem", "fornecidos", "fornecidas", "fornece",
+    "fornecem", "pela", "pelo", "pelas", "pelos", "para", "com", "sem", "que", "tem", "sobre",
+}
+_MARCADOR_LISTAGEM = re.compile(r"^(?:quais|liste|listar|lista|mostre|mostrar|relacione)\b")
+
+
+def _resolver_filtros_por_valor(query: str, sheet: "TabularSheet") -> List[TabularFilter]:
+    """Filtros de texto a partir de valores que EXISTEM nas células e são citados na pergunta.
+
+    Duas formas, por coluna de texto:
+    - o valor inteiro da célula aparece na pergunta ("fornecedor Fiacao Aurora");
+    - uma palavra da pergunta aparece em PARTE das células ("tecidos com algodao" casa com
+      "100% algodao" e "67% poliester 33% algodao", mas não com "100% poliester"). Palavra presente
+      em todas as linhas não filtra nada -- é vocabulário da tabela, não condição.
+
+    Palavras que nomeiam colunas ("fornecedor", "composicao") nunca viram valor.
+    """
+    q_pad = f" {normalizar_query_texto(query)} "
+    tokens_pergunta = [
+        t for t in _tokens_normalizados(query)
+        if len(t) >= _TAMANHO_MINIMO_TOKEN_VALOR and t not in _STOPWORDS_NORM_VALOR
+    ]
+    tokens_de_coluna = {t for col in sheet.schema for t in _tokens_normalizados(col)}
+    tokens_pergunta = [
+        t for t in tokens_pergunta
+        if not any(_tokens_casam(t, tc) for tc in tokens_de_coluna)
+    ]
+
+    filtros: List[TabularFilter] = []
+    for coluna in sheet.schema:
+        if _coluna_e_numerica(sheet, coluna):
+            continue
+        valores: Dict[str, str] = {}
+        for row in sheet.linhas:
+            v = row.dados.get(coluna)
+            if isinstance(v, str) and v.strip():
+                valores.setdefault(normalizar_query_texto(v), v.strip())
+        if not valores:
+            continue
+
+        inteiros = [
+            (norm, original) for norm, original in valores.items()
+            if len(norm) >= 3 and f" {norm} " in q_pad
+        ]
+        if inteiros:
+            _, original = max(inteiros, key=lambda par: len(par[0]))
+            filtros.append(TabularFilter(column=coluna, operator="contains", value=original))
+            continue
+
+        palavras_por_valor = [set(norm.split()) for norm in valores.values()]
+        for token in tokens_pergunta:
+            presentes = sum(1 for palavras in palavras_por_valor if token in palavras)
+            if 0 < presentes < len(palavras_por_valor):
+                filtros.append(TabularFilter(column=coluna, operator="contains", value=token))
+    return filtros
+
+
+def _condicao_sem_resolucao(query: str, sheet: "TabularSheet", nome_documento: str, nome_aba: str) -> List[str]:
+    """Palavras de conteúdo da pergunta que não são coluna, documento/aba nem palavra vazia.
+
+    Numa listagem sem filtro resolvido, qualquer sobra é uma condição que o motor não soube
+    aplicar ("quais empresas sao do setor de confeccao") -- listar a coluna inteira responderia
+    outra pergunta como se fosse esta.
+    """
+    referencias = {t for col in sheet.schema for t in _tokens_normalizados(col)}
+    referencias |= set(_tokens_normalizados(re.sub(r"\.[A-Za-z0-9]+$", "", nome_documento).replace("_", " ")))
+    referencias |= set(_tokens_normalizados(nome_aba))
+    return [
+        t for t in _tokens_normalizados(query)
+        if len(t) >= _TAMANHO_MINIMO_TOKEN_VALOR
+        and t not in _STOPWORDS_NORM_VALOR
+        and not any(_tokens_casam(t, r) for r in referencias if len(r) >= 3)
+    ]
+
+
+def _planejar_listagem_por_valor(
+    query: str, q_norm: str, documentos: List["TabularDocument"]
+) -> Optional["TabularQueryPlan"]:
+    """Listagem com condição que o roteador mandou para a busca vetorial ("quais tecidos tem
+    algodao?"). Só vira plano tabular se a condição resolver para filtro numa planilha real."""
+    if not _MARCADOR_LISTAGEM.search(q_norm):
+        return None
+    for doc in documentos:
+        for nome_aba, sheet in doc.sheets.items():
+            filtros = _resolver_filtros_por_valor(query, sheet)
+            if not filtros:
+                # "quais os fornecedores?" -- sem condição, só vale se a coluna for citada inteira.
+                coluna, score = _resolver_coluna_pela_pergunta(query, sheet)
+                if (
+                    coluna and score >= _SCORE_MINIMO_COLUNA_NOMEADA
+                    and not _coluna_e_numerica(sheet, coluna)
+                    and not _condicao_sem_resolucao(query, sheet, doc.nome_arquivo, nome_aba)
+                ):
+                    return TabularQueryPlan(
+                        intent=TabularIntent.DISTINCT,
+                        target_document=doc.nome_arquivo,
+                        target_sheet=nome_aba,
+                        target_columns=[coluna],
+                        confidence=0.6,
+                        original_query=query,
+                        requires_full_scan=True,
+                        selection_reason=f"Listagem da coluna '{coluna}', citada na pergunta.",
+                    )
+                continue
+            if filtros:
+                return TabularQueryPlan(
+                    intent=TabularIntent.FILTER,
+                    target_document=doc.nome_arquivo,
+                    target_sheet=nome_aba,
+                    target_columns=[f.column for f in filtros],
+                    filters=filtros,
+                    confidence=0.6,
+                    original_query=query,
+                    requires_full_scan=True,
+                    selection_reason="Listagem com condição resolvida por valores das células: "
+                    + ", ".join(f"{f.column} contém '{f.value}'" for f in filtros),
+                )
+    return None
+
 
 def _completar_colunas_do_plano(
     intent: TabularIntent, colunas_propostas: List[str], query: str, sheet: "TabularSheet"
@@ -772,20 +894,10 @@ def detectar_e_planejar_consulta_tabular(
                         return None
                     filtros_resolvidos.append(TabularFilter(column=col_num, operator=rf["operador"], value=rf["valor"]))
 
-            # Identifica filtros por valores literais presentes na query
-            for col in colunas_reais:
-                col_low = col.lower()
-                if col_low in ("game", "platform", "winner", "team", "organization", "empresa", "consultor", "categoria", "player_name"):
-                    vistos_valores = set()
-                    for row in sheet_obj.linhas:
-                        v = row.dados.get(col)
-                        if v and isinstance(v, str) and len(v.strip()) >= 3:
-                            v_norm = normalizar_query_texto(v)
-                            _, nick_norm, _ = normalizar_nome_entidade_ou_nickname(v)
-                            if (v_norm in q_norm or (nick_norm and nick_norm in q_norm)) and v_norm not in vistos_valores:
-                                vistos_valores.add(v_norm)
-                                filtros_resolvidos.append(TabularFilter(column=col, operator="contains", value=v.strip()))
-                                break
+            colunas_ja_filtradas = {f.column for f in filtros_resolvidos}
+            for f_valor in _resolver_filtros_por_valor(query, sheet_obj):
+                if f_valor.column not in colunas_ja_filtradas:
+                    filtros_resolvidos.append(f_valor)
 
             # Mapeamento do Intent Tabular
             tab_intent = TabularIntent.COUNT
@@ -800,6 +912,21 @@ def detectar_e_planejar_consulta_tabular(
                 tab_intent = TabularIntent.RELATIONAL
             elif route.route == RouteType.TABULAR_LIST:
                 tab_intent = TabularIntent.DISTINCT
+
+            # Listagem: com condição resolvida, a resposta são as linhas que a satisfazem (não os
+            # valores distintos de uma coluna da tabela inteira). Sem condição, DISTINCT só na
+            # coluna citada -- "liste os tecidos com algodao" sem filtro resolvido listaria os 12
+            # tecidos como se todos tivessem algodão.
+            if tab_intent in (TabularIntent.DISTINCT, TabularIntent.LIST) and not any(
+                m in q_norm.split() for m in _MARCADORES_DISTINCT
+            ):
+                if filtros_resolvidos:
+                    tab_intent = TabularIntent.FILTER
+                else:
+                    coluna_listada, _ = _resolver_coluna_pela_pergunta(query, sheet_obj)
+                    if not coluna_listada or _condicao_sem_resolucao(query, sheet_obj, doc_sel.nome_arquivo, aba_sel):
+                        return None
+                    target_cols_reais = [coluna_listada]
 
             # "Quantos X diferentes/distintos" é contagem de valores distintos, não de linhas. O
             # roteador classifica como COUNT -- que responderia com o total de linhas (12 tecidos
@@ -841,7 +968,7 @@ def detectar_e_planejar_consulta_tabular(
         # é caso de tentar o detector de superlativos, que olharia os mesmos documentos.
         return None
 
-    return _planejar_superlativo(query, q_norm, documentos)
+    return _planejar_superlativo(query, q_norm, documentos) or _planejar_listagem_por_valor(query, q_norm, documentos)
 
 
 # Superlativos que o roteador não reconhece como consulta tabular ("qual o tecido mais caro" cai na

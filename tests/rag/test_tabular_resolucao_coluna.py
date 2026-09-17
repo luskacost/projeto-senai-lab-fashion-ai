@@ -94,7 +94,7 @@ class TestResolverColunaPelaPergunta(unittest.TestCase):
         self.assertTrue(tqe._tokens_casam("cor", "cor"))
 
 
-class TestPlanosComPlanilhaReal(unittest.TestCase):
+class _ComPlanilhaIndexada(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
@@ -120,6 +120,9 @@ class TestPlanosComPlanilhaReal(unittest.TestCase):
         plano = tqe.detectar_e_planejar_consulta_tabular(pergunta, TENANT_TESTE)
         self.assertIsNotNone(plano, f"Nenhum plano para: {pergunta}")
         return plano, tqe.executar_consulta_tabular(plano, TENANT_TESTE)
+
+
+class TestPlanosComPlanilhaReal(_ComPlanilhaIndexada):
 
     def test_media_usa_a_coluna_citada(self):
         plano, res = self._executar("Qual o peso unitario medio dos aviamentos?")
@@ -188,17 +191,85 @@ class TestPlanosComPlanilhaReal(unittest.TestCase):
         self.assertIsNone(plano)
 
 
+class TestFiltrosPorValor(unittest.TestCase):
+    """Função pura: a condição de uma listagem vem de valores que existem nas células."""
+
+    def setUp(self):
+        self.sheet = _sheet(
+            ["Fornecedor", "Descricao", "Peso"],
+            [
+                {"Fornecedor": "Fornecedor Alfa", "Descricao": "peca azul lisa", "Peso": "1"},
+                {"Fornecedor": "Loja Beta", "Descricao": "peca verde listrada", "Peso": "2"},
+                {"Fornecedor": "Loja Beta", "Descricao": "peca azul listrada", "Peso": "3"},
+            ],
+        )
+
+    def _filtros(self, pergunta):
+        return [(f.column, f.value) for f in tqe._resolver_filtros_por_valor(pergunta, self.sheet)]
+
+    def test_valor_inteiro_da_celula_citado_na_pergunta(self):
+        self.assertEqual(self._filtros("quais pecas da Loja Beta?"), [("Fornecedor", "Loja Beta")])
+
+    def test_palavra_presente_em_parte_das_celulas(self):
+        self.assertEqual(self._filtros("quais pecas sao verde?"), [("Descricao", "verde")])
+
+    def test_palavra_presente_em_todas_as_celulas_nao_filtra(self):
+        # "peca" está nas três descrições: é vocabulário da tabela, não condição.
+        self.assertEqual(self._filtros("quais peca existem?"), [])
+
+    def test_nome_de_coluna_nao_vira_valor(self):
+        # "fornecedor" aparece dentro de "Fornecedor Alfa", mas aqui nomeia a coluna.
+        self.assertEqual(self._filtros("quais pecas tem fornecedor?"), [])
+
+    def test_coluna_numerica_ignorada(self):
+        self.assertEqual(self._filtros("quais pecas pesam 2?"), [])
+
+
+class TestListagens(_ComPlanilhaIndexada):
+    """Antes: "liste X com condição Y" virava DISTINCT de uma coluna da tabela inteira, rotulado
+    como resultado calculado -- a condição era simplesmente ignorada."""
+
+    def test_listagem_por_valor_inteiro(self):
+        plano, res = self._executar("Liste os aviamentos do fabricante Zipers Brasil")
+        self.assertEqual(plano.intent, tqe.TabularIntent.FILTER)
+        self.assertEqual(sorted(r["Referencia"] for r in res.records), ["AV-02", "AV-05"])
+
+    def test_listagem_por_palavra_que_o_roteador_manda_para_o_vetor(self):
+        plano, res = self._executar("Quais aviamentos sao de cobre?")
+        self.assertEqual(plano.intent, tqe.TabularIntent.FILTER)
+        self.assertEqual([r["Referencia"] for r in res.records], ["AV-04"])
+
+    def test_listagem_da_coluna_citada(self):
+        plano, res = self._executar("Quais os fabricantes do estoque?")
+        self.assertEqual(plano.intent, tqe.TabularIntent.DISTINCT)
+        self.assertEqual(sorted(res.value), ["Casa dos Botoes", "Metais Sul", "Zipers Brasil"])
+
+    def test_coluna_citada_com_condicao_nao_resolvida_nao_lista_a_coluna_inteira(self):
+        # "fabricantes" resolve a coluna, mas "certificacao" é uma condição que a planilha não
+        # tem -- listar os 3 fabricantes afirmaria que todos são certificados.
+        plano = tqe.detectar_e_planejar_consulta_tabular(
+            "Quais os fabricantes com certificacao ambiental?", TENANT_TESTE
+        )
+        self.assertIsNone(plano)
+
+    def test_condicao_inexistente_nao_lista_a_tabela(self):
+        plano = tqe.detectar_e_planejar_consulta_tabular(
+            "Liste os aviamentos com garantia vitalicia", TENANT_TESTE
+        )
+        self.assertIsNone(plano)
+
+
 class TestExecutorRecusaOperacaoNumericaSemColuna(unittest.TestCase):
     """Defesa em profundidade: mesmo um plano montado à mão com coluna errada não pode produzir
     um número inventado com success=True."""
 
     @classmethod
     def setUpClass(cls):
-        TestPlanosComPlanilhaReal.setUpClass()
+        _ComPlanilhaIndexada.setUpClass()
 
     @classmethod
     def tearDownClass(cls):
-        TestPlanosComPlanilhaReal.tearDownClass()
+        _ComPlanilhaIndexada.tearDownClass()
 
     def _plano(self, intent, colunas):
         return tqe.TabularQueryPlan(

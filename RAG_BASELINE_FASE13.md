@@ -2,7 +2,7 @@
 
 **Data de medição:** 2026-09-17
 **Corpus:** `rag_golden_set.py` — 3 documentos sintéticos, 19 chunks, nunca dado real de cliente
-**Casos:** `rag_golden_set.casos()` — 36 casos, 9 categorias
+**Casos:** `rag_golden_set.casos()` — 36 casos em 9 categorias até a v4; 42 casos em 10 categorias a partir da v5
 **Metodologia:** `rag_eval.py` + `rag_metrics.py` (Fase 13, Tasks 6-8) — retrieval puro, custo zero de API
 **k:** 5 (mesmo valor de `RAG_CONFIG["final_context_top_k"]`, produção)
 **Como reproduzir:** `python scripts/medir_baseline_rag.py --k 5 --rotulo "..." --forcar` (o resultado
@@ -21,7 +21,13 @@ régua, para uma task futura não conseguir desfazer um ganho sem que o teste pe
 | v1 — pós F1 (Tasks 1-5) | 2026-09-17 | 0,7826 | 0,6850 | 0,6587 | 8/8 | 1/5 |
 | v2 — pós correção do motor tabular (F3) | 2026-09-17 | 0,8261 | 0,7566 | 0,7783 | 8/8 | 5/5 |
 | v3 — pós salto por entidade entre documentos (F3) | 2026-09-17 | 0,9565 | 0,8438 | 0,8493 | 8/8 | 5/5 |
-| **v4 — pós BM25 + fusão RRF (F3, Task 10)** | 2026-09-17 | **0,9783** | **0,8823** | **0,8783** | 8/8 | 5/5 |
+| v4 — pós BM25 + fusão RRF (F3, Task 10) | 2026-09-17 | 0,9783 | 0,8823 | 0,8783 | 8/8 | 5/5 |
+| **v5 — pós listagens com filtro por valor (F3, Task 11), 42 casos** | 2026-09-17 | **0,9783** | **0,8823** | **0,8783** | **9/9** | **10/10** |
+
+**v4 → v5:** golden set ampliado (+5 listagens, +1 abstenção) e motor tabular com filtro por
+valor (ver seção 9). Nos 6 casos novos, o código da v4 acertava só a abstenção (listagens 0/5); a
+v5 acerta 5/5. Recuperação idêntica à v4. Como o conjunto de casos mudou, a comparação v4 × v5
+só vale para os 36 casos antigos (idênticos) e para os 6 novos medidos nos dois códigos.
 
 **v3 → v4:** busca híbrida BM25 + RRF (ver seção 8) — `numerico_exato` chega a 1,000 em todas as
 métricas, `tabular_filtro` e `conceitual` sobem; nenhuma categoria piora.
@@ -240,7 +246,47 @@ sinônimo que nenhum método lexical resolve — candidato natural para cross-en
 embeddings, Tasks 12/14), `multi_documento` (âncora em 1º por desenho) e `tabular_filtro`
 (redundância ausente, seção 6).
 
-## 9. Limitações desta medição
+## 9. Task 11 — listagens com mais linhas que o contexto (v5)
+
+A Task 11 previa `final_context_top_k` adaptativo por rota, para a limitação nº 2 do benchmark
+de setembro (tabelas de 63 e 113 linhas com só 5 vagas de contexto). A investigação mostrou que
+o problema real era outro, e mais grave:
+
+- **"Liste os tecidos do fornecedor Fiacao Aurora"** virava `DISTINCT` da coluna Fornecedor sobre
+  a tabela inteira (os 3 fornecedores), com confiança 1,0 e rótulo "Resultado Calculado
+  Deterministicamente".
+- **"Liste os tecidos com algodao"** devolvia os 12 códigos como se todos tivessem algodão.
+- **"Quais tecidos tem algodao?"** (7 linhas certas) ia para a busca vetorial, que cabe 5 — e trazia 3.
+
+O motor só tinha filtro por valor literal para uma lista fixa de colunas de datasets antigos
+(`empresa`, `consultor`, `team`...). A condição da listagem era ignorada.
+
+**O que mudou (`tabular_query_engine.py`):**
+
+1. `_resolver_filtros_por_valor`: para qualquer coluna de texto, valor inteiro de célula citado na
+   pergunta, ou palavra presente em **parte** das células, vira filtro. Palavra em todas as linhas
+   não filtra (é vocabulário da tabela); nome de coluna nunca vira valor.
+2. Listagem com filtro → `FILTER` (todas as linhas que satisfazem, até 50). Sem filtro →
+   `DISTINCT` só da coluna citada, e só se não sobrar condição sem resolver na pergunta
+   (`_condicao_sem_resolucao`) — "quais empresas são do setor de confecção" não lista as 65
+   empresas. Sem nada disso, a pergunta vai para a busca vetorial.
+3. Listagens que o roteador manda para o vetor ganham o mesmo tratamento
+   (`_planejar_listagem_por_valor`), como os superlativos da v2.
+
+**Tenant real (leitura):** as 9 perguntas de controle dão o mesmo plano e o mesmo número de linhas
+do motor antigo, e "Quais os consultores?" (antes sem plano) passa a listar os consultores.
+
+**Por que o `k` adaptativo não entrou:** com a listagem resolvida pelo motor tabular (a resposta
+inteira num bloco só), aumentar `k` não muda nenhum caso do golden set — não há número para
+provar ganho, e a regra do Bloco F3 é só entrar com número. Continua sendo a mitigação certa para
+listagens sobre documentos **não tabulares**; se aparecer um caso real assim, volta a ser medido.
+
+**Estabilidade da medição:** uma das rodadas da v5 gravou MRR de `conceitual` 0,8125 em vez de
+0,800, e o valor não se repetiu em 8 rodadas seguintes. A causa mais provável é índice residual do
+tenant de medição (no Windows o `rmtree` falha em silêncio com arquivo travado); o script agora
+aborta se o índice tiver chunks além dos recém-indexados. O valor gravado é o reproduzível.
+
+## 10. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`

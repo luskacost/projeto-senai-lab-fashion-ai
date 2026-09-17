@@ -146,7 +146,7 @@ def remover_corpus(tenant_id: str = TENANT_GOLDEN) -> None:
 
 
 def casos(tenant_id: str = TENANT_GOLDEN) -> List[CasoAvaliacao]:
-    """Os 36 casos do golden set, 4 por categoria.
+    """Os 42 casos do golden set, 4 a 5 por categoria.
 
     Os critérios foram calibrados contra o texto REAL dos chunks (ver o bloco `__main__` deste
     arquivo, que imprime o corpus já chunkado) -- não contra o texto que o corpus "deveria"
@@ -281,6 +281,30 @@ def casos(tenant_id: str = TENANT_GOLDEN) -> List[CasoAvaliacao]:
              termos_relevantes=["TX-700"],
              termos_proibidos=["TX-980"]),
 
+        # ── tabular_listagem: "quais X têm Y" com mais linhas certas do que vagas no contexto ──
+        # A resposta completa só existe como uma lista montada a partir de várias linhas -- nenhum
+        # chunk do corpus a contém inteira. Os proibidos são linhas que a condição exclui: uma
+        # listagem que ignora a condição (lista a tabela toda) os traria.
+        caso(id="TL-01", categoria="tabular_listagem", resposta_computada=True,
+             query="Quais tecidos sao fornecidos pela Tecelagem Bandeira?",
+             termos_relevantes=["TX-310", "TX-520", "TX-750", "TX-910"],
+             termos_proibidos=["TX-200", "TX-700"]),
+        caso(id="TL-02", categoria="tabular_listagem", resposta_computada=True,
+             query="Liste os tecidos do fornecedor Fiacao Aurora",
+             termos_relevantes=["TX-200", "TX-610", "TX-800", "TX-940"],
+             termos_proibidos=["TX-310", "TX-450"]),
+        caso(id="TL-03", categoria="tabular_listagem", resposta_computada=True,
+             query="Quais tecidos tem algodao na composicao?",
+             termos_relevantes=["TX-200", "TX-310", "TX-450", "TX-520", "TX-610", "TX-910", "TX-940"],
+             termos_proibidos=["TX-700", "TX-980"]),
+        caso(id="TL-04", categoria="tabular_listagem", resposta_computada=True,
+             query="Quais tecidos tem elastano?",
+             termos_relevantes=["TX-520", "TX-750", "TX-980"],
+             termos_proibidos=["TX-200", "TX-610"]),
+        caso(id="TL-05", categoria="tabular_listagem", resposta_computada=True,
+             query="Quais os fornecedores do catalogo?",
+             termos_relevantes=["Fiacao Aurora", "Tecelagem Bandeira", "Malharia Cristal"]),
+
         # ── anti_alucinacao: a informação não existe em lugar nenhum da base ──────────────────
         caso(id="AA-01", categoria="anti_alucinacao", deve_abster=True,
              query="Qual o CNPJ do fornecedor Fiacao Aurora?",
@@ -294,6 +318,10 @@ def casos(tenant_id: str = TENANT_GOLDEN) -> List[CasoAvaliacao]:
         caso(id="AA-04", categoria="anti_alucinacao", deve_abster=True,
              query="Qual o telefone de contato da Malharia Cristal?",
              termos_relevantes=["telefone"]),
+        # Listagem cuja condição não existe na tabela: não pode virar a lista da tabela inteira.
+        caso(id="AA-05", categoria="anti_alucinacao", deve_abster=True,
+             query="Liste os tecidos com fibra de bambu",
+             termos_relevantes=["bambu"]),
 
         # ── ausencia_parcial: a entidade existe, o atributo perguntado não ────────────────────
         # Mais sutil que anti_alucinacao: cada termo existe isoladamente no corpus, mas nunca

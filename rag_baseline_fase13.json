@@ -1,7 +1,7 @@
 {
-  "rotulo": "v4 - pos BM25 + fusao RRF (F3, Task 10)",
+  "rotulo": "v5 - pos listagens com filtro por valor (F3, Task 11)",
   "k": 5,
-  "total_casos": 36,
+  "total_casos": 42,
   "recuperaveis": {
     "n": 23,
     "relevantes_no_corpus_medio": 1.09,
@@ -12,21 +12,21 @@
     "ndcg_medio": 0.8823
   },
   "abstencao": {
-    "n": 8,
-    "acertos": 8,
+    "n": 9,
+    "acertos": 9,
     "taxa": 1.0
   },
   "computados": {
-    "n": 5,
-    "acertos": 5,
+    "n": 10,
+    "acertos": 10,
     "taxa": 1.0
   },
   "por_categoria": {
     "anti_alucinacao": {
-      "n": 4,
+      "n": 5,
       "abstencao": {
-        "n": 4,
-        "acertos": 4,
+        "n": 5,
+        "acertos": 5,
         "taxa": 1.0
       }
     },
@@ -121,6 +121,14 @@
         "precision_dos_recuperados_media": 0.2778,
         "mrr": 1.0,
         "ndcg_medio": 0.7944
+      }
+    },
+    "tabular_listagem": {
+      "n": 5,
+      "computados": {
+        "n": 5,
+        "acertos": 5,
+        "taxa": 1.0
       }
     }
   }

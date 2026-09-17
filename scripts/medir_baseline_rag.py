@@ -47,10 +47,17 @@ def medir(k: int, rotulo: str) -> dict:
     rm._CHROMA_CLIENTS.pop(TENANT_MEDICAO, None)
 
     try:
-        gs.indexar_corpus(TENANT_MEDICAO)
+        indexados = gs.indexar_corpus(TENANT_MEDICAO)
+        chunks = rag_eval.carregar_chunks_do_tenant(TENANT_MEDICAO)
+        # No Windows o rmtree acima falha em silêncio com arquivo travado; um índice com sobra de
+        # execução anterior mediria outro corpus e gravaria um número que não se reproduz.
+        if len(chunks) != sum(indexados.values()):
+            raise SystemExit(
+                f"Tenant de medição contaminado: {len(chunks)} chunks no índice, "
+                f"{sum(indexados.values())} indexados agora. Apague tenant_data/*/{TENANT_MEDICAO}."
+            )
         casos = gs.casos(TENANT_MEDICAO)
         resultados = rag_eval.executar_conjunto(casos, k=k)
-        chunks = rag_eval.carregar_chunks_do_tenant(TENANT_MEDICAO)
         resumo = rag_eval.resumir_avaliacao(
             casos, resultados, chunks, k=k, rotulo=rotulo
         )
