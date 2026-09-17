@@ -109,8 +109,10 @@ from query_engine import (
     decompor_query,
     normalizar_texto
 )
+import bm25_index
 from reranker import (
     CandidateChunk,
+    ordenar_por_rrf,
     fundir_e_deduplicar_candidatos,
     calcular_score_lexical,
     BaseReranker,
@@ -1103,6 +1105,45 @@ def _expandir_por_entidade(
     return expandidos[:max(final_k, posicao + len(novos))], debug
 
 
+def _adicionar_candidatos_bm25(
+    collection,
+    candidatos_pool: List[CandidateChunk],
+    scores_bm25: Dict[str, float],
+    pergunta: str,
+    modelo,
+    limite: int,
+) -> int:
+    """Traz para o pool os melhores trechos do BM25 que a busca vetorial não recuperou.
+
+    Sem isso a fusão só reordenaria o que o vetor já achou -- e um trecho com o termo exato mas
+    embedding fraco (linha de planilha, código de peça) ficaria de fora num corpus maior que o pool.
+    """
+    presentes = {c.chunk_id for c in candidatos_pool}
+    melhores = sorted(scores_bm25.items(), key=lambda kv: kv[1], reverse=True)[:max(0, limite)]
+    faltantes = [chunk_id for chunk_id, _ in melhores if chunk_id not in presentes]
+    if not faltantes:
+        return 0
+
+    dados = collection.get(ids=faltantes, include=["documents", "metadatas", "embeddings"])
+    q_emb = modelo.encode([pergunta], normalize_embeddings=True)[0]
+    for chunk_id, doc, meta, emb in zip(dados["ids"], dados["documents"], dados["metadatas"], dados["embeddings"]):
+        meta = meta or {}
+        cos_sim = max(0.0, min(1.0, float(sum(a * b for a, b in zip(q_emb, emb)))))
+        candidatos_pool.append(CandidateChunk(
+            chunk_id=chunk_id,
+            texto=doc,
+            metadata=meta,
+            pagina=int(meta.get("pagina", 1)),
+            fonte=str(meta.get("fonte", "Documento")),
+            vector_distance=1.0 - cos_sim,
+            vector_score=cos_sim,
+            retrieval_queries=[],
+            # Não foi recuperado por nenhuma consulta vetorial: sem bônus de frequência.
+            retrieval_count=0,
+        ))
+    return len(dados["ids"])
+
+
 def buscar_contexto_relevante(
     tenant_id: str,
     pergunta: str,
@@ -1332,9 +1373,22 @@ def buscar_contexto_relevante(
         # 3. Fusão e Deduplicação dos Candidatos
         candidatos_pool = fundir_e_deduplicar_candidatos(resultados_por_query)
 
+        scores_bm25: Dict[str, float] = {}
+        bm25_adicionados = 0
+        if cfg.get("enable_bm25_hybrid", True):
+            scores_bm25 = bm25_index.obter_indice(tenant_id, collection).pontuar(pergunta_busca)
+            bm25_adicionados = _adicionar_candidatos_bm25(
+                collection, candidatos_pool, scores_bm25, pergunta_busca, modelo,
+                int(cfg.get("bm25_candidate_pool", 20)),
+            )
+
         # 4. Reranking Desacoplado (HeuristicReranker por padrão)
         reranker_ativo = reranker or _DEFAULT_RERANKER
         candidatos_ranqueados = reranker_ativo.rerank(query_analysis, candidatos_pool, cfg)
+        if scores_bm25:
+            candidatos_ranqueados = ordenar_por_rrf(
+                candidatos_ranqueados, scores_bm25, int(cfg.get("rrf_k", 60))
+            )
 
         # 5. Seleção Final com Diversidade, Threshold Relativo e Cobertura Conceitual
         candidatos_selecionados = selecionar_com_cobertura_e_diversidade(
@@ -1401,6 +1455,7 @@ def buscar_contexto_relevante(
             "pool_antes_rerank_count": len(candidatos_pool),
             "tabular_query_debug": tabular_debug_info,
             "entity_hop_debug": entity_hop_debug,
+            "bm25_debug": {"chunks_com_score": len(scores_bm25), "adicionados_ao_pool": bm25_adicionados},
             "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
             "retrieval_results": {
                 q: [

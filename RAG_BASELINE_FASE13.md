@@ -20,7 +20,11 @@ régua, para uma task futura não conseguir desfazer um ganho sem que o teste pe
 |---|---|---|---|---|---|---|
 | v1 — pós F1 (Tasks 1-5) | 2026-09-17 | 0,7826 | 0,6850 | 0,6587 | 8/8 | 1/5 |
 | v2 — pós correção do motor tabular (F3) | 2026-09-17 | 0,8261 | 0,7566 | 0,7783 | 8/8 | 5/5 |
-| **v3 — pós salto por entidade entre documentos (F3)** | 2026-09-17 | **0,9565** | **0,8438** | **0,8493** | 8/8 | 5/5 |
+| v3 — pós salto por entidade entre documentos (F3) | 2026-09-17 | 0,9565 | 0,8438 | 0,8493 | 8/8 | 5/5 |
+| **v4 — pós BM25 + fusão RRF (F3, Task 10)** | 2026-09-17 | **0,9783** | **0,8823** | **0,8783** | 8/8 | 5/5 |
+
+**v3 → v4:** busca híbrida BM25 + RRF (ver seção 8) — `numerico_exato` chega a 1,000 em todas as
+métricas, `tabular_filtro` e `conceitual` sobem; nenhuma categoria piora.
 
 **v2 → v3:** segundo salto por código de entidade (ver seção 7) — `multi_documento` vai de recall
 0,250 para 1,000; nenhuma categoria piora.
@@ -202,7 +206,41 @@ o que é a ordem certa para o LLM ler: primeiro o vínculo, depois o atributo.
 (nDCG/MRR em `conceitual`, `numerico_exato`, `multi_documento`) e a redundância ausente em
 `tabular_filtro` (seção 6).
 
-## 8. Limitações desta medição
+## 8. Atualização após BM25 + fusão RRF (v4, Task 10)
+
+**O defeito:** em "qual o preço por metro do tecido Linho misto?", a linha do catálogo tinha o
+maior score lexical (0,47 contra 0,08), mas o embedding de uma linha de planilha é fraco (cos
+0,20) e um trecho de normas técnicas vencia a média ponderada por 0,02. O score lexical antigo
+não distingue termo raro ("linho") de termo onipresente ("tecido") — o IDF do BM25 distingue.
+
+**Variantes medidas antes de escolher** (protótipo, mesmo golden set):
+
+| Variante | Recall | nDCG | MRR | Observação |
+|---|---|---|---|---|
+| sem BM25 (v3) | 0,9565 | 0,8438 | 0,8493 | — |
+| BM25 misturado ao score lexical (50%) | 0,9348 | 0,8552 | 0,8783 | derruba `tabular_filtro` |
+| BM25 no lugar do score lexical | 0,9130 | 0,8419 | 0,8783 | derruba `conceitual` e `tabular_filtro` |
+| RRF k=5 | 0,9348 | 0,8587 | 0,8783 | derruba `tabular_filtro` |
+| **RRF k=60** | **0,9783** | **0,8823** | **0,8783** | **nenhuma categoria piora** |
+
+**O que mudou:** `bm25_index.py` (BM25 Okapi próprio, sem dependência nova, índice em cache
+invalidado pelos ids da coleção); os melhores trechos do BM25 que o vetor não recuperou entram no
+pool (até `bm25_candidate_pool` = 20); depois do reranking, `reranker.ordenar_por_rrf` reordena.
+O RRF muda **só a ordem** — o corte de qualidade da seleção continua no score heurístico, porque
+valores de RRF são achatados (1/61 vs 1/80) e deixariam passar praticamente tudo. Desligável por
+`RAG_ENABLE_BM25_HYBRID`.
+
+**Limite desta medição:** o golden set tem 19 trechos, menos que o pool vetorial (30) — o ganho
+acima vem só da reordenação. A entrada de trechos pelo BM25 no pool é coberta por teste com pool
+reduzido (`tests/rag/test_bm25_hibrido.py`) e, no tenant real (65 trechos), traz de 8 a 9
+trechos por pergunta.
+
+**O que sobra abaixo de 1,0:** `conceitual` (CO-03: "líquidos e respingos" ↔ "hidrorrepelente",
+sinônimo que nenhum método lexical resolve — candidato natural para cross-encoder ou troca de
+embeddings, Tasks 12/14), `multi_documento` (âncora em 1º por desenho) e `tabular_filtro`
+(redundância ausente, seção 6).
+
+## 9. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`

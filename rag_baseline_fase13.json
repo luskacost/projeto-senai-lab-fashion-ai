@@ -1,15 +1,15 @@
 {
-  "rotulo": "v3 - pos segundo salto por entidade (F3)",
+  "rotulo": "v4 - pos BM25 + fusao RRF (F3, Task 10)",
   "k": 5,
   "total_casos": 36,
   "recuperaveis": {
     "n": 23,
     "relevantes_no_corpus_medio": 1.09,
-    "recall_medio": 0.9565,
-    "precision_em_k_media": 0.2261,
-    "precision_dos_recuperados_media": 0.2406,
-    "mrr": 0.8493,
-    "ndcg_medio": 0.8438
+    "recall_medio": 0.9783,
+    "precision_em_k_media": 0.2348,
+    "precision_dos_recuperados_media": 0.2478,
+    "mrr": 0.8783,
+    "ndcg_medio": 0.8823
   },
   "abstencao": {
     "n": 8,
@@ -47,7 +47,7 @@
         "precision_em_k_media": 0.25,
         "precision_dos_recuperados_media": 0.2875,
         "mrr": 0.8,
-        "ndcg_medio": 0.8266
+        "ndcg_medio": 0.8467
       }
     },
     "desambiguacao": {
@@ -82,8 +82,8 @@
         "recall_medio": 1.0,
         "precision_em_k_media": 0.2,
         "precision_dos_recuperados_media": 0.2,
-        "mrr": 0.4583,
-        "ndcg_medio": 0.5982
+        "mrr": 0.5,
+        "ndcg_medio": 0.6309
       }
     },
     "numerico_exato": {
@@ -94,8 +94,8 @@
         "recall_medio": 1.0,
         "precision_em_k_media": 0.2,
         "precision_dos_recuperados_media": 0.2,
-        "mrr": 0.875,
-        "ndcg_medio": 0.9077
+        "mrr": 1.0,
+        "ndcg_medio": 1.0
       }
     },
     "tabular_agregacao": {
@@ -116,11 +116,11 @@
       "recuperaveis": {
         "n": 3,
         "relevantes_no_corpus_medio": 1.0,
-        "recall_medio": 0.6667,
-        "precision_em_k_media": 0.2667,
-        "precision_dos_recuperados_media": 0.2222,
+        "recall_medio": 0.8333,
+        "precision_em_k_media": 0.3333,
+        "precision_dos_recuperados_media": 0.2778,
         "mrr": 1.0,
-        "ndcg_medio": 0.6922
+        "ndcg_medio": 0.7944
       }
     }
   }

@@ -361,6 +361,35 @@ class HeuristicReranker(BaseReranker):
         return candidates
 
 
+def ordenar_por_rrf(
+    candidatos: List[CandidateChunk],
+    scores_bm25: Dict[str, float],
+    k: int = 60,
+) -> List[CandidateChunk]:
+    """Reordena por Reciprocal Rank Fusion entre o ranking heurístico e o BM25 (Fase 13, Task 10).
+
+    Só a ORDEM muda: `final_score` continua sendo o score heurístico, que os thresholds absoluto e
+    relativo da seleção usam como porta de qualidade. RRF devolve valores achatados (1/61 vs 1/80)
+    que, usados como score, deixariam praticamente todo candidato passar o corte relativo.
+    """
+    ordem_heuristica = sorted(candidatos, key=lambda c: c.final_score, reverse=True)
+    ordem_bm25 = sorted(candidatos, key=lambda c: scores_bm25.get(c.chunk_id, 0.0), reverse=True)
+    rank_h = {c.chunk_id: i for i, c in enumerate(ordem_heuristica)}
+    rank_b = {c.chunk_id: i for i, c in enumerate(ordem_bm25)}
+
+    fusao: Dict[str, float] = {}
+    for c in candidatos:
+        valor = 1.0 / (k + rank_h[c.chunk_id] + 1)
+        # Sem nenhum termo em comum com a pergunta, o BM25 não tem opinião -- não vota.
+        if scores_bm25.get(c.chunk_id, 0.0) > 0:
+            valor += 1.0 / (k + rank_b[c.chunk_id] + 1)
+        fusao[c.chunk_id] = valor
+        c.score_breakdown["bm25"] = round(scores_bm25.get(c.chunk_id, 0.0), 4)
+        c.score_breakdown["rrf"] = round(valor, 6)
+
+    return sorted(candidatos, key=lambda c: (fusao[c.chunk_id], c.final_score), reverse=True)
+
+
 # ==============================================================================
 # FASE 9: DIVERSIDADE E COBERTURA CONCEITUAL
 # ==============================================================================
@@ -398,7 +427,8 @@ def selecionar_com_cobertura_e_diversidade(
     if not ranked_candidates:
         return []
 
-    best_score = ranked_candidates[0].final_score
+    # max, não [0]: com fusão RRF a ordem não segue mais final_score.
+    best_score = max(c.final_score for c in ranked_candidates)
 
     # Se o melhor score geral for muito fraco, descarta todos (evita alucinação)
     if best_score < min_score_abs:
