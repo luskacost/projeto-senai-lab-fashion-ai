@@ -82,6 +82,25 @@ class TestNaoRegrideContraABaseline(unittest.TestCase):
             self.atual["computados"]["taxa"], self.baseline["computados"]["taxa"] - TOLERANCIA,
         )
 
+    def test_nenhuma_categoria_regrediu(self):
+        # O agregado esconde trocas: uma melhora grande numa categoria pode mascarar a piora de
+        # outra (aconteceu no desenvolvimento do salto por entidade, com tabular_filtro).
+        metricas = {
+            "recuperaveis": ("recall_medio", "ndcg_medio", "mrr"),
+            "abstencao": ("taxa",),
+            "computados": ("taxa",),
+        }
+        for categoria, grupos in self.baseline["por_categoria"].items():
+            for grupo, registro in grupos.items():
+                if grupo not in metricas:
+                    continue
+                for metrica in metricas[grupo]:
+                    with self.subTest(categoria=categoria, grupo=grupo, metrica=metrica):
+                        self.assertGreaterEqual(
+                            self.atual["por_categoria"][categoria][grupo][metrica],
+                            registro[metrica] - TOLERANCIA,
+                        )
+
     def test_quantidade_de_casos_por_grupo_nao_mudou(self):
         # Se este número mudar, o golden set foi editado -- a comparação deixou de ser
         # "mesmo teste, pipeline diferente" e passou a ser "teste diferente", que invalida

@@ -89,6 +89,8 @@ RAG_CONFIG: Dict[str, Any] = {
     "conversation_max_entities_per_turn": int(os.environ.get("RAG_CONVERSATION_MAX_ENTITIES", "20")),
     "conversation_max_set_entities": int(os.environ.get("RAG_CONVERSATION_MAX_SET_ENTITIES", "100")),
     "enable_tabular_query_engine": os.environ.get("RAG_ENABLE_TABULAR_QUERY_ENGINE", "True").lower() in ("true", "1", "yes"),
+    "enable_entity_hop": os.environ.get("RAG_ENABLE_ENTITY_HOP", "True").lower() in ("true", "1", "yes"),
+    "entity_hop_max_chunks": int(os.environ.get("RAG_ENTITY_HOP_MAX_CHUNKS", "2")),
     "max_tabular_rows_per_query": int(os.environ.get("RAG_MAX_TABULAR_ROWS", "10000")),
     "max_tabular_result_rows": int(os.environ.get("RAG_MAX_TABULAR_RESULT_ROWS", "50")),
     "enable_query_router": os.environ.get("RAG_ENABLE_QUERY_ROUTER", "True").lower() in ("true", "1", "yes"),

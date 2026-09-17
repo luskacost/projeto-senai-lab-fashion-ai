@@ -1,15 +1,15 @@
 {
-  "rotulo": "Fase 13 -- pos correcao do motor tabular (F3)",
+  "rotulo": "v3 - pos segundo salto por entidade (F3)",
   "k": 5,
   "total_casos": 36,
   "recuperaveis": {
     "n": 23,
     "relevantes_no_corpus_medio": 1.09,
-    "recall_medio": 0.8261,
-    "precision_em_k_media": 0.2,
-    "precision_dos_recuperados_media": 0.2326,
-    "mrr": 0.7783,
-    "ndcg_medio": 0.7566
+    "recall_medio": 0.9565,
+    "precision_em_k_media": 0.2261,
+    "precision_dos_recuperados_media": 0.2406,
+    "mrr": 0.8493,
+    "ndcg_medio": 0.8438
   },
   "abstencao": {
     "n": 8,
@@ -57,7 +57,7 @@
         "relevantes_no_corpus_medio": 1.0,
         "recall_medio": 1.0,
         "precision_em_k_media": 0.2,
-        "precision_dos_recuperados_media": 0.3833,
+        "precision_dos_recuperados_media": 0.2792,
         "mrr": 1.0,
         "ndcg_medio": 1.0
       }
@@ -79,11 +79,11 @@
       "recuperaveis": {
         "n": 4,
         "relevantes_no_corpus_medio": 1.0,
-        "recall_medio": 0.25,
-        "precision_em_k_media": 0.05,
-        "precision_dos_recuperados_media": 0.05,
-        "mrr": 0.05,
-        "ndcg_medio": 0.0967
+        "recall_medio": 1.0,
+        "precision_em_k_media": 0.2,
+        "precision_dos_recuperados_media": 0.2,
+        "mrr": 0.4583,
+        "ndcg_medio": 0.5982
       }
     },
     "numerico_exato": {

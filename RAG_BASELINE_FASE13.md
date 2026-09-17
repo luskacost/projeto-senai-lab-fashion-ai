@@ -19,7 +19,11 @@ régua, para uma task futura não conseguir desfazer um ganho sem que o teste pe
 | Medição | Data | Recall@5 | nDCG@5 | MRR | Abstenção | Calculados |
 |---|---|---|---|---|---|---|
 | v1 — pós F1 (Tasks 1-5) | 2026-09-17 | 0,7826 | 0,6850 | 0,6587 | 8/8 | 1/5 |
-| **v2 — pós correção do motor tabular (F3)** | 2026-09-17 | **0,8261** | **0,7566** | **0,7783** | 8/8 | **5/5** |
+| v2 — pós correção do motor tabular (F3) | 2026-09-17 | 0,8261 | 0,7566 | 0,7783 | 8/8 | 5/5 |
+| **v3 — pós salto por entidade entre documentos (F3)** | 2026-09-17 | **0,9565** | **0,8438** | **0,8493** | 8/8 | 5/5 |
+
+**v2 → v3:** segundo salto por código de entidade (ver seção 7) — `multi_documento` vai de recall
+0,250 para 1,000; nenhuma categoria piora.
 
 **v1 → v2:** o motor tabular passou a resolver a coluna pelo schema real da planilha (ver seção 6).
 As seções 2 a 5 abaixo são a análise original da **v1**, preservada como registro do ponto de
@@ -167,7 +171,38 @@ esconder isso seria pior do que explicar.
 **O que continua aberto:** `multi_documento` (recall 0,250). É uma capacidade que não existe —
 ligar peça (manual) → tecido → atributo (catálogo) — e não um bug.
 
-## 7. Limitações desta medição
+## 7. Atualização após o salto por entidade (v3)
+
+**O defeito:** em "qual o fornecedor do tecido da calça operacional?", a busca vetorial achava o
+trecho do manual (peça → `TX-520`) em 1º lugar, mas a linha do catálogo (`TX-520` → fornecedor)
+não compartilha vocabulário com a pergunta e nunca entrava no contexto.
+
+**O que mudou (`rag_manager._expandir_por_entidade`):** depois da seleção final, o trecho que
+melhor casa lexicalmente com a pergunta vira âncora; os códigos alfanuméricos dele que a pergunta
+não cita (`PL-330`, `TX-450`...) são buscados por correspondência exata (com fronteira de
+palavra) em **outros** documentos, e até `entity_hop_max_chunks` (2) trechos entram logo após a
+âncora — ou são promovidos para lá, se já estavam selecionados. Nada de vocabulário fixo: o
+padrão de código é genérico. Desligável por `RAG_ENABLE_ENTITY_HOP`.
+
+**Não roda quando o motor tabular respondeu:** pergunta de filtro/agregação não tem entidade-
+âncora; na primeira versão o salto escolhia uma linha qualquer e derrubava `tabular_filtro` de
+recall 0,667 para 0,500 — escondido no agregado, que subia. Por isso
+`test_baseline_regressao.py` passou a travar também **cada categoria**, não só a média.
+
+| Categoria | v2 | v3 |
+|---|---|---|
+| `multi_documento` | recall 0,250 · nDCG 0,097 · MRR 0,050 | recall **1,000** · nDCG **0,598** · MRR **0,458** |
+| demais | — | idênticas à v2 |
+
+**Por que o MRR de `multi_documento` não chega a 1,0:** a âncora (a peça no manual) fica em 1º e
+não é julgada relevante sozinha — não tem o preço/fornecedor. A linha do catálogo vem em 2º ou 3º,
+o que é a ordem certa para o LLM ler: primeiro o vínculo, depois o atributo.
+
+**Nenhuma falha de recuperação resta no golden set** — o que sobra abaixo de 1,0 é ordenação
+(nDCG/MRR em `conceitual`, `numerico_exato`, `multi_documento`) e a redundância ausente em
+`tabular_filtro` (seção 6).
+
+## 8. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`

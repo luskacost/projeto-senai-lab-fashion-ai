@@ -1018,6 +1018,91 @@ def _log_resumo_busca(logger, tenant_id: str, debug_info: Dict[str, Any], tempo_
     )
 
 
+_PADRAO_CODIGO_ENTIDADE = re.compile(r"\b[A-Za-z]{1,6}-?\d{2,}[A-Za-z0-9]*\b")
+
+
+def _codigos_de_entidade(texto: str) -> List[str]:
+    vistos: List[str] = []
+    for codigo in _PADRAO_CODIGO_ENTIDADE.findall(texto or ""):
+        if codigo.upper() not in (c.upper() for c in vistos):
+            vistos.append(codigo)
+    return vistos
+
+
+def _expandir_por_entidade(
+    collection,
+    selecionados: List[CandidateChunk],
+    pergunta: str,
+    cfg: Dict[str, Any],
+    final_k: int,
+) -> Tuple[List[CandidateChunk], Dict[str, Any]]:
+    """Segundo salto: segue os códigos citados no trecho-âncora até outros documentos.
+
+    Resolve perguntas cuja resposta está dividida entre documentos ("preço do tecido do jaleco
+    JL-100": o manual liga a peça ao código TX-200, o catálogo liga TX-200 ao preço). A busca
+    vetorial acha a peça mas nunca a linha do catálogo, que não compartilha vocabulário com a
+    pergunta.
+    """
+    debug: Dict[str, Any] = {"ancora": None, "codigos": [], "adicionados": []}
+    max_chunks = int(cfg.get("entity_hop_max_chunks", 2))
+    if not selecionados or max_chunks <= 0:
+        return selecionados, debug
+
+    # Âncora pelo casamento lexical com a pergunta, não pelo score final: o 1º colocado pode ser
+    # um trecho de outro documento que só se parece com a pergunta.
+    ancora = max(selecionados, key=lambda c: c.lexical_score)
+    pergunta_upper = pergunta.upper()
+    codigos = [
+        c for c in _codigos_de_entidade(ancora.texto)
+        if not re.search(rf"\b{re.escape(c.upper())}\b", pergunta_upper)
+    ]
+    debug["ancora"] = ancora.chunk_id
+    debug["codigos"] = codigos
+    if not codigos:
+        return selecionados, debug
+
+    por_id = {c.chunk_id: c for c in selecionados}
+    vistos: Set[str] = {ancora.chunk_id}
+    novos: List[CandidateChunk] = []
+    for codigo in codigos:
+        if len(novos) >= max_chunks:
+            break
+        res = collection.get(
+            where_document={"$contains": codigo},
+            include=["documents", "metadatas"],
+        )
+        padrao = re.compile(rf"\b{re.escape(codigo)}\b")
+        for c_id, doc, meta in zip(res.get("ids", []), res.get("documents", []), res.get("metadatas", [])):
+            meta = meta or {}
+            if len(novos) >= max_chunks:
+                break
+            if c_id in vistos or meta.get("fonte") == ancora.fonte or not padrao.search(doc or ""):
+                continue
+            vistos.add(c_id)
+            debug["adicionados"].append({"chunk_id": c_id, "codigo": codigo, "ja_selecionado": c_id in por_id})
+            if c_id in por_id:
+                novos.append(por_id[c_id])
+                continue
+            novos.append(CandidateChunk(
+                chunk_id=c_id,
+                texto=doc,
+                metadata=meta,
+                pagina=meta.get("pagina", 1),
+                fonte=meta.get("fonte", "Documento"),
+                final_score=ancora.final_score,
+                score_breakdown={"entity_hop": 1.0},
+                matched_concepts={codigo},
+            ))
+
+    if not novos:
+        return selecionados, debug
+
+    restantes = [c for c in selecionados if c not in novos]
+    posicao = restantes.index(ancora) + 1
+    expandidos = restantes[:posicao] + novos + restantes[posicao:]
+    return expandidos[:max(final_k, posicao + len(novos))], debug
+
+
 def buscar_contexto_relevante(
     tenant_id: str,
     pergunta: str,
@@ -1259,6 +1344,14 @@ def buscar_contexto_relevante(
             final_k=final_k
         )
 
+        entity_hop_debug = None
+        # Resposta tabular calculada = pergunta de agregação/filtro, sem entidade-âncora: o salto
+        # só escolheria uma linha qualquer e empurraria as relevantes para fora do contexto.
+        if cfg.get("enable_entity_hop", True) and not tabular_chunk_dict:
+            candidatos_selecionados, entity_hop_debug = _expandir_por_entidade(
+                collection, candidatos_selecionados, pergunta_busca, cfg, final_k
+            )
+
         # 6. Validação de Cobertura para Observabilidade
         coverage_map: Dict[str, bool] = {}
         for conceito in query_analysis.key_concepts:
@@ -1307,6 +1400,7 @@ def buscar_contexto_relevante(
             "candidatos_encontrados_inicial": total_encontrados_inicial,
             "pool_antes_rerank_count": len(candidatos_pool),
             "tabular_query_debug": tabular_debug_info,
+            "entity_hop_debug": entity_hop_debug,
             "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
             "retrieval_results": {
                 q: [
