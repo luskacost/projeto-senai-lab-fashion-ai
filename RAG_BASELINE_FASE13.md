@@ -286,7 +286,31 @@ listagens sobre documentos **não tabulares**; se aparecer um caso real assim, v
 tenant de medição (no Windows o `rmtree` falha em silêncio com arquivo travado); o script agora
 aborta se o índice tiver chunks além dos recém-indexados. O valor gravado é o reproduzível.
 
-## 10. Limitações desta medição
+## 10. Task 12 — cross-encoder: medido e não adotado
+
+Dois cross-encoders multilíngues rodando em CPU, sobre a v5 (42 casos), em três formas de uso:
+só o cross-encoder ordena; ele reordena só os 10 primeiros; ou entra como terceiro voto no RRF
+(heurístico + BM25 + cross-encoder).
+
+| Variante | Recall | nDCG | MRR | Categoria que piora | ms/pergunta |
+|---|---|---|---|---|---|
+| v5 (sem cross-encoder) | 0,9783 | 0,8823 | 0,8783 | — | 0 |
+| mmarco-mMiniLMv2-L12, ordena sozinho | 1,0000 | 0,8833 | 0,8565 | `conceitual` (MRR 0,800→0,675) | ~330 |
+| mmarco-mMiniLMv2-L12, só top-10 | 0,9348 | 0,8462 | 0,8348 | `conceitual`, `multi_documento` | ~165 |
+| mmarco-mMiniLMv2-L12, 3º voto no RRF | 1,0000 | 0,8957 | 0,8783 | `conceitual` (nDCG 0,847→0,827) | ~330 |
+| mMiniLM-L6-pt (Unicamp), ordena sozinho | 0,9348 | 0,8500 | 0,8674 | `tabular_filtro`, `multi_documento` | ~165 |
+| mMiniLM-L6-pt (Unicamp), 3º voto no RRF | 0,9565 | 0,8702 | 0,8783 | `tabular_filtro` | ~165 |
+
+**Decisão: não entra.** Nenhuma variante melhora sem derrubar alguma categoria, e o alvo que
+motivou a task — CO-03, o sinônimo "líquidos e respingos" ↔ "hidrorrepelente" — não melhora em
+nenhuma. O custo seria de 165 a 330 ms por pergunta em CPU, ~35 s de carga fria e mais um modelo
+de ~450 MB no deploy. A `BaseReranker` continua sendo o ponto de extensão, caso um corpus real
+mostre ganho. Os modelos baixados para o teste foram removidos do cache.
+
+A melhor variante (3º voto no RRF) ganha em `tabular_filtro` o que perde em `conceitual`: é
+troca, não melhora — exatamente o que a trava por categoria da catraca existe para barrar.
+
+## 11. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`
