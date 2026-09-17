@@ -579,9 +579,12 @@ class QueryRouter:
         tem_sum = any(re.search(p, q_norm) for p in padroes_sum)
 
         # C. AVG
+        # "medio"/"medios" (adjetivo masculino) entrou na Fase 13: "preço médio", "peso médio",
+        # "tempo médio" são tão comuns quanto "média" e antes só casavam na forma "valor médio".
         padroes_avg = [
             r'\bmedia\b', r'\bmédia\b', r'\bvalor medio\b', r'\bvalor médio\b',
-            r'\bmedia de\b', r'\bem media\b', r'\bem média\b'
+            r'\bmedia de\b', r'\bem media\b', r'\bem média\b',
+            r'\bmedios?\b', r'\bmédios?\b',
         ]
         tem_avg = any(re.search(p, q_norm) for p in padroes_avg)
 

@@ -5,8 +5,33 @@
 **Casos:** `rag_golden_set.casos()` — 36 casos, 9 categorias
 **Metodologia:** `rag_eval.py` + `rag_metrics.py` (Fase 13, Tasks 6-8) — retrieval puro, custo zero de API
 **k:** 5 (mesmo valor de `RAG_CONFIG["final_context_top_k"]`, produção)
-**Como reproduzir:** `python scripts/medir_baseline_rag.py --k 5` (o resultado bruto está versionado
-em `rag_baseline_fase13.json`)
+**Como reproduzir:** `python scripts/medir_baseline_rag.py --k 5 --rotulo "..." --forcar` (o resultado
+bruto da medição vigente está versionado em `rag_baseline_fase13.json`)
+
+---
+
+## 0. Histórico de medições
+
+`rag_baseline_fase13.json` guarda sempre a medição **vigente** — é contra ela que
+`tests/rag/test_baseline_regressao.py` barra regressões. Cada melhoria aceita no Bloco F3 sobe a
+régua, para uma task futura não conseguir desfazer um ganho sem que o teste perceba.
+
+| Medição | Data | Recall@5 | nDCG@5 | MRR | Abstenção | Calculados |
+|---|---|---|---|---|---|---|
+| v1 — pós F1 (Tasks 1-5) | 2026-09-17 | 0,7826 | 0,6850 | 0,6587 | 8/8 | 1/5 |
+| **v2 — pós correção do motor tabular (F3)** | 2026-09-17 | **0,8261** | **0,7566** | **0,7783** | 8/8 | **5/5** |
+
+**v1 → v2:** o motor tabular passou a resolver a coluna pelo schema real da planilha (ver seção 6).
+As seções 2 a 5 abaixo são a análise original da **v1**, preservada como registro do ponto de
+partida.
+Resolve 6 das 9 falhas da v1; as 3 restantes são todas `multi_documento`.
+
+**Mudança de métrica entre v1 e v2 (sem efeito na v1):** o denominador de recall/nDCG passou a
+incluir os chunks relevantes *gerados* pelo pipeline (pooling — ver
+`rag_eval.contar_relevantes_gerados`). Sem isso, um bloco `[TABULAR_RESULT]` relevante somado à
+linha do catálogo dava recall 2/1 = 2,0. A v1 foi **remedida com a métrica nova sobre o código
+antigo** e os números não mudaram (o motor antigo nunca produzia chunk tabular relevante nos casos
+de recuperação) — a comparação v1 × v2 é, portanto, de mesma régua.
 
 ---
 
@@ -23,7 +48,7 @@ Em resumo: entre 02/09 e 17/09 o pipeline mudou de forma significativa e **ningu
 o efeito**. Este é o primeiro número honesto do estado atual — a baseline contra a qual toda
 mudança do Bloco F3 (Tasks 10-14) precisa se provar melhor, não pior.
 
-## 2. Resultado
+## 2. Resultado (v1)
 
 Os 36 casos são separados em três grupos que **não podem ser somados numa média só** (ver a
 justificativa completa em `rag_eval.resumir_avaliacao`) — foi exatamente uma média única que, em
@@ -102,7 +127,47 @@ dado — a garantia mais importante de um sistema de RAG em produção, intacta.
 - **Join multi-documento é uma capacidade que não existe ainda**, não um bug — decidir se entra
   no escopo do Bloco F3 ou fica para uma fase futura é uma decisão de produto, não só técnica.
 
-## 6. Limitações desta medição
+## 6. Atualização após a correção do motor tabular (v2)
+
+A seção 5 recomendava corrigir o motor tabular antes de qualquer outra coisa do Bloco F3 — e a
+decisão foi tomada nessa ordem (em vez de BM25/fusão híbrida, a Task 10 original do plano).
+
+**Causa raiz única:** resolução de coluna. O `QueryRouter` propunha o termo de coluna a partir de
+um vocabulário fixo, herdado do benchmark de e-sports de setembro (`pontos`, `premiacao`), ou —
+num filtro numérico — da palavra logo após o número (`reais` em "menos de 15 reais por metro").
+Quando o termo não casava com nenhuma coluna real, o plano seguia sem coluna e o executor:
+
+- calculava média/soma sobre a coluna inexistente `valor` e devolvia `0,00`;
+- descartava o filtro e devolvia a tabela inteira como se estivesse filtrada;
+- respondia "quantos fornecedores diferentes" com o total de linhas.
+
+Tudo com `success=True` e rotulado para o LLM como **"Resultado Calculado Deterministicamente"**,
+com a instrução de usar o número sem recalcular. Era uma fonte de afirmação falsa com cara de fato,
+não só uma resposta errada.
+
+**O que mudou (`tabular_query_engine.py`, `query_router.py`):**
+
+1. A coluna passa a ser resolvida a partir dos nomes que **existem** no schema e são citados na
+   pergunta (com casamento de plural por prefixo e um conceito genérico de dinheiro para
+   "caro/barato/custa/preço"), em vez do vocabulário fixo do roteador.
+2. **Nunca fabricar:** sem coluna resolvível, a operação numérica ou o filtro numérico não geram
+   plano — a pergunta cai na busca vetorial. O executor também recusa (`success=False`) operação
+   numérica sobre coluna inexistente, de texto, ou média de conjunto vazio.
+3. "Quantos X diferentes/distintos" vira `DISTINCT` na coluna citada.
+4. Superlativos que o roteador não reconhecia ("mais caro", "mais barato") viram `MAX`/`MIN`;
+   "maior/menor" só quando a pergunta cita a coluna pelo nome inteiro, para não sequestrar
+   perguntas conceituais.
+5. O roteador passou a reconhecer média pelo adjetivo masculino ("preço **médio**").
+
+**Nuance registrada, não corrigida:** em `tabular_filtro`, recall 0,667 convive com MRR 1,000 — a
+resposta calculada vem no topo, mas nem sempre a linha crua do catálogo aparece junto, e o pooling
+conta isso como recall parcial. É ausência de redundância, não erro; ajustar a métrica para
+esconder isso seria pior do que explicar.
+
+**O que continua aberto:** `multi_documento` (recall 0,250). É uma capacidade que não existe —
+ligar peça (manual) → tecido → atributo (catálogo) — e não um bug.
+
+## 7. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`

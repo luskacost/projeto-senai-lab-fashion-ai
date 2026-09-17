@@ -216,10 +216,14 @@ class TestResumoSeparaOsTresGruposDeCaso(unittest.TestCase):
     média só -- recall é indefinido para abstenção e para resposta calculada, e uma acurácia
     geral esconderia qual metade está quebrada."""
 
-    def _resultado(self, caso_id, relevancias, deve_abster=False):
+    def _resultado(self, caso_id, relevancias, deve_abster=False, textos=None):
+        # Por padrão, os chunks devolvidos são os do próprio corpus -- um chunk com texto que não
+        # está no corpus conta como "gerado" no pooling de relevantes (ver
+        # rag_eval.contar_relevantes_gerados), o que mudaria o denominador do recall.
+        textos = textos or [self.chunks_corpus[0]["texto"]] * len(relevancias)
         return re_.ResultadoCaso(
             caso_id=caso_id, categoria="x", query="q", tempo_ms=1.0,
-            chunks_recuperados=[{"texto": "t", "fonte": "f"} for _ in relevancias],
+            chunks_recuperados=[{"texto": t, "fonte": "cat.csv"} for t in textos],
             relevancias=relevancias, deve_abster=deve_abster,
         )
 
@@ -341,6 +345,45 @@ class TestResumoSeparaOsTresGruposDeCaso(unittest.TestCase):
         ]
         resumo = re_.resumir_avaliacao(self.casos, resultados, self.chunks_corpus, k=5, rotulo="teste")
         self.assertIn("teste", json.dumps(resumo, ensure_ascii=False))
+
+
+class TestPoolingDeRelevantesGerados(unittest.TestCase):
+    """Fase 13, Bloco F3: o motor tabular sintetiza um bloco [TABULAR_RESULT] que não existe no
+    corpus. Quando ele e a linha do catálogo eram ambos relevantes, o recall dava 2/1 = 2,0 --
+    métrica impossível, descoberta na primeira medição após corrigir o motor tabular."""
+
+    def setUp(self):
+        self.corpus = [{"texto": "Codigo: TX-700 Preco: 12.80", "fonte": "cat.csv"}]
+        self.caso = re_.CasoAvaliacao(
+            id="P1", tenant_id="t", query="qual o tecido mais barato do catalogo",
+            categoria="filtro", termos_relevantes=["TX-700"],
+        )
+
+    def _resumo(self, textos, relevancias):
+        resultado = re_.ResultadoCaso(
+            caso_id="P1", categoria="filtro", query=self.caso.query, tempo_ms=1.0,
+            chunks_recuperados=[{"texto": t, "fonte": "cat.csv"} for t in textos],
+            relevancias=relevancias, deve_abster=False,
+        )
+        return re_.resumir_avaliacao([self.caso], [resultado], self.corpus, k=5)
+
+    def test_recall_nunca_passa_de_um_com_chunk_gerado_e_do_corpus(self):
+        resumo = self._resumo(
+            ["[TABULAR_RESULT] menor valor: TX-700", "Codigo: TX-700 Preco: 12.80"], [True, True]
+        )
+        self.assertLessEqual(resumo["recuperaveis"]["recall_medio"], 1.0)
+        self.assertAlmostEqual(resumo["recuperaveis"]["recall_medio"], 1.0)
+        self.assertLessEqual(resumo["recuperaveis"]["ndcg_medio"], 1.0)
+
+    def test_chunk_gerado_sozinho_conta_como_recall_parcial(self):
+        # Dois relevantes existem no pool (o gerado e a linha do corpus); só um foi devolvido.
+        resumo = self._resumo(["[TABULAR_RESULT] menor valor: TX-700"], [True])
+        self.assertAlmostEqual(resumo["recuperaveis"]["recall_medio"], 0.5)
+        self.assertAlmostEqual(resumo["recuperaveis"]["mrr"], 1.0)
+
+    def test_sem_chunk_gerado_o_denominador_e_so_o_corpus(self):
+        resumo = self._resumo(["Codigo: TX-700 Preco: 12.80"], [True])
+        self.assertAlmostEqual(resumo["recuperaveis"]["recall_medio"], 1.0)
 
 
 class TestCompararResumos(unittest.TestCase):

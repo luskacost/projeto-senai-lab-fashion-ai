@@ -254,6 +254,139 @@ def resolver_coluna(termo_busca: str, colunas_disponiveis: List[str]) -> Optiona
     return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# RESOLUÇÃO DE COLUNA PELO SCHEMA REAL (Fase 13, Bloco F3)
+#
+# O QueryRouter propõe o termo de coluna a partir de um vocabulário fixo, herdado de um benchmark
+# de e-sports ("pontos", "premiacao"), ou -- num filtro numérico -- da palavra que vem logo depois
+# do número ("reais" em "menos de 15 reais por metro"). Quando esse termo não casa com nenhuma
+# coluna da planilha, o plano seguia adiante sem coluna, e o executor calculava sobre uma coluna
+# inexistente: média 0,00, filtro que devolve a tabela inteira -- tudo com success=True e rotulado
+# para o LLM como "Resultado Calculado Deterministicamente".
+#
+# A resolução abaixo parte do outro lado: olha os nomes das colunas que EXISTEM e verifica quais
+# são mencionados na pergunta. Não depende de vocabulário de nenhum documento específico -- só de
+# um conceito genérico de dinheiro (preço/custo/valor), comum a qualquer planilha de negócio.
+# ─────────────────────────────────────────────────────────────────────────────
+_PALAVRAS_VAZIAS_COLUNA = {"por", "de", "do", "da", "dos", "das", "em", "no", "na", "e", "o", "a", "um", "uma"}
+
+_GATILHOS_MONETARIOS = {
+    "preco", "precos", "caro", "cara", "caros", "caras", "barato", "barata", "baratos", "baratas",
+    "custa", "custam", "custo", "custos", "valor", "valores", "reais", "dinheiro",
+}
+_FRAGMENTOS_COLUNA_MONETARIA = ("preco", "valor", "custo", "price", "cost", "amount")
+
+# Tamanho mínimo para dois tokens casarem por prefixo ("precos"/"preco",
+# "fornecedores"/"fornecedor"). Abaixo disso só casamento exato -- "cor" não deve casar com "corte".
+_TAMANHO_MINIMO_PREFIXO = 4
+
+
+def _tokens_normalizados(texto: str) -> List[str]:
+    return [t for t in normalizar_query_texto(texto).split() if t]
+
+
+def _tokens_casam(token_pergunta: str, token_coluna: str) -> bool:
+    if token_pergunta == token_coluna:
+        return True
+    menor = min(len(token_pergunta), len(token_coluna))
+    if menor < _TAMANHO_MINIMO_PREFIXO:
+        return False
+    return token_pergunta.startswith(token_coluna) or token_coluna.startswith(token_pergunta)
+
+
+def _coluna_e_numerica(sheet: "TabularSheet", coluna: str, proporcao_minima: float = 0.5) -> bool:
+    valores = [r.dados.get(coluna) for r in sheet.linhas if not _eh_valor_vazio(r.dados.get(coluna))]
+    if not valores:
+        return False
+    numericos = sum(1 for v in valores if _parse_numero_generico(v) is not None)
+    return numericos / len(valores) >= proporcao_minima
+
+
+def _resolver_coluna_pela_pergunta(
+    query: str, sheet: "TabularSheet", somente_numericas: bool = False
+) -> Tuple[Optional[str], float]:
+    """Devolve (coluna, score) da coluna do schema mais mencionada na pergunta, ou (None, 0.0).
+
+    score = fração dos tokens significativos do nome da coluna que aparecem na pergunta (1,0 =
+    nome inteiro mencionado), mais 0,5 se a pergunta fala de dinheiro e a coluna é monetária. O
+    bônus monetário é menor que uma menção explícita de propósito: em "valor da gramatura", a
+    coluna citada pelo nome tem de ganhar da coluna de preço.
+    """
+    tokens_pergunta = _tokens_normalizados(query)
+    fala_de_dinheiro = any(t in _GATILHOS_MONETARIOS for t in tokens_pergunta)
+
+    melhor_coluna: Optional[str] = None
+    melhor_score = 0.0
+    for coluna in sheet.schema:
+        if somente_numericas and not _coluna_e_numerica(sheet, coluna):
+            continue
+
+        tokens_coluna = [
+            t for t in _tokens_normalizados(coluna)
+            if t not in _PALAVRAS_VAZIAS_COLUNA and len(t) >= 3
+        ]
+        if not tokens_coluna:
+            continue
+
+        casados = sum(
+            1 for tc in tokens_coluna if any(_tokens_casam(tp, tc) for tp in tokens_pergunta)
+        )
+        score = casados / len(tokens_coluna)
+
+        coluna_norm = normalizar_query_texto(coluna)
+        if fala_de_dinheiro and any(f in coluna_norm for f in _FRAGMENTOS_COLUNA_MONETARIA):
+            score += 0.5
+
+        if score > melhor_score:
+            melhor_coluna, melhor_score = coluna, score
+
+    return melhor_coluna, melhor_score
+
+
+_INTENTS_NUMERICOS = (TabularIntent.SUM, TabularIntent.AVG, TabularIntent.MIN, TabularIntent.MAX)
+
+_MARCADORES_DISTINCT = ("diferentes", "distintos", "distintas", "unicos", "unicas")
+
+
+def _completar_colunas_do_plano(
+    intent: TabularIntent, colunas_propostas: List[str], query: str, sheet: "TabularSheet"
+) -> Tuple[List[str], bool, float]:
+    """Garante que uma operação que precisa de coluna tenha uma coluna REAL e adequada.
+
+    Devolve (colunas, plano_valido, score_da_pergunta). plano_valido=False significa "não dá para
+    responder isto sem chutar" -- quem chama descarta o plano e a pergunta segue para a busca
+    vetorial, que é o comportamento seguro. Chutar era o comportamento anterior, e produzia média
+    0,00 rotulada como cálculo determinístico.
+
+    score_da_pergunta é o score de `_resolver_coluna_pela_pergunta` quando foi ela que decidiu a
+    coluna (0.0 caso contrário). Quem chama usa isso na confiança do plano: uma coluna citada
+    pelo nome na pergunta é evidência forte, mesmo quando a seleção de documento pontuou baixo por
+    ter procurado um termo de coluna errado.
+
+    Para operações numéricas, a coluna mencionada na pergunta tem precedência sobre a proposta do
+    roteador: o roteador escolhe a partir de um vocabulário fixo; a pergunta diz o que o usuário
+    quer.
+    """
+    if intent in _INTENTS_NUMERICOS:
+        coluna_da_pergunta, score = _resolver_coluna_pela_pergunta(query, sheet, somente_numericas=True)
+        if coluna_da_pergunta:
+            return [coluna_da_pergunta], True, score
+        numericas_propostas = [c for c in colunas_propostas if _coluna_e_numerica(sheet, c)]
+        return numericas_propostas[:1], bool(numericas_propostas), 0.0
+
+    if intent == TabularIntent.DISTINCT and not colunas_propostas:
+        # Sem coluna não invalida: o executor tem um caso especial legado (planilhas em que as
+        # próprias colunas são as entidades, ex: "quais sistemas aparecem") que não usa coluna.
+        # Quem precisa de coluna obrigatória é o DISTINCT inferido por "diferentes/distintos",
+        # e esse caminho valida à parte.
+        coluna_da_pergunta, score = _resolver_coluna_pela_pergunta(query, sheet)
+        if coluna_da_pergunta:
+            return [coluna_da_pergunta], True, score
+        return [], True, 0.0
+
+    return colunas_propostas, True, 0.0
+
+
 def _selecionar_documento_e_aba(
     query_norm: str,
     termos_colunas: List[str],
@@ -546,20 +679,32 @@ def detectar_e_planejar_consulta_tabular(
                 if f_col_real:
                     filtros_resolvidos.append(TabularFilter(column=f_col_real, operator=f.operator, value=f.value))
 
-            return TabularQueryPlan(
-                intent=intent,
-                target_document=doc_sel.nome_arquivo,
-                target_sheet=aba_sel,
-                target_columns=target_cols_reais,
-                group_by_columns=group_by_reais,
-                filters=filtros_resolvidos,
-                limit=limit,
-                order_by_direction=order_dir,
-                confidence=min(1.0, score_sel),
-                original_query=query,
-                requires_full_scan=True,
-                selection_reason=razao_sel
+            target_cols_reais, plano_valido, score_coluna = _completar_colunas_do_plano(
+                intent, target_cols_reais, query, sheet_obj
             )
+            # Plano inválido aqui não encerra a função: o padrão legado reconheceu a forma da
+            # pergunta ("qual a soma...") mas assumiu uma coluna ("valor") que esta planilha não
+            # tem. O roteador, abaixo, ainda pode montar um plano correto.
+            #
+            # A confiança sobe quando a coluna veio da pergunta: a seleção de documento pontua
+            # baixo justamente por ter procurado o termo legado errado, e o rag_manager só
+            # executa plano com confiança >= 0,20 -- sem isto, o cálculo certo seria descartado.
+            score_sel = max(score_sel, score_coluna)
+            if plano_valido:
+                return TabularQueryPlan(
+                    intent=intent,
+                    target_document=doc_sel.nome_arquivo,
+                    target_sheet=aba_sel,
+                    target_columns=target_cols_reais,
+                    group_by_columns=group_by_reais,
+                    filters=filtros_resolvidos,
+                    limit=limit,
+                    order_by_direction=order_dir,
+                    confidence=min(1.0, score_sel),
+                    original_query=query,
+                    requires_full_scan=True,
+                    selection_reason=razao_sel
+                )
 
     # ─────────────────────────────────────────────────────────────────────────
     # 2. ROTEAMENTO DINÂMICO VIA QUERY ROUTER (PRIORIDADE 5)
@@ -613,9 +758,19 @@ def detectar_e_planejar_consulta_tabular(
                     if col_dt:
                         filtros_resolvidos.append(TabularFilter(column=col_dt, operator="date_range", value=interv))
                 elif rf.get("tipo") == "numeric_threshold":
-                    col_num = resolver_coluna(rf.get("termo_coluna", ""), colunas_reais)
-                    if col_num and rf.get("operador") and rf.get("valor") is not None:
-                        filtros_resolvidos.append(TabularFilter(column=col_num, operator=rf["operador"], value=rf["valor"]))
+                    col_num = resolver_coluna(rf.get("termo_coluna") or "", colunas_reais)
+                    if not col_num or not _coluna_e_numerica(sheet_obj, col_num):
+                        # O termo_coluna do roteador é a palavra logo após o número -- em
+                        # "gramatura acima de 300" ela nem existe, em "menos de 15 reais por metro"
+                        # é "reais". A coluna de verdade está mencionada em outro ponto da pergunta.
+                        col_num, _ = _resolver_coluna_pela_pergunta(query, sheet_obj, somente_numericas=True)
+                    if not col_num or not rf.get("operador") or rf.get("valor") is None:
+                        # Um filtro pedido e não aplicável NÃO pode virar "sem filtro": o plano
+                        # devolveria a tabela inteira como se estivesse filtrada, e o LLM leria
+                        # "todos os 12 tecidos têm gramatura acima de 300" como fato calculado.
+                        # Melhor não responder pela via tabular do que responder errado.
+                        return None
+                    filtros_resolvidos.append(TabularFilter(column=col_num, operator=rf["operador"], value=rf["valor"]))
 
             # Identifica filtros por valores literais presentes na query
             for col in colunas_reais:
@@ -646,6 +801,24 @@ def detectar_e_planejar_consulta_tabular(
             elif route.route == RouteType.TABULAR_LIST:
                 tab_intent = TabularIntent.DISTINCT
 
+            # "Quantos X diferentes/distintos" é contagem de valores distintos, não de linhas. O
+            # roteador classifica como COUNT -- que responderia com o total de linhas (12 tecidos
+            # em vez de 3 fornecedores). Aqui a coluna é obrigatória: sem ela, o DISTINCT cairia
+            # na primeira coluna da planilha, que é outro chute.
+            if tab_intent == TabularIntent.COUNT and any(m in q_norm.split() for m in _MARCADORES_DISTINCT):
+                coluna_distinta, _ = _resolver_coluna_pela_pergunta(query, sheet_obj)
+                if not coluna_distinta:
+                    return None
+                tab_intent = TabularIntent.DISTINCT
+                target_cols_reais = [coluna_distinta]
+
+            target_cols_reais, plano_valido, score_coluna = _completar_colunas_do_plano(
+                tab_intent, target_cols_reais, query, sheet_obj
+            )
+            if not plano_valido:
+                return None
+            score_sel = max(score_sel, score_coluna)
+
             # Limite e Ordenação
             limite = 1 if tab_intent in (TabularIntent.RANK, TabularIntent.MAX, TabularIntent.MIN) else None
             order_dir = "asc" if (tab_intent == TabularIntent.MIN or "colocacao" in route.target_columns or "rank" in [c.lower() for c in target_cols_reais]) else "desc"
@@ -664,6 +837,63 @@ def detectar_e_planejar_consulta_tabular(
                 requires_full_scan=True,
                 selection_reason=razao_sel
             )
+        # O roteador identificou uma consulta tabular mas não houve documento compatível -- não
+        # é caso de tentar o detector de superlativos, que olharia os mesmos documentos.
+        return None
+
+    return _planejar_superlativo(query, q_norm, documentos)
+
+
+# Superlativos que o roteador não reconhece como consulta tabular ("qual o tecido mais caro" cai na
+# busca vetorial, que devolve o primeiro tecido parecido, não o de maior preço). Monetários
+# ("caro"/"barato") se resolvem pela coluna de preço; "maior"/"menor" exigem que a pergunta cite a
+# coluna pelo nome inteiro -- sem isso, "qual a maior preocupação ao costurar seda?" viraria MAX
+# sobre qualquer coluna numérica de qualquer planilha do tenant.
+_PADROES_SUPERLATIVO: List[Tuple[str, TabularIntent, bool]] = [
+    (r"\bmais (?:caro|cara|caros|caras)\b", TabularIntent.MAX, True),
+    (r"\bmais (?:barato|barata|baratos|baratas)\b", TabularIntent.MIN, True),
+    (r"\b(?:maior|mais alto|mais alta)\b", TabularIntent.MAX, False),
+    (r"\b(?:menor|mais baixo|mais baixa)\b", TabularIntent.MIN, False),
+]
+
+_SCORE_MINIMO_COLUNA_MONETARIA = 0.5
+_SCORE_MINIMO_COLUNA_NOMEADA = 1.0
+
+
+def _planejar_superlativo(
+    query: str, q_norm: str, documentos: List[TabularDocument]
+) -> Optional[TabularQueryPlan]:
+    for padrao, intent, monetario in _PADROES_SUPERLATIVO:
+        if not re.search(padrao, q_norm):
+            continue
+
+        score_minimo = _SCORE_MINIMO_COLUNA_MONETARIA if monetario else _SCORE_MINIMO_COLUNA_NOMEADA
+        melhor: Optional[Tuple[TabularDocument, str, str, float]] = None
+        for doc in documentos:
+            for nome_aba, sheet in doc.sheets.items():
+                coluna, score = _resolver_coluna_pela_pergunta(query, sheet, somente_numericas=True)
+                if coluna and score >= score_minimo and (melhor is None or score > melhor[3]):
+                    melhor = (doc, nome_aba, coluna, score)
+
+        if melhor is None:
+            return None
+
+        doc, nome_aba, coluna, score = melhor
+        return TabularQueryPlan(
+            intent=intent,
+            target_document=doc.nome_arquivo,
+            target_sheet=nome_aba,
+            target_columns=[coluna],
+            limit=1,
+            order_by_direction="desc" if intent == TabularIntent.MAX else "asc",
+            confidence=min(1.0, score),
+            original_query=query,
+            requires_full_scan=True,
+            selection_reason=(
+                f"Superlativo detectado na pergunta; coluna '{coluna}' resolvida pelo schema "
+                f"(score {score:.2f})."
+            ),
+        )
 
     return None
 
@@ -786,6 +1016,39 @@ def executar_consulta_tabular(
 
     total_casadas = len(linhas_filtradas)
     warnings: List[str] = []
+
+    # Defesa em profundidade (Fase 13, Bloco F3): o planejador já descarta planos numéricos sem
+    # coluna válida, mas este executor é chamado também diretamente (testes, planos montados à
+    # mão). Uma operação numérica sobre uma coluna que não existe -- ou que não tem nenhum número
+    # -- não pode devolver 0,00 com success=True: o bloco vai para o LLM com a instrução de usar o
+    # número "sem recalcular".
+    if plano.intent in _INTENTS_NUMERICOS:
+        coluna_numerica = plano.target_columns[0] if plano.target_columns else (
+            "valor" if "valor" in sheet.schema else None
+        )
+        motivo_falha = None
+        if not coluna_numerica or coluna_numerica not in sheet.schema:
+            motivo_falha = f"Coluna numérica para {plano.intent.value} não resolvida no schema da aba '{plano.target_sheet}'."
+        elif not _coluna_e_numerica(sheet, coluna_numerica):
+            motivo_falha = f"A coluna '{coluna_numerica}' não contém valores numéricos suficientes para {plano.intent.value}."
+        elif plano.intent == TabularIntent.AVG and not any(
+            _parse_numero_generico(r.dados.get(coluna_numerica)) is not None for r in linhas_filtradas
+        ):
+            # Média de conjunto vazio é indefinida -- "0,00 (baseado em 0 registros)" é falso.
+            motivo_falha = "Nenhum registro com valor numérico para calcular a média."
+
+        if motivo_falha:
+            logger.warning(f"Consulta tabular recusada: {motivo_falha}")
+            return TabularQueryResult(
+                success=False,
+                intent=plano.intent.value,
+                source_documents=[plano.target_document],
+                source_sheets=[plano.target_sheet],
+                rows_scanned=total_escaneadas,
+                rows_matched=total_casadas,
+                columns_used=plano.target_columns,
+                warnings=[motivo_falha],
+            )
 
     # 2. Execução da Operação Matemática / Estruturada
     valor_calculado: Any = None

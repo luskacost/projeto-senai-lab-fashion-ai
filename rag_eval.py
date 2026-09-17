@@ -203,6 +203,24 @@ def contar_relevantes_no_corpus(caso: CasoAvaliacao, chunks_do_corpus: List[Dict
     return sum(1 for chunk in chunks_do_corpus if _chunk_e_relevante(chunk, caso))
 
 
+def contar_relevantes_gerados(resultado: ResultadoCaso, textos_do_corpus: set) -> int:
+    """Chunks relevantes que o pipeline devolveu mas que não existem no corpus.
+
+    O motor tabular sintetiza um bloco [TABULAR_RESULT] na hora da consulta -- ele não está
+    indexado, então não entra em `contar_relevantes_no_corpus`. Quando esse bloco E a linha do
+    catálogo são ambos relevantes, contar só o corpus no denominador dava recall 2/1 = 2,0.
+
+    A solução é o "pooling" usado em avaliação de IR: o conjunto de relevantes de um caso é a
+    união dos relevantes conhecidos (corpus) com os relevantes que o sistema efetivamente
+    produziu. Recall fica limitado a 1,0 e o nDCG passa a comparar com um ranking ideal que também
+    inclui a resposta sintetizada.
+    """
+    return sum(
+        1 for chunk, relevante in zip(resultado.chunks_recuperados, resultado.relevancias)
+        if relevante and chunk.get("texto", "") not in textos_do_corpus
+    )
+
+
 def _metricas_de_um_caso(
     resultado: ResultadoCaso, total_relevantes: int, k: int
 ) -> Dict[str, float]:
@@ -238,6 +256,7 @@ def resumir_avaliacao(
     convivia com categorias inteiras em 0%.
     """
     por_id = {r.caso_id: r for r in resultados}
+    textos_do_corpus = {chunk.get("texto", "") for chunk in chunks_do_corpus}
     grupos: Dict[str, List[Dict[str, Any]]] = {"recuperaveis": [], "abstencao": [], "computados": []}
     # categoria -> grupo -> registros. Uma categoria PODE abranger mais de um grupo: em
     # "tabular_filtro", um filtro de resultado multi-linha só existe calculado, enquanto os de
@@ -255,12 +274,14 @@ def resumir_avaliacao(
         elif caso.resposta_computada:
             grupo, registro = "computados", {"caso_id": caso.id, "acertou": any(resultado.relevancias)}
         else:
-            total = contar_relevantes_no_corpus(caso, chunks_do_corpus)
+            no_corpus = contar_relevantes_no_corpus(caso, chunks_do_corpus)
+            gerados = contar_relevantes_gerados(resultado, textos_do_corpus)
             grupo = "recuperaveis"
             registro = {
                 "caso_id": caso.id,
-                "total_relevantes_no_corpus": total,
-                **_metricas_de_um_caso(resultado, total, k),
+                "total_relevantes_no_corpus": no_corpus,
+                "relevantes_gerados": gerados,
+                **_metricas_de_um_caso(resultado, no_corpus + gerados, k),
             }
 
         grupos[grupo].append(registro)

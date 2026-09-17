@@ -1,15 +1,15 @@
 {
-  "rotulo": "Fase 13 -- pos F1 (Tasks 1-5)",
+  "rotulo": "Fase 13 -- pos correcao do motor tabular (F3)",
   "k": 5,
   "total_casos": 36,
   "recuperaveis": {
     "n": 23,
     "relevantes_no_corpus_medio": 1.09,
-    "recall_medio": 0.7826,
-    "precision_em_k_media": 0.1739,
-    "precision_dos_recuperados_media": 0.2123,
-    "mrr": 0.6587,
-    "ndcg_medio": 0.685
+    "recall_medio": 0.8261,
+    "precision_em_k_media": 0.2,
+    "precision_dos_recuperados_media": 0.2326,
+    "mrr": 0.7783,
+    "ndcg_medio": 0.7566
   },
   "abstencao": {
     "n": 8,
@@ -18,8 +18,8 @@
   },
   "computados": {
     "n": 5,
-    "acertos": 1,
-    "taxa": 0.2
+    "acertos": 5,
+    "taxa": 1.0
   },
   "por_categoria": {
     "anti_alucinacao": {
@@ -102,25 +102,25 @@
       "n": 4,
       "computados": {
         "n": 4,
-        "acertos": 1,
-        "taxa": 0.25
+        "acertos": 4,
+        "taxa": 1.0
       }
     },
     "tabular_filtro": {
       "n": 4,
       "computados": {
         "n": 1,
-        "acertos": 0,
-        "taxa": 0.0
+        "acertos": 1,
+        "taxa": 1.0
       },
       "recuperaveis": {
         "n": 3,
         "relevantes_no_corpus_medio": 1.0,
-        "recall_medio": 0.3333,
-        "precision_em_k_media": 0.0667,
-        "precision_dos_recuperados_media": 0.0667,
-        "mrr": 0.0833,
-        "ndcg_medio": 0.1436
+        "recall_medio": 0.6667,
+        "precision_em_k_media": 0.2667,
+        "precision_dos_recuperados_media": 0.2222,
+        "mrr": 1.0,
+        "ndcg_medio": 0.6922
       }
     }
   }

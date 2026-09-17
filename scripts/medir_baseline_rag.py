@@ -15,7 +15,7 @@ entra se o número deste arquivo melhorar. Rodar de novo e sobrescrever `rag_bas
 confirmação antes de sobrescrever um arquivo já existente.
 
 Uso:
-    python scripts/medir_baseline_rag.py [--k 5] [--forcar]
+    python scripts/medir_baseline_rag.py --rotulo "descricao do estado" [--k 5] [--forcar]
 """
 
 import argparse
@@ -41,7 +41,7 @@ CAMINHO_BASELINE = os.path.join(os.path.dirname(__file__), "..", "rag_baseline_f
 TENANT_MEDICAO = "rag_baseline_medicao"
 
 
-def medir(k: int) -> dict:
+def medir(k: int, rotulo: str) -> dict:
     caminho_chroma = os.path.join("tenant_data", "chroma", TENANT_MEDICAO)
     shutil.rmtree(caminho_chroma, ignore_errors=True)
     rm._CHROMA_CLIENTS.pop(TENANT_MEDICAO, None)
@@ -52,7 +52,7 @@ def medir(k: int) -> dict:
         resultados = rag_eval.executar_conjunto(casos, k=k)
         chunks = rag_eval.carregar_chunks_do_tenant(TENANT_MEDICAO)
         resumo = rag_eval.resumir_avaliacao(
-            casos, resultados, chunks, k=k, rotulo="Fase 13 -- pos F1 (Tasks 1-5)"
+            casos, resultados, chunks, k=k, rotulo=rotulo
         )
     finally:
         gs.remover_corpus(TENANT_MEDICAO)
@@ -68,6 +68,10 @@ if __name__ == "__main__":
         "--forcar", action="store_true",
         help="Sobrescreve rag_baseline_fase13.json existente sem perguntar.",
     )
+    parser.add_argument(
+        "--rotulo", required=True,
+        help="Descrição do estado medido (ex: 'pos correcao do motor tabular') -- fica no JSON.",
+    )
     args = parser.parse_args()
 
     if os.path.exists(CAMINHO_BASELINE) and not args.forcar:
@@ -76,7 +80,7 @@ if __name__ == "__main__":
             "baseline -- passe --forcar se é isso mesmo que você quer."
         )
 
-    resumo = medir(k=args.k)
+    resumo = medir(k=args.k, rotulo=args.rotulo)
     print(rag_eval.formatar_resumo(resumo))
 
     with open(CAMINHO_BASELINE, "w", encoding="utf-8") as f:
