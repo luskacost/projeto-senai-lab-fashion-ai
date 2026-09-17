@@ -310,7 +310,33 @@ mostre ganho. Os modelos baixados para o teste foram removidos do cache.
 A melhor variante (3º voto no RRF) ganha em `tabular_filtro` o que perde em `conceitual`: é
 troca, não melhora — exatamente o que a trava por categoria da catraca existe para barrar.
 
-## 11. Limitações desta medição
+## 11. Task 13 — recalibração: os valores atuais já estão no platô
+
+Varredura de 30 configurações sobre a v5 (42 casos), um parâmetro por vez, com o mesmo corpus e
+os mesmos casos. Resumo do que a varredura mostrou:
+
+| Parâmetro | Faixa testada | Resultado |
+|---|---|---|
+| `weights.vector` / `lexical` | 0,30–0,50 / 0,25–0,45 | 0,40/0,35 (atual) e 0,45/0,30 empatam no melhor; fora disso `tabular_filtro` cai |
+| `weights.frequency` | 0,05–0,25 | 0,05 derruba `conceitual` (recall 1,000→0,750); 0,15 (atual) e 0,25 empatam |
+| `weights.metadata` | 0,00–0,40 | 0,00 derruba `tabular_filtro`; 0,20–0,30 dá +0,005 de nDCG — **não adotado, ver abaixo** |
+| `relative_score_threshold` | 0,35–0,75 | idêntico de 0,35 a 0,65; só 0,75 piora |
+| `min_rerank_score` | 0,10–0,30 | idêntico de 0,10 a 0,25; só 0,30 piora |
+| `rrf_k` | 10–240 | 10 e 20 pioram `tabular_filtro`; 60 (atual), 120 e 240 empatam |
+| `bm25_candidate_pool` | 5–40 | sem efeito neste corpus (19 chunks < pool vetorial) |
+| `entity_hop_max_chunks` | 1–3 | sem efeito |
+
+**Decisão: nenhuma mudança.** O único candidato era `metadata` 0,10 → 0,20, mas a curva não é
+monotônica (0,12 empata, **0,15 piora**, 0,20–0,30 melhora, 0,40 piora): isso é troca de posição
+entre candidatos quase empatados, não um efeito estável. O ganho seria +0,005 de nDCG agregado,
+vindo de um caso só — exatamente o tipo de ajuste que 42 casos não sustentam.
+
+**O que a varredura garante (e é o resultado útil):** os thresholds, que a auditoria da Fase 13
+apontou como "calibrados numa escala torta" (ver seção 1), estão num platô largo — qualquer valor
+entre 0,35 e 0,65 de threshold relativo, e entre 0,10 e 0,25 de score mínimo, dá exatamente o
+mesmo resultado. A correção da fórmula de distância (Task 1) não deixou os limiares desalinhados.
+
+## 12. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`
