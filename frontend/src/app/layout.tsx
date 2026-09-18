@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Roboto } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import PortaoDeAcesso from "@/components/PortaoDeAcesso";
 import "./globals.css";
 
 const roboto = Roboto({
@@ -19,7 +20,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="pt-BR" className={`${roboto.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        <TooltipProvider>{children}</TooltipProvider>
+        <TooltipProvider>
+          <PortaoDeAcesso>{children}</PortaoDeAcesso>
+        </TooltipProvider>
         <Toaster position="top-center" richColors />
       </body>
     </html>

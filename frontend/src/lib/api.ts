@@ -1,6 +1,8 @@
 // Cliente da API do SenaiLabFashionAssistant (api/main.py).
 // Tipos e chamadas espelham o contrato em API_CONTRATO.md.
 
+import { notificarPerdaDeAcesso, obterTokenAcesso } from "@/lib/acesso";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -11,24 +13,43 @@ export class ApiError extends Error {
   }
 }
 
+// Anexado em toda chamada (Fase 14, Bloco S) -- rotas isentas (ver API_CONTRATO.md) simplesmente
+// ignoram o header, então é seguro mandar sempre, mesmo sem token ainda (valor null vira ausente).
+function headerDeAcesso(): Record<string, string> {
+  const token = obterTokenAcesso();
+  return token ? { "X-Access-Token": token } : {};
+}
+
+// Único ponto que interpreta uma resposta de erro do backend -- usado tanto por request() quanto
+// pelas duas chamadas de upload (FormData) que não passam por ela. Centraliza também a detecção
+// do header X-Auth-Gate: acesso, que dispara a volta à tela de senha de acesso (Fase 14, Bloco S)
+// sem que cada página precise verificar isso sozinha.
+async function erroDaResposta(res: Response): Promise<ApiError> {
+  let detail = res.statusText;
+  try {
+    const body = await res.json();
+    detail = body.detail ?? detail;
+  } catch {
+    // corpo nao era JSON valido, mantem statusText
+  }
+  if (res.status === 401 && res.headers.get("X-Auth-Gate") === "acesso") {
+    notificarPerdaDeAcesso();
+  }
+  return new ApiError(res.status, detail);
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
+      ...headerDeAcesso(),
       ...(options?.headers ?? {}),
     },
   });
 
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // corpo nao era JSON valido, mantem statusText
-    }
-    throw new ApiError(res.status, detail);
+    throw await erroDaResposta(res);
   }
 
   return res.json() as Promise<T>;
@@ -216,6 +237,14 @@ export async function deletarConversa(tenantId: string, usuarioId: string, conve
 // token (não mais um simples "1") e precisa enviá-lo de volta no header X-Admin-Token em toda
 // rota administrativa de verdade (upload/remoção de documentos, config do tenant), que agora
 // checa esse token no backend em vez de confiar só na tela de login escondendo o botão.
+export async function acessoLogin(senha: string): Promise<string | null> {
+  const resultado = await request<{ autorizado: boolean; token: string | null }>("/acesso/login", {
+    method: "POST",
+    body: JSON.stringify({ senha }),
+  });
+  return resultado.autorizado ? resultado.token : null;
+}
+
 export async function adminLogin(tenantId: string, senha: string): Promise<string | null> {
   const resultado = await request<{ autorizado: boolean; token: string | null }>("/admin/login", {
     method: "POST",
@@ -239,19 +268,12 @@ export async function uploadDocumento(tenantId: string, arquivo: File, tokenAdmi
 
   const res = await fetch(`${API_URL}/documentos/upload?tenant_id=${encodeURIComponent(tenantId)}`, {
     method: "POST",
-    headers: { "X-Admin-Token": tokenAdmin },
+    headers: { "X-Admin-Token": tokenAdmin, ...headerDeAcesso() },
     body: formData,
   });
 
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // corpo nao era JSON valido, mantem statusText
-    }
-    throw new ApiError(res.status, detail);
+    throw await erroDaResposta(res);
   }
 
   return res.json() as Promise<UploadDocumentoResponse>;
@@ -293,18 +315,11 @@ export async function uploadPlanilha(
 
   const res = await fetch(
     `${API_URL}/planilha/upload?tenant_id=${encodeURIComponent(tenantId)}&conversation_id=${encodeURIComponent(conversationId)}`,
-    { method: "POST", body: formData }
+    { method: "POST", headers: headerDeAcesso(), body: formData }
   );
 
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // corpo nao era JSON valido, mantem statusText
-    }
-    throw new ApiError(res.status, detail);
+    throw await erroDaResposta(res);
   }
 
   return res.json() as Promise<UploadPlanilhaResponse>;
@@ -563,19 +578,12 @@ export async function uploadLogo(tenantId: string, arquivo: File, tokenAdmin: st
 
   const res = await fetch(`${API_URL}/branding/logo?tenant_id=${encodeURIComponent(tenantId)}`, {
     method: "POST",
-    headers: { "X-Admin-Token": tokenAdmin },
+    headers: { "X-Admin-Token": tokenAdmin, ...headerDeAcesso() },
     body: formData,
   });
 
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // corpo nao era JSON valido, mantem statusText
-    }
-    throw new ApiError(res.status, detail);
+    throw await erroDaResposta(res);
   }
 
   return res.json() as Promise<InfoLogo["metadados"]>;
@@ -651,14 +659,7 @@ export async function baixarFichaDocumento(
 
   const res = await fetch(url);
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // corpo nao era JSON valido, mantem statusText
-    }
-    throw new ApiError(res.status, detail);
+    throw await erroDaResposta(res);
   }
 
   // O nome vem do Content-Disposition montado pelo backend (ex: ficha_CM-001_Camisa.docx), que
@@ -729,14 +730,7 @@ export async function baixarExportacaoConversa(
 
   const res = await fetch(url);
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? detail;
-    } catch {
-      // corpo nao era JSON valido, mantem statusText
-    }
-    throw new ApiError(res.status, detail);
+    throw await erroDaResposta(res);
   }
 
   const blob = await res.blob();

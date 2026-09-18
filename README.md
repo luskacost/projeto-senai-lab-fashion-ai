@@ -195,6 +195,7 @@ Copie `.env.example` para `.env` e preencha (convenção: `{TENANT_ID_MAIUSCULO}
 | Variável | Uso |
 |---|---|
 | `SENAI_LABFASHION_OPENAI_API_KEY` | Chat (GPT-4o), moderação, geração de imagem (gpt-image-1), busca web (web_search nativo). |
+| `SENAI_LABFASHION_ACCESS_PASSWORD` | Senha única de acesso ao app inteiro (Fase 14) -- opcional; sem ela, o app fica aberto como sempre (uso em desenvolvimento local). |
 | `SENAI_LABFASHION_ADMIN_PASSWORD` | Senha do painel administrativo (`/admin`). |
 
 Variáveis adicionais (não vão no `.env`, são configuração de deploy):
@@ -217,6 +218,16 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 3. `docker compose up -d`.
 4. Configurar um reverse proxy (Nginx) na frente dos dois serviços -- ver `nginx.conf.example`
    (roteia `/` pro frontend, `/api/` pro backend) e configurar TLS (ex: Certbot/Let's Encrypt).
+
+## Senha única de acesso (Fase 14)
+
+O app inteiro (não só `/admin`) pode ser protegido por uma senha compartilhada, configurada em
+`SENAI_LABFASHION_ACCESS_PASSWORD`. Sem cadastro de usuário final por design (ver decisão da Fase
+9), esta é a porta de entrada: uma senha, não um login por pessoa -- fecha o acesso a quem está
+fora da organização, mas não isola um colega do outro dentro dela. Sem a variável definida, o app
+fica aberto como sempre (comportamento de desenvolvimento local). O login (`PortaoDeAcesso.tsx`,
+que envolve todas as páginas em `layout.tsx`) emite um token válido por 30 dias, guardado no
+navegador -- bloqueio automático de 15 minutos por IP após 5 tentativas incorretas.
 
 ## Admin (`/admin`)
 

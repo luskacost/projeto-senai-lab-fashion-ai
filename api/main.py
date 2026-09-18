@@ -20,7 +20,7 @@ import unicodedata
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, UploadFile, File
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -116,6 +116,114 @@ app.add_middleware(
     # montado pelo backend (ficha_CM-001_Camisa_Social.docx).
     expose_headers=["Content-Disposition"],
 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SENHA ÚNICA DE ACESSO (Fase 14, Bloco S)
+#
+# Antes disto, qualquer rota do backend (chat, fichas, upload de planilha, geração de imagem) era
+# alcançável por qualquer um que soubesse o endereço -- sem cadastro de usuário final por design
+# (decisão da Fase 9), a única barreira real era não saber que o servidor existia. Uma senha única
+# para o app inteiro fecha essa porta sem reabrir a decisão de não ter login por pessoa: é "quem
+# sabe a senha entra", não "quem sou eu" -- não isola um colega do outro dentro da mesma
+# organização, só impede acesso de quem está de fora.
+#
+# Mesmo padrão do token de admin abaixo (token opaco em memória, bloqueio por tentativas), mas sem
+# tenant_id (a senha é do app, não por tenant -- este projeto é single-tenant por decisão de
+# produto) e com duração bem mais longa (uso diário contínuo, não uma ação administrativa pontual).
+#
+# Implementado como dependência global (app.router.dependencies, logo abaixo) em vez de decorar
+# rota por rota -- assim nenhuma rota nova esquece de exigi-la. Rotas que servem um arquivo para
+# consumo DIRETO do navegador (<img src>, <a href>, <iframe src>) ficam de fora por necessidade
+# técnica, nunca por descuido: o navegador não anexa headers customizados nesses casos. São sempre
+# rotas de leitura de um recurso cujo identificador (UUID de ficha, id de croqui) já não é
+# adivinhável -- a exceção reduz a proteção só ali, não abre a porta inteira de novo.
+# ─────────────────────────────────────────────────────────────────────────────
+_ACCESS_TOKENS: Dict[str, Dict[str, Any]] = {}  # token -> {"expira_em": timestamp}
+_ACCESS_LOGIN_TENTATIVAS: Dict[str, Dict[str, Any]] = {}  # ip -> {"falhas": int, "bloqueado_ate": timestamp}
+
+DURACAO_TOKEN_ACESSO_SEGUNDOS = 30 * 24 * 60 * 60  # 30 dias -- uso diário, não pontual como o admin
+MAX_TENTATIVAS_LOGIN_ACESSO = 5
+DURACAO_BLOQUEIO_LOGIN_ACESSO_SEGUNDOS = 15 * 60  # 15 minutos
+
+_PADROES_SEM_GATE_DE_ACESSO = [
+    re.compile(r"^/health$"),
+    re.compile(r"^/acesso/login$"),
+    re.compile(r"^/branding/logo$"),  # logo pública, exibida inclusive na própria tela de login
+    re.compile(r"^/fichas/[^/]+/preview$"),
+    re.compile(r"^/fichas/[^/]+/docx$"),
+    re.compile(r"^/fichas/[^/]+/pdf$"),
+    re.compile(r"^/fichas/[^/]+/desenho/[^/]+$"),
+    re.compile(r"^/conversas/[^/]+/export$"),
+]
+
+
+def _rota_isenta_do_gate_de_acesso(caminho: str) -> bool:
+    return any(padrao.match(caminho) for padrao in _PADROES_SEM_GATE_DE_ACESSO)
+
+
+def _gerar_token_acesso() -> str:
+    token = secrets.token_urlsafe(32)
+    _ACCESS_TOKENS[token] = {"expira_em": time.time() + DURACAO_TOKEN_ACESSO_SEGUNDOS}
+    return token
+
+
+def verificar_acesso(request: Request, x_access_token: Optional[str] = Header(None, alias="X-Access-Token")) -> None:
+    """Dependência global -- aplicada a toda rota via app.router.dependencies. Sem
+    SENAI_LABFASHION_ACCESS_PASSWORD configurada, o gate fica desligado (ambiente de
+    desenvolvimento local, comportamento de sempre)."""
+    senha_de_acesso = os.environ.get("SENAI_LABFASHION_ACCESS_PASSWORD", "")
+    if not senha_de_acesso:
+        return
+    if request.method == "OPTIONS" or _rota_isenta_do_gate_de_acesso(request.url.path):
+        return
+    dados = _ACCESS_TOKENS.get(x_access_token or "")
+    if not dados or dados["expira_em"] < time.time():
+        # Header próprio (não confundir com o 401 de token de admin expirado, que é uma rota
+        # específica falhando, não o app inteiro) -- o frontend usa isto para saber que precisa
+        # voltar à tela de senha de acesso, em vez de tentar interpretar o texto da mensagem.
+        raise HTTPException(
+            status_code=401,
+            detail="Acesso não autorizado. Informe a senha de acesso.",
+            headers={"X-Auth-Gate": "acesso"},
+        )
+
+
+class AccessLoginRequest(BaseModel):
+    senha: str
+
+
+@app.post("/acesso/login")
+def acesso_login(payload: AccessLoginRequest, request: Request) -> Dict[str, Any]:
+    senha_de_acesso = os.environ.get("SENAI_LABFASHION_ACCESS_PASSWORD", "")
+    if not senha_de_acesso:
+        # Gate desligado: não há o que comparar -- só ocorre em ambiente sem a variável definida.
+        return {"autorizado": True, "token": _gerar_token_acesso()}
+
+    ip_cliente = request.client.host if request.client else "desconhecido"
+    agora = time.time()
+    estado = _ACCESS_LOGIN_TENTATIVAS.get(ip_cliente, {"falhas": 0, "bloqueado_ate": 0.0})
+    if estado["bloqueado_ate"] > agora:
+        minutos_restantes = int((estado["bloqueado_ate"] - agora) / 60) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Muitas tentativas incorretas. Tente novamente em {minutos_restantes} minuto(s)."
+        )
+
+    autorizado = hmac.compare_digest(payload.senha, senha_de_acesso)
+    if not autorizado:
+        estado["falhas"] += 1
+        if estado["falhas"] >= MAX_TENTATIVAS_LOGIN_ACESSO:
+            estado["bloqueado_ate"] = agora + DURACAO_BLOQUEIO_LOGIN_ACESSO_SEGUNDOS
+            estado["falhas"] = 0
+        _ACCESS_LOGIN_TENTATIVAS[ip_cliente] = estado
+        return {"autorizado": False, "token": None}
+
+    _ACCESS_LOGIN_TENTATIVAS.pop(ip_cliente, None)
+    return {"autorizado": True, "token": _gerar_token_acesso()}
+
+
+app.router.dependencies.append(Depends(verificar_acesso))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

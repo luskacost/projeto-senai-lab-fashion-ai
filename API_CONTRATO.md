@@ -7,6 +7,28 @@ arquitetura de IA por trás de `/chat`, ver a seção "Arquitetura do agente" no
 Convenção: `tenant_id` é sempre obrigatório. Multi-tenant na estrutura, uso single-tenant
 (`senai_labfashion`) na prática hoje.
 
+## Senha única de acesso (Fase 14, Bloco S)
+
+Camada de acesso ao app **inteiro**, separada da autenticação de admin abaixo — não é login por
+pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organização.
+
+### `POST /acesso/login`
+- **Body:** `{ senha }`
+- **Lógica:** compara com `SENAI_LABFASHION_ACCESS_PASSWORD` via `hmac.compare_digest`; bloqueio
+  de 15min após 5 tentativas incorretas **por IP** (diferente do admin, que hoje bloqueia por
+  tenant — ver nota da Task 2). Sem a variável de ambiente definida, o gate fica inteiramente
+  desligado e a rota sempre autoriza (comportamento de desenvolvimento local).
+- **Resposta:** `{ autorizado: bool, token: string | null }` — `token` é opaco, válido por 30
+  dias, exigido no header `X-Access-Token` em toda rota do backend, **exceto**:
+  - `GET /health`, `POST /acesso/login`, `GET /branding/logo`;
+  - `GET /fichas/{id}/preview`, `GET /fichas/{id}/docx`, `GET /fichas/{id}/pdf`,
+    `GET /fichas/{id}/desenho/{versao}`, `GET /conversas/{id}/export`.
+
+  Essas rotas servem um arquivo para consumo direto do navegador (`<img src>`, `<a href>`,
+  `<iframe src>`), que não anexa headers customizados — ficam de fora do gate por necessidade
+  técnica, não por descuido. São sempre leitura de um recurso cujo identificador (UUID de ficha)
+  já não é adivinhável.
+
 ## Autenticação/Admin
 
 ### `POST /admin/login`
