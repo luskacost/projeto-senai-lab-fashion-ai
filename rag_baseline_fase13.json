@@ -1,7 +1,7 @@
 {
-  "rotulo": "v5 - pos listagens com filtro por valor (F3, Task 11)",
+  "rotulo": "v6 - listagem agrupada GROUP_LIST (achado em producao, fora do Bloco F3)",
   "k": 5,
-  "total_casos": 42,
+  "total_casos": 43,
   "recuperaveis": {
     "n": 23,
     "relevantes_no_corpus_medio": 1.09,
@@ -17,8 +17,8 @@
     "taxa": 1.0
   },
   "computados": {
-    "n": 10,
-    "acertos": 10,
+    "n": 11,
+    "acertos": 11,
     "taxa": 1.0
   },
   "por_categoria": {
@@ -124,10 +124,10 @@
       }
     },
     "tabular_listagem": {
-      "n": 5,
+      "n": 6,
       "computados": {
-        "n": 5,
-        "acertos": 5,
+        "n": 6,
+        "acertos": 6,
         "taxa": 1.0
       }
     }

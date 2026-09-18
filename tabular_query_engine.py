@@ -43,6 +43,7 @@ class TabularIntent(str, Enum):
     MIN = "MIN"
     MAX = "MAX"
     GROUP_COUNT = "GROUP_COUNT"
+    GROUP_LIST = "GROUP_LIST"
     RANK = "RANK"
     MISSING_VALUE = "MISSING_VALUE"
     NEGATIVE_VALUE = "NEGATIVE_VALUE"
@@ -302,21 +303,17 @@ def _coluna_e_numerica(sheet: "TabularSheet", coluna: str, proporcao_minima: flo
     return numericos / len(valores) >= proporcao_minima
 
 
-def _resolver_coluna_pela_pergunta(
+def _pontuar_colunas_pela_pergunta(
     query: str, sheet: "TabularSheet", somente_numericas: bool = False
-) -> Tuple[Optional[str], float]:
-    """Devolve (coluna, score) da coluna do schema mais mencionada na pergunta, ou (None, 0.0).
-
-    score = fração dos tokens significativos do nome da coluna que aparecem na pergunta (1,0 =
-    nome inteiro mencionado), mais 0,5 se a pergunta fala de dinheiro e a coluna é monetária. O
-    bônus monetário é menor que uma menção explícita de propósito: em "valor da gramatura", a
-    coluna citada pelo nome tem de ganhar da coluna de preço.
-    """
+) -> List[Tuple[str, float]]:
+    """Pontua TODAS as colunas do schema pela pergunta, mesmo critério de
+    `_resolver_coluna_pela_pergunta` (fração dos tokens do nome da coluna presentes na pergunta,
+    mais bônus monetário) -- ordenadas por score decrescente. Usada tanto para achar a MELHOR
+    coluna quanto para achar DUAS colunas citadas juntas (listagem agrupada)."""
     tokens_pergunta = _tokens_normalizados(query)
     fala_de_dinheiro = any(t in _GATILHOS_MONETARIOS for t in tokens_pergunta)
 
-    melhor_coluna: Optional[str] = None
-    melhor_score = 0.0
+    pontuadas: List[Tuple[str, float]] = []
     for coluna in sheet.schema:
         if somente_numericas and not _coluna_e_numerica(sheet, coluna):
             continue
@@ -337,10 +334,44 @@ def _resolver_coluna_pela_pergunta(
         if fala_de_dinheiro and any(f in coluna_norm for f in _FRAGMENTOS_COLUNA_MONETARIA):
             score += 0.5
 
-        if score > melhor_score:
-            melhor_coluna, melhor_score = coluna, score
+        pontuadas.append((coluna, score))
 
-    return melhor_coluna, melhor_score
+    pontuadas.sort(key=lambda item: item[1], reverse=True)
+    return pontuadas
+
+
+def _resolver_coluna_pela_pergunta(
+    query: str, sheet: "TabularSheet", somente_numericas: bool = False
+) -> Tuple[Optional[str], float]:
+    """Devolve (coluna, score) da coluna do schema mais mencionada na pergunta, ou (None, 0.0)."""
+    pontuadas = _pontuar_colunas_pela_pergunta(query, sheet, somente_numericas)
+    if not pontuadas or pontuadas[0][1] <= 0.0:
+        return None, 0.0
+    return pontuadas[0]
+
+
+def _resolver_colunas_de_agrupamento(query: str, sheet: "TabularSheet") -> Optional[Tuple[str, str]]:
+    """Duas colunas de TEXTO citadas pelo nome inteiro na pergunta, para uma listagem agrupada
+    ("liste cada consultor e suas respectivas empresas"): a de MENOR cardinalidade (menos valores
+    distintos) vira o grupo, a outra vira o valor listado dentro de cada grupo -- sem essa
+    heurística, "consultor" e "empresa" citados juntos não têm como se saber qual agrupa qual só
+    pelo texto da pergunta.
+    """
+    candidatas = [
+        c for c, score in _pontuar_colunas_pela_pergunta(query, sheet)
+        if score >= _SCORE_MINIMO_COLUNA_NOMEADA and not _coluna_e_numerica(sheet, c)
+    ]
+    if len(candidatas) < 2:
+        return None
+
+    def _cardinalidade(coluna: str) -> int:
+        return len({
+            str(r.dados.get(coluna)).strip() for r in sheet.linhas
+            if not _eh_valor_vazio(r.dados.get(coluna))
+        })
+
+    col_a, col_b = candidatas[0], candidatas[1]
+    return (col_a, col_b) if _cardinalidade(col_a) <= _cardinalidade(col_b) else (col_b, col_a)
 
 
 _INTENTS_NUMERICOS = (TabularIntent.SUM, TabularIntent.AVG, TabularIntent.MIN, TabularIntent.MAX)
@@ -423,6 +454,43 @@ def _condicao_sem_resolucao(query: str, sheet: "TabularSheet", nome_documento: s
         and t not in _STOPWORDS_NORM_VALOR
         and not any(_tokens_casam(t, r) for r in referencias if len(r) >= 3)
     ]
+
+
+_MARCADOR_AGRUPAMENTO = re.compile(r"\bcada\b|\brespectiv")
+
+
+def _planejar_listagem_agrupada(
+    query: str, q_norm: str, documentos: List["TabularDocument"]
+) -> Optional["TabularQueryPlan"]:
+    """"Liste cada consultor e suas respectivas empresas" -- pergunta que cita DUAS colunas reais
+    junto de um marcador de "por grupo" ("cada", "respectivas"). Sem isso, a pergunta caía no
+    DISTINCT de uma coluna só (a "condição sem resolução" descartava o plano) ou na busca
+    vetorial, que devolve uma amostra arbitrária de poucas linhas como se fosse a lista completa
+    -- o defeito real que motivou esta função (achado em produção, não no golden set).
+    """
+    if not _MARCADOR_AGRUPAMENTO.search(q_norm):
+        return None
+    for doc in documentos:
+        for nome_aba, sheet in doc.sheets.items():
+            colunas = _resolver_colunas_de_agrupamento(query, sheet)
+            if not colunas:
+                continue
+            col_grupo, col_valor = colunas
+            return TabularQueryPlan(
+                intent=TabularIntent.GROUP_LIST,
+                target_document=doc.nome_arquivo,
+                target_sheet=nome_aba,
+                target_columns=[col_valor],
+                group_by_columns=[col_grupo],
+                confidence=0.6,
+                original_query=query,
+                requires_full_scan=True,
+                selection_reason=(
+                    f"Listagem agrupada: '{col_valor}' por '{col_grupo}' (ambas citadas na "
+                    "pergunta pelo nome inteiro)."
+                ),
+            )
+    return None
 
 
 def _planejar_listagem_por_valor(
@@ -920,7 +988,20 @@ def detectar_e_planejar_consulta_tabular(
             if tab_intent in (TabularIntent.DISTINCT, TabularIntent.LIST) and not any(
                 m in q_norm.split() for m in _MARCADORES_DISTINCT
             ):
-                if filtros_resolvidos:
+                colunas_agrupamento = (
+                    _resolver_colunas_de_agrupamento(query, sheet_obj)
+                    if _MARCADOR_AGRUPAMENTO.search(q_norm) else None
+                )
+                if colunas_agrupamento:
+                    # "liste cada consultor e suas respectivas empresas": DUAS colunas reais
+                    # citadas junto de um marcador de grupo -- sem este ramo, a narrowing abaixo
+                    # tentaria resolver 1 coluna só, sobraria a outra como "condição sem
+                    # resolução" e o plano inteiro seria descartado (achado em produção).
+                    col_grupo, col_valor = colunas_agrupamento
+                    tab_intent = TabularIntent.GROUP_LIST
+                    target_cols_reais = [col_valor]
+                    group_by_reais = [col_grupo]
+                elif filtros_resolvidos:
                     tab_intent = TabularIntent.FILTER
                 else:
                     coluna_listada, _ = _resolver_coluna_pela_pergunta(query, sheet_obj)
@@ -968,7 +1049,11 @@ def detectar_e_planejar_consulta_tabular(
         # é caso de tentar o detector de superlativos, que olharia os mesmos documentos.
         return None
 
-    return _planejar_superlativo(query, q_norm, documentos) or _planejar_listagem_por_valor(query, q_norm, documentos)
+    return (
+        _planejar_superlativo(query, q_norm, documentos)
+        or _planejar_listagem_agrupada(query, q_norm, documentos)
+        or _planejar_listagem_por_valor(query, q_norm, documentos)
+    )
 
 
 # Superlativos que o roteador não reconhece como consulta tabular ("qual o tecido mais caro" cai na
@@ -1391,6 +1476,40 @@ def executar_consulta_tabular(
         for item in lista_grupos:
             linhas_texto_resultado.append(f"- {item['grupo']}: {item['contagem']}")
         linhas_texto_resultado.append("Resumo em linha: " + ", ".join(f"{item['grupo']} ({item['contagem']})" for item in lista_grupos))
+
+    elif intent == TabularIntent.GROUP_LIST:
+        # "Liste cada consultor e suas respectivas empresas" -- diferente de GROUP_COUNT (só o
+        # número por grupo), aqui o valor devolvido é a LISTA de itens de cada grupo. Achado em
+        # produção: sem este intent, a pergunta caía na busca vetorial, que devolve uma amostra
+        # arbitrária de poucas linhas (ex: 5 de 65) apresentada como se fosse a lista completa.
+        col_grupo = plano.group_by_columns[0] if plano.group_by_columns else _escolher_coluna_categoria_provavel(sheet)
+        col_valor = plano.target_columns[0] if plano.target_columns and plano.target_columns[0] != col_grupo else None
+
+        grupos_map: Dict[str, Set[str]] = {}
+        for r in linhas_filtradas:
+            g_raw = r.dados.get(col_grupo)
+            if _eh_valor_vazio(g_raw):
+                continue
+            g_str = str(g_raw).strip()
+            grupos_map.setdefault(g_str, set())
+            if col_valor:
+                v_raw = r.dados.get(col_valor)
+                if not _eh_valor_vazio(v_raw):
+                    grupos_map[g_str].add(str(v_raw).strip())
+
+        lista_grupos = [
+            {"grupo": g, "contagem": len(itens), "itens": sorted(itens)}
+            for g, itens in grupos_map.items()
+        ]
+        lista_grupos.sort(key=lambda x: x["grupo"])
+
+        grupos_retornados = lista_grupos
+        valor_calculado = lista_grupos
+        linhas_texto_resultado.append(f"Listagem de '{col_valor}' agrupada por '{col_grupo}' ({len(lista_grupos)} grupo(s)):")
+        for item in lista_grupos[:max_result_rows]:
+            linhas_texto_resultado.append(f"- {item['grupo']}: {', '.join(item['itens']) if item['itens'] else '(nenhum valor)'}")
+        if len(lista_grupos) > max_result_rows:
+            warnings.append(f"Total de {len(lista_grupos)} grupos encontrados. Mostrando primeiros {max_result_rows}.")
 
     elif intent == TabularIntent.DISTINCT:
         colunas_sistemas = [c for c in sheet.schema if c not in ("Month", "Week", "Date", "id", "linha")]

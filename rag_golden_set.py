@@ -304,6 +304,13 @@ def casos(tenant_id: str = TENANT_GOLDEN) -> List[CasoAvaliacao]:
         caso(id="TL-05", categoria="tabular_listagem", resposta_computada=True,
              query="Quais os fornecedores do catalogo?",
              termos_relevantes=["Fiacao Aurora", "Tecelagem Bandeira", "Malharia Cristal"]),
+        # Achado em produção (não do desenho original do corpus): "liste cada X e suas
+        # respectivas Y" caía na busca vetorial, que devolve uma amostra de poucos grupos em vez
+        # de todos -- exige um termo de CADA um dos 3 fornecedores para provar que nenhum ficou
+        # de fora, não só "a resposta existe em algum lugar".
+        caso(id="TL-06", categoria="tabular_listagem", resposta_computada=True,
+             query="Liste cada fornecedor e os nomes dos tecidos que fornece",
+             termos_relevantes=["Oxford", "Brim", "Pique"]),
 
         # ── anti_alucinacao: a informação não existe em lugar nenhum da base ──────────────────
         caso(id="AA-01", categoria="anti_alucinacao", deve_abster=True,

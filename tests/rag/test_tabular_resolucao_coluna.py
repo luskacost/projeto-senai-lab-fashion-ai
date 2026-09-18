@@ -94,6 +94,44 @@ class TestResolverColunaPelaPergunta(unittest.TestCase):
         self.assertTrue(tqe._tokens_casam("cor", "cor"))
 
 
+class TestResolverColunasDeAgrupamento(unittest.TestCase):
+    """Função pura -- decide qual das duas colunas citadas na pergunta é o grupo e qual é o
+    valor listado dentro de cada grupo, pela cardinalidade (menos valores distintos = grupo)."""
+
+    def setUp(self):
+        self.sheet = _sheet(
+            ["Fabricante", "Referencia", "Peso unitario"],
+            [
+                {"Fabricante": "Casa", "Referencia": "AV-01", "Peso unitario": "2.5"},
+                {"Fabricante": "Casa", "Referencia": "AV-03", "Peso unitario": "1.2"},
+                {"Fabricante": "Zip", "Referencia": "AV-02", "Peso unitario": "8.0"},
+            ],
+        )
+
+    def test_coluna_de_menor_cardinalidade_vira_o_grupo(self):
+        # Fabricante tem 2 valores distintos, Referencia tem 3 -- Fabricante agrupa.
+        colunas = tqe._resolver_colunas_de_agrupamento("cada fabricante e suas referencias", self.sheet)
+        self.assertEqual(colunas, ("Fabricante", "Referencia"))
+
+    def test_ordem_das_palavras_na_pergunta_nao_importa(self):
+        colunas = tqe._resolver_colunas_de_agrupamento("cada referencia do respectivo fabricante", self.sheet)
+        self.assertEqual(colunas, ("Fabricante", "Referencia"))
+
+    def test_uma_coluna_so_citada_nao_resolve(self):
+        colunas = tqe._resolver_colunas_de_agrupamento("cada fabricante do estoque", self.sheet)
+        self.assertIsNone(colunas)
+
+    def test_coluna_numerica_nao_participa(self):
+        # "Peso unitario" é citada, mas não pode virar coluna de listagem agrupada (numérica).
+        colunas = tqe._resolver_colunas_de_agrupamento("cada fabricante e seu peso unitario", self.sheet)
+        self.assertIsNone(colunas)
+
+    def test_mencao_parcial_nao_conta(self):
+        # "fabricante" sozinho, sem citar "referencia" pelo nome inteiro.
+        colunas = tqe._resolver_colunas_de_agrupamento("cada fabricante e seus produtos", self.sheet)
+        self.assertIsNone(colunas)
+
+
 class _ComPlanilhaIndexada(unittest.TestCase):
 
     @classmethod
@@ -257,6 +295,54 @@ class TestListagens(_ComPlanilhaIndexada):
             "Liste os aviamentos com garantia vitalicia", TENANT_TESTE
         )
         self.assertIsNone(plano)
+
+
+class TestListagemAgrupada(_ComPlanilhaIndexada):
+    """"Liste cada fabricante e suas respectivas referências" -- achado em produção (não no
+    golden set original): a pergunta cita DUAS colunas reais junto de um marcador de grupo
+    ("cada", "respectivas"). Antes desta correção, o plano de listagem tentava resolver 1 coluna
+    só, sobrava a outra como "condição sem resolução" e a pergunta inteira caía na busca vetorial
+    -- que devolve uma amostra arbitrária de poucas linhas (não todos os grupos) apresentada como
+    se fosse a lista completa. No caso real que motivou isto (produção, tenant
+    `senai_labfashion`), "liste cada consultor e suas respectivas empresas" respondia só 2 dos 6
+    consultores, com listas de empresas incompletas e inconsistentes entre uma pergunta e outra
+    na mesma conversa.
+    """
+
+    def test_marcador_cada_agrupa_pela_coluna_de_menor_cardinalidade(self):
+        plano, res = self._executar("Liste cada fabricante e suas respectivas referencias")
+        self.assertEqual(plano.intent, tqe.TabularIntent.GROUP_LIST)
+        self.assertEqual(plano.group_by_columns, ["Fabricante"])
+        self.assertEqual(plano.target_columns, ["Referencia"])
+        grupos = {g["grupo"]: g["itens"] for g in res.value}
+        self.assertEqual(grupos["Casa dos Botoes"], ["AV-01", "AV-03"])
+        self.assertEqual(grupos["Zipers Brasil"], ["AV-02", "AV-05"])
+        self.assertEqual(grupos["Metais Sul"], ["AV-04"])
+
+    def test_marcador_respectivas_sem_a_palavra_cada(self):
+        plano, res = self._executar("Mostre os fabricantes e suas respectivas referencias")
+        self.assertEqual(plano.intent, tqe.TabularIntent.GROUP_LIST)
+        self.assertEqual(len(res.value), 3)  # os 3 fabricantes, nenhum de fora
+
+    def test_todos_os_grupos_aparecem_nao_so_uma_amostra(self):
+        # O defeito original: a busca vetorial via só 2-3 grupos de 6 (top_k pequeno). Aqui é
+        # cálculo determinístico sobre a planilha inteira -- todo grupo com pelo menos uma linha
+        # tem que aparecer.
+        _plano, res = self._executar("Liste cada fabricante e suas respectivas referencias")
+        self.assertEqual({g["grupo"] for g in res.value}, {"Casa dos Botoes", "Zipers Brasil", "Metais Sul"})
+
+    def test_sem_marcador_de_grupo_nao_vira_group_list(self):
+        # As duas colunas aparecem juntas, mas sem "cada"/"respectivas" -- continua sendo o
+        # comportamento antigo (aqui, filtro por valor, não listagem agrupada).
+        plano, _res = self._executar("Liste os aviamentos do fabricante Zipers Brasil")
+        self.assertNotEqual(plano.intent, tqe.TabularIntent.GROUP_LIST)
+
+    def test_uma_coluna_so_citada_nao_vira_group_list(self):
+        # "cada" presente, mas só uma coluna resolvida (fabricante) -- sem uma segunda coluna
+        # citada pelo nome inteiro, não há como saber o que listar dentro de cada grupo. "cada"
+        # em si não é uma condição reconhecida, então o plano é descartado (nunca chuta).
+        plano = tqe.detectar_e_planejar_consulta_tabular("Liste cada fabricante do estoque", TENANT_TESTE)
+        self.assertTrue(plano is None or plano.intent != tqe.TabularIntent.GROUP_LIST)
 
 
 class TestExecutorRecusaOperacaoNumericaSemColuna(unittest.TestCase):

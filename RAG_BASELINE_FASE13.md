@@ -22,7 +22,17 @@ régua, para uma task futura não conseguir desfazer um ganho sem que o teste pe
 | v2 — pós correção do motor tabular (F3) | 2026-09-17 | 0,8261 | 0,7566 | 0,7783 | 8/8 | 5/5 |
 | v3 — pós salto por entidade entre documentos (F3) | 2026-09-17 | 0,9565 | 0,8438 | 0,8493 | 8/8 | 5/5 |
 | v4 — pós BM25 + fusão RRF (F3, Task 10) | 2026-09-17 | 0,9783 | 0,8823 | 0,8783 | 8/8 | 5/5 |
-| **v5 — pós listagens com filtro por valor (F3, Task 11), 42 casos** | 2026-09-17 | **0,9783** | **0,8823** | **0,8783** | **9/9** | **10/10** |
+| v5 — pós listagens com filtro por valor (F3, Task 11), 42 casos | 2026-09-17 | 0,9783 | 0,8823 | 0,8783 | 9/9 | 10/10 |
+| **v6 — listagem agrupada GROUP_LIST (achado em produção), 43 casos** | 2026-09-18 | **0,9783** | **0,8823** | **0,8783** | **9/9** | **11/11** |
+
+**v5 → v6:** achado em produção (usuário reportou, fora do escopo das Tasks 10-14 já fechadas)
+— "liste cada consultor e suas respectivas empresas" e variações não tinham NENHUM intent no
+motor tabular (só existiam DISTINCT — uma coluna, sem grupo — e GROUP_COUNT — conta por grupo,
+não lista os valores). A pergunta caía na busca vetorial, que devolve uma amostra de poucas linhas
+de 65 apresentada como se fosse a lista completa — o próprio usuário viu isso ao vivo: duas
+perguntas seguidas na mesma conversa real deram respostas diferentes e incompletas (2 de 6
+consultores, listas de empresas truncadas de forma inconsistente entre uma resposta e outra).
+Ver seção 13.
 
 **v4 → v5:** golden set ampliado (+5 listagens, +1 abstenção) e motor tabular com filtro por
 valor (ver seção 9). Nos 6 casos novos, o código da v4 acertava só a abstenção (listagens 0/5); a
@@ -371,7 +381,40 @@ que ele é pesado demais para o ambiente atual (CPU, sem GPU) — 4,3 GB em disc
 **Se o corpus mudar** (mais texto em prosa livre, menos planilha), vale remedir — o resultado
 está preso ao mix de conteúdo de hoje, não é uma propriedade permanente do MiniLM.
 
-## 13. Limitações desta medição
+## 13. Listagem agrupada (GROUP_LIST) -- achado em produção, v6
+
+**Como foi encontrado:** não veio de uma medição ou de um caso planejado do golden set -- o
+usuário enviou o histórico real de uma conversa no tenant `senai_labfashion` em que "liste todos
+os consultores" funcionava, mas "liste cada consultor e suas respectivas empresas" e "me mostre
+de todos os consultores" (a mesma pergunta reformulada duas vezes na sequência) davam respostas
+diferentes entre si e sempre incompletas -- 2 de 6 consultores na melhor delas, com listas de
+empresas que não batiam entre uma resposta e a seguinte.
+
+**Causa raiz:** o motor tabular nunca teve uma operação para "para cada valor de X, listar todos
+os valores de Y" -- só existiam `DISTINCT` (valores únicos de UMA coluna, sem agrupar) e
+`GROUP_COUNT` (conta por grupo, não os valores). A pergunta não reconhecida caía na busca
+vetorial, que devolve `top_k` linhas (poucas, de 65) como se fosse a enumeração completa --
+exatamente o padrão de falha "amostra parcial apresentada como fato" que as Tasks 1-11 já tinham
+eliminado para outras formas de pergunta, mas essa forma específica nunca tinha sido testada.
+
+**O que mudou (`tabular_query_engine.py`):** novo intent `GROUP_LIST`. Detecção por duas colunas
+reais citadas pelo NOME INTEIRO na pergunta junto de um marcador de agrupamento ("cada",
+"respectiv*") -- a de menor cardinalidade (menos valores distintos) vira o grupo, a outra vira a
+lista dentro de cada grupo (`_resolver_colunas_de_agrupamento`). Sem as duas colunas resolvidas
+pelo nome inteiro, não gera plano -- cai na busca vetorial como antes, em vez de chutar qual
+coluna agrupa qual.
+
+**Medido:** golden set ganha o caso análogo (`TL-06`, catálogo de tecidos: fornecedor → nomes dos
+tecidos, 3 fornecedores com 4 tecidos cada) -- 42 → 43 casos. Reproduzido e confirmado corrigido
+com a frase exata do relato em produção (`senai_labfashion`, leitura): os 6 consultores aparecem
+completos, cada um com a lista inteira de empresas.
+
+**O que isto não resolve:** "me mostre de todos os consultores" (a terceira pergunta da conversa
+real, sem mencionar "empresas") só faz sentido como continuação da pergunta anterior -- exige
+resolução de elipse conversacional, não reconhecimento de uma frase autocontida. Fora do escopo
+desta correção; registrado para eventual trabalho futuro em `conversational_query.py`.
+
+## 14. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`
