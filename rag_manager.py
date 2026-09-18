@@ -129,17 +129,29 @@ FINAL_RERANK_K: int = RAG_CONFIG.get("final_context_top_k", 5)
 # Instância padrão do reranker heurístico desacoplado
 _DEFAULT_RERANKER: BaseReranker = HeuristicReranker()
 
-# Armazena o último relatório de debug gerado para inspeção
-_ULTIMO_RAG_DEBUG: Dict[str, Any] = {}
+# Último relatório de debug por tenant (Fase 13, Task 16) -- nunca uma única variável global: sem
+# segmentação por tenant, GET /debug/rag?tenant_id=A podia devolver a pergunta e o texto integral
+# dos chunks da última busca de QUALQUER OUTRO tenant, porque o estado era compartilhado.
+_ULTIMO_RAG_DEBUG_POR_TENANT: Dict[str, Dict[str, Any]] = {}
 
-def obter_ultimo_rag_debug() -> Dict[str, Any]:
-    """Retorna o relatório estruturado de debug do último retrieval executado."""
-    return dict(_ULTIMO_RAG_DEBUG)
+def obter_ultimo_rag_debug(tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    """Retorna o relatório estruturado de debug do último retrieval executado.
+
+    Com `tenant_id`: só o último desse tenant -- nunca o de outro (uso da rota `/debug/rag`).
+    Sem `tenant_id`: o último de qualquer tenant neste processo, para os usos internos (log
+    verboso, testes de baixo nível) que já sabem de que tenant se trata.
+    """
+    if tenant_id is not None:
+        return dict(_ULTIMO_RAG_DEBUG_POR_TENANT.get(tenant_id, {}))
+    if not _ULTIMO_RAG_DEBUG_POR_TENANT:
+        return {}
+    ultimo_tenant = next(reversed(_ULTIMO_RAG_DEBUG_POR_TENANT))
+    return dict(_ULTIMO_RAG_DEBUG_POR_TENANT[ultimo_tenant])
 
 
 def formatar_bloco_debug_rag(debug_info: Optional[Dict[str, Any]] = None) -> str:
     """Formata o relatório de debug RAG em formato textual padronizado para logs ou UI."""
-    info = debug_info or _ULTIMO_RAG_DEBUG
+    info = debug_info or obter_ultimo_rag_debug()
     if not info:
         return "Nenhum dado de debug RAG disponível."
 
@@ -1159,7 +1171,6 @@ def buscar_contexto_relevante(
     Fusão/Deduplicação + Reranking Desacoplado + Seleção com Cobertura/Diversidade).
     Preserva 100% de compatibilidade com a interface pública original.
     """
-    global _ULTIMO_RAG_DEBUG
     logger = obter_logger(tenant_id)
     cfg = config or RAG_CONFIG
     _inicio_busca = time.time()
@@ -1206,7 +1217,7 @@ def buscar_contexto_relevante(
                     "is_relevant": True,
                     "discard_reason": ""
                 }
-                _ULTIMO_RAG_DEBUG = {
+                _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id] = {
                     "question": pergunta,
                     "rewritten_question": pergunta_busca if pergunta_busca != pergunta else None,
                     "route": query_route.route.value,
@@ -1233,7 +1244,7 @@ def buscar_contexto_relevante(
                     "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
                     "final_context": {"quantidade_chunks": 1, "caracteres": len(ambiguity_chunk["texto"]), "fontes": [ambiguity_chunk["fonte"]]}
                 }
-                _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
+                _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id], _inicio_busca)
                 return [ambiguity_chunk]
 
         # 0. Verificação e Execução do Tabular Query Engine (Prioridades 3 e 5)
@@ -1273,7 +1284,7 @@ def buscar_contexto_relevante(
 
         if total_docs == 0:
             if tabular_chunk_dict:
-                _ULTIMO_RAG_DEBUG = {
+                _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id] = {
                     "question": pergunta,
                     "rewritten_question": pergunta_busca if pergunta_busca != pergunta else None,
                     "route": query_route.route.value if query_route else "TABULAR_ONLY",
@@ -1300,12 +1311,12 @@ def buscar_contexto_relevante(
                     "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
                     "final_context": {"quantidade_chunks": 1, "caracteres": len(tabular_chunk_dict["texto"]), "fontes": [tabular_chunk_dict["fonte"]]}
                 }
-                _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
+                _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id], _inicio_busca)
                 return [tabular_chunk_dict]
 
             if RAG_DEBUG:
                 logger.info(f"[RAG DEBUG] Coleção vazia para tenant '{tenant_id}'.")
-            _ULTIMO_RAG_DEBUG = {
+            _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id] = {
                 "question": pergunta,
                 "rewritten_question": pergunta_busca if pergunta_busca != pergunta else None,
                 "route": "EMPTY_COLLECTION",
@@ -1332,7 +1343,7 @@ def buscar_contexto_relevante(
                 "conversational_query_debug": conv_rewrite_res.to_dict() if conv_rewrite_res else None,
                 "final_context": {"quantidade_chunks": 0, "caracteres": 0, "fontes": []}
             }
-            _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
+            _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id], _inicio_busca)
             return []
 
         # 1. Query Understanding, Classificação e Expansão/Decomposição
@@ -1430,7 +1441,7 @@ def buscar_contexto_relevante(
         struct_count = sum(1 for c in chunks_formatados if c.get("tipo_arquivo") in ("tabular", "csv", "xlsx", "xls") or str(c.get("fonte", "")).lower().endswith((".csv", ".xlsx", ".xls")))
         narr_count = sum(1 for c in chunks_formatados if c.get("tipo_arquivo") in ("md", "markdown", "pdf", "txt", "text") or str(c.get("fonte", "")).lower().endswith((".md", ".pdf", ".txt")))
 
-        _ULTIMO_RAG_DEBUG = {
+        _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id] = {
             "question": pergunta,
             "rewritten_question": pergunta_busca if pergunta_busca != pergunta else None,
             "route": query_route.route.value if query_route else "VECTOR_SEMANTIC",
@@ -1484,9 +1495,9 @@ def buscar_contexto_relevante(
 
         # Emissão de Log de Debug
         if RAG_DEBUG:
-            logger.info(f"\n{formatar_bloco_debug_rag(_ULTIMO_RAG_DEBUG)}")
+            logger.info(f"\n{formatar_bloco_debug_rag(_ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id])}")
 
-        _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG, _inicio_busca)
+        _log_resumo_busca(logger, tenant_id, _ULTIMO_RAG_DEBUG_POR_TENANT[tenant_id], _inicio_busca)
         return chunks_formatados
     except Exception as e:
         logger.error(f"Erro ao recuperar contexto relevante no ChromaDB para tenant '{tenant_id}': {e}", exc_info=True)

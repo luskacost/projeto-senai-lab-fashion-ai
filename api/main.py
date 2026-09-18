@@ -1204,13 +1204,14 @@ def deletar_logo(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin
 # DEBUG/OBSERVABILIDADE (stub, uso interno)
 # ─────────────────────────────────────────────────────────────────────────────
 @app.get("/debug/rag")
-def debug_rag(tenant_id: str) -> Dict[str, Any]:
-    """Retorna o último relatório de debug do pipeline RAG gerado neste processo.
+def debug_rag(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> Dict[str, Any]:
+    """Retorna o último relatório de debug do pipeline RAG do `tenant_id` informado.
 
-    Limitação herdada de rag_manager.py: o debug é um estado global do módulo
-    (_ULTIMO_RAG_DEBUG), não segmentado por tenant nem por requisição — em um
-    servidor com múltiplos workers/requisições concorrentes, reflete apenas a
-    última busca executada neste processo, não necessariamente a do `tenant_id`
-    informado. Uso interno/administrativo, não destinado ao front-end React.
+    Exige token de admin desse mesmo tenant (Fase 13, Task 16) -- a rota devolve a pergunta e o
+    texto integral dos chunks recuperados, dado sensível o bastante para justificar a mesma
+    autenticação das outras rotas administrativas. `obter_ultimo_rag_debug` já segmenta por
+    tenant: nunca devolve o debug de uma busca de outro tenant, mesmo que ela tenha sido a mais
+    recente do processo. Uso interno/administrativo, não destinado ao front-end React.
     """
-    return obter_ultimo_rag_debug()
+    verificar_token_admin(tenant_id, x_admin_token)
+    return obter_ultimo_rag_debug(tenant_id)
