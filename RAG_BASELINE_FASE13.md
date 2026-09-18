@@ -336,7 +336,42 @@ apontou como "calibrados numa escala torta" (ver seção 1), estão num platô l
 entre 0,35 e 0,65 de threshold relativo, e entre 0,10 e 0,25 de score mínimo, dá exatamente o
 mesmo resultado. A correção da fórmula de distância (Task 1) não deixou os limiares desalinhados.
 
-## 12. Limitações desta medição
+## 12. Task 14 — modelo de embeddings: medido e mantido o atual
+
+Três alternativas multilíngues medidas sobre a v5 (42 casos, mesmo corpus, mesmo pipeline —
+BM25 e RRF incluídos), reindexando do zero para cada uma. Modelos baixados temporariamente e
+removidos do cache HF ao final, como na Task 12.
+
+| Modelo | Dim | Janela | Recall | nDCG | MRR | CO-03 |
+|---|---|---|---|---|---|---|
+| paraphrase-multilingual-MiniLM-L12-v2 (atual) | 384 | 128 | 0,9783 | 0,8823 | 0,8783 | falha |
+| intfloat/multilingual-e5-small | 384 | 512 | 0,9348 | 0,8278 | 0,8420 | **acerta** |
+| intfloat/multilingual-e5-base | 768 | 512 | 0,9348 | 0,8267 | 0,8406 | **acerta** |
+| BAAI/bge-m3 | 1024 | 8192 | 0,8913 | 0,8110 | 0,8333 | **acerta** |
+
+**Decisão: manter o modelo atual.** Os três alternativos resolvem o CO-03 (o sinônimo
+"líquidos e respingos" ↔ "hidrorrepelente" que motivou a task), mas pioram em bloco:
+`conceitual` cai em nDCG e MRR nos três, `tabular_filtro` cai de recall 0,833 para 0,5, e até
+`lookup_direto` (recall 1,0 garantido) perde um pouco de nDCG. Nenhum ganha no agregado.
+
+**Por que o padrão se repete nos três:** o corpus real deste tenant é dominado por linhas de
+planilha e códigos alfanuméricos curtos (`TX-200`, `JL-100`) — texto tabular, não prosa. Os e5 e
+o BGE-m3 foram treinados majoritariamente sobre pares pergunta/parágrafo em linguagem natural;
+ganham em compreender sinônimos de frase inteira e perdem em casar um código técnico exato
+contra uma linha de catálogo. O modelo atual (MiniLM, treinado para paráfrase curta) acerta o
+inverso. Como o produto lida com fichas técnicas e catálogos — texto estruturado — o modelo
+atual está alinhado ao caso de uso real, não só ao golden set.
+
+**BGE-M3 tem um problema operacional à parte:** travou com segmentation fault na primeira
+tentativa (script recarregando o modelo de 2,3 GB a cada chamada sem cache); só rodou depois de
+corrigir o script de medição para carregar uma vez só. Isso não é do modelo em si, mas reforça
+que ele é pesado demais para o ambiente atual (CPU, sem GPU) — 4,3 GB em disco contra os
+458 MB do modelo em uso.
+
+**Se o corpus mudar** (mais texto em prosa livre, menos planilha), vale remedir — o resultado
+está preso ao mix de conteúdo de hoje, não é uma propriedade permanente do MiniLM.
+
+## 13. Limitações desta medição
 
 - **Corpus de 19 chunks.** Suficiente para o ranking ter o que errar (ver o desenho do corpus em
   `rag_golden_set.py`), mas pequeno demais para expor problemas de escala (ex: `final_context_top_k`
