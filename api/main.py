@@ -9,6 +9,7 @@ têm lógica implementada (ver roadmap: cada um é implementado em uma sessão f
 Rodar localmente: uvicorn api.main:app --reload
 """
 
+import asyncio
 import hmac
 import io
 import os
@@ -728,14 +729,17 @@ async def upload_documento(
             detail=f"Arquivo '{arquivo.filename}' excede o limite de {LIMITE_UPLOAD_BYTES // (1024 * 1024)}MB por upload."
         )
     try:
-        unidades_extraidas = extrair_documento(conteudo, nome_arquivo=arquivo.filename)
+        # Extração (parsing de PDF/DOCX/planilha) e indexação (embeddings via
+        # sentence-transformers) são CPU-bound e síncronas -- rodar direto aqui bloquearia o
+        # event loop inteiro, inclusive o chat de outros tenants, pela duração da indexação.
+        unidades_extraidas = await asyncio.to_thread(extrair_documento, conteudo, nome_arquivo=arquivo.filename)
     except ValueError as err_val:
         raise HTTPException(status_code=400, detail=str(err_val))
 
     if not unidades_extraidas:
         raise HTTPException(status_code=422, detail=f"O arquivo '{arquivo.filename}' não contém texto legível, registros ou está vazio.")
 
-    qtd_chunks = indexar_documento(tenant_id, arquivo.filename, unidades_extraidas)
+    qtd_chunks = await asyncio.to_thread(indexar_documento, tenant_id, arquivo.filename, unidades_extraidas)
     if qtd_chunks == 0:
         raise HTTPException(status_code=422, detail=f"Nenhum chunk pôde ser gerado para o arquivo '{arquivo.filename}'.")
 
@@ -768,11 +772,13 @@ async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadF
     stream = io.BytesIO(conteudo)
     stream.name = arquivo.filename
 
-    df = carregar_planilha(stream, tenant_id)
+    # Mesmo motivo do /documentos/upload acima: parsing com pandas e o resumo estatístico são
+    # síncronos e podem ser pesados o bastante para travar o event loop numa planilha grande.
+    df = await asyncio.to_thread(carregar_planilha, stream, tenant_id)
     if df is None:
         raise HTTPException(status_code=422, detail=f"Não foi possível ler a planilha '{arquivo.filename}' (formato inválido, corrompida ou vazia).")
 
-    resumo = gerar_resumo_estatistico(df)
+    resumo = await asyncio.to_thread(gerar_resumo_estatistico, df)
     salvar_resumo_estatistico(tenant_id, conversation_id, resumo)
 
     return {
