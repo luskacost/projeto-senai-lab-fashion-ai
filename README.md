@@ -22,9 +22,17 @@ caso precise consultar).
 - **Busca web:** `web_search` nativo da OpenAI (Responses API) -- usado pelos modos Tendências,
   Engenharia Têxtil e Assistente Geral quando a pergunta exige informação atual; o modelo decide
   sozinho quando pesquisar em vez de responder de conhecimento próprio.
-- **RAG / Base de Conhecimento:** [ChromaDB](https://www.trychroma.com/) (embutido, self-hosted)
-  + [Sentence-Transformers](https://www.sbert.net/) (`paraphrase-multilingual-MiniLM-L12-v2`,
-  100% local em CPU, sem custo de API para vetorização) para embeddings.
+- **RAG / Base de Conhecimento:** [ChromaDB](https://www.trychroma.com/) (embutido, self-hosted,
+  `hnsw:space="cosine"` explícito) + [Sentence-Transformers](https://www.sbert.net/)
+  (`paraphrase-multilingual-MiniLM-L12-v2`, 100% local em CPU, sem custo de API) para embeddings.
+  Busca híbrida: vetorial + BM25 próprio (`bm25_index.py`) fundidos por Reciprocal Rank Fusion,
+  reranking heurístico configurável por tenant, e um segundo salto que segue códigos alfanuméricos
+  citados no trecho-âncora até outro documento (ex.: liga uma peça do manual ao preço dela no
+  catálogo). Perguntas de agregação/filtro/listagem sobre planilhas indexadas (`AVG`, `SUM`,
+  `DISTINCT`, superlativos) são resolvidas deterministicamente por um motor tabular
+  (`tabular_query_engine.py`), nunca por soma feita pelo LLM. Medido continuamente contra um
+  golden set sintético versionado (`rag_golden_set.py`, custo zero de API) — ver
+  `RAG_BASELINE_FASE13.md` para a metodologia e o histórico de medições.
 - **Isolamento multi-tenant:** cada tenant tem seus próprios índices vetoriais
   (`tenant_data/chroma/{tenant_id}/`), conversas, planilhas e configurações -- uma busca de um
   tenant nunca retorna dados de outro.
@@ -57,8 +65,10 @@ Usuário → POST /chat → agente_openai.chamar_agente()
                             ├── responde de conhecimento próprio (sem tool nenhuma)
                             ├── web_search nativo (Tendências, Engenharia Têxtil, Assistente Geral)
                             └── ferramenta do sistema (agente_ferramentas.py)
-                                   ├── buscar_documentos_internos (RAG do tenant)
-                                   ├── listar_documentos_disponiveis
+                                   ├── buscar_documentos_internos (RAG do tenant; Consultor de
+                                   │     Estilo, Professor Técnico, Engenharia Têxtil, Tendências
+                                   │     e Assistente Geral)
+                                   ├── listar_documentos_disponiveis (mesmos modos acima)
                                    ├── consultar_resumo_planilha
                                    ├── consultar_unidades_senai (contato SENAI)
                                    ├── gerar_imagem_croqui (gera imagem)
@@ -237,6 +247,17 @@ peças do sistema se juntam no mesmo documento). Extração e geração de image
 os testes que exigem o LibreOffice de verdade (conversão PDF, contagem de página) se pulam sozinhos
 via `skipUnless` quando ele não está instalado no ambiente -- o CI não o tem.
 
+Os testes do RAG ficam em `tests/rag/` -- unitários por peça (resolução de coluna tabular, fusão
+BM25/RRF, salto por entidade, pareamento fonte/trecho) e `test_baseline_regressao.py`, que roda o
+golden set completo (`rag_golden_set.py`, custo zero de API) e falha se qualquer métrica de
+recall/nDCG/MRR, taxa de abstenção ou taxa de acerto computado regredir contra
+`rag_baseline_fase13.json` -- **por categoria**, não só na média (ver `RAG_BASELINE_FASE13.md`).
+Uma melhoria de verdade sobe essa régua conscientemente via
+`python scripts/medir_baseline_rag.py --rotulo "..." --forcar`, nunca por edição manual do JSON.
+Diretórios de tenant de teste ficam em `tenant_data/{chroma,tabular}/teste_*` -- `scripts/limpar_tenants_orfaos.py`
+lista (e, com `--forcar`, remove) qualquer diretório de tenant nessas pastas que não seja
+`senai_labfashion` nem esteja em uso por um teste rodando.
+
 ## Logs e diagnóstico
 
 - Logs vão tanto para stdout (essencial em containers) quanto para `logs/app.log`
@@ -247,3 +268,7 @@ via `skipUnless` quando ele não está instalado no ambiente -- o CI não o tem.
 - Toda chamada de ferramenta do agente é logada (`tool=... status=... duracao_ms=... args=...
   resultado=...`), assim como cada invocação completa do agente (`agente pergunta=... rodadas=...
   tokens_in=... tokens_out=... duracao_ms=... web_search=...`).
+- Toda busca RAG loga uma linha resumida sempre ativa (`rag_query_summary tenant=... route=...
+  tabular_attempted=... chunks=... tempo_ms=...`), independente do modo debug verboso
+  (`RAG_DEBUG`/`GET /debug/rag`, que exige `X-Admin-Token` do próprio tenant e nunca devolve o
+  debug de outro).

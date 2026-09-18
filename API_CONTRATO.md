@@ -101,6 +101,8 @@ protegida por `FileLock` desde a Fase 9.
 
 ### `GET /documentos?tenant_id=`
 ### `POST /documentos/upload` — multipart, headers `X-Admin-Token`, limite 20MB
+- Extração e indexação (embeddings) rodam em thread separada (`asyncio.to_thread`, Fase 13, Task
+  15) -- um upload grande não trava outras requisições da API enquanto indexa.
 ### `DELETE /documentos/{nome_arquivo}?tenant_id=` — headers `X-Admin-Token`
 
 ## Análise de Dados
@@ -108,6 +110,8 @@ protegida por `FileLock` desde a Fase 9.
 ### `POST /planilha/upload?tenant_id=&conversation_id=` — multipart, limite 20MB
 - Gera e persiste o resumo estatístico por `conversation_id`, reaproveitado pelas próximas
   mensagens de chat no modo "Análise de Dados" na mesma conversa.
+- Mesmo motivo do upload de documentos acima: parsing e resumo estatístico rodam fora do event
+  loop (Fase 13, Task 15).
 
 ## Fichas técnicas (`/fichas`, Fase 11)
 
@@ -193,9 +197,11 @@ sem trafegar a imagem — usado para decidir se vale a pena buscar `GET /brandin
 
 ## Debug/Observabilidade (uso interno)
 
-### `GET /debug/rag?tenant_id=`
-- Último relatório de debug do pipeline RAG gerado neste processo (estado global do módulo, não
-  segmentado por requisição — ver limitação documentada no próprio endpoint).
+### `GET /debug/rag?tenant_id=` — headers `X-Admin-Token`
+- Último relatório de debug do pipeline RAG do `tenant_id` informado -- devolve `{}` se esse
+  tenant ainda não fez nenhuma busca neste processo. Exige token de admin **do mesmo tenant**
+  (Fase 13, Task 16): antes, a rota não exigia autenticação nenhuma e devolvia a pergunta e o
+  texto integral dos chunks da última busca de QUALQUER tenant, ignorando o parâmetro recebido.
 
 ---
 
@@ -216,3 +222,15 @@ credenciais do modelo; esses valores vêm sempre do `ContextoExecucao` montado p
 
 `web_search` (nativo da OpenAI, não é uma ferramenta do registry) é habilitado por modo via
 `usar_web_search: True` em `tenant_config.py` — hoje: Tendências, Engenharia Têxtil, Assistente Geral.
+
+`buscar_documentos_internos`/`listar_documentos_disponiveis` são declaradas (`"tools"` em
+`tenant_config.py`) em: Consultor de Estilo, Professor Técnico, Engenharia Têxtil, Tendências e
+Assistente Geral (Fase 13, Task 17) — "Análise de Dados" e "Base de Conhecimento" têm pipeline
+próprio que não passa por `tools`; "Gerador de Croqui" fica de fora por design (fluxo de
+confirmação específico às duas tools de geração).
+
+**Limitação conhecida:** `consultar_resumo_planilha` e `consultar_unidades_senai` continuam sem
+nenhum modo declarando-as em `"tools"` — registradas no registry, com schema/handler/testes
+próprios, mas mortas em runtime pelo mesmo motivo que motivou a Task 17 para as ferramentas de
+RAG. Não fazia parte do escopo original desta task (que citava só `buscar_documentos_internos`)
+religá-las também; decisão de produto pendente sobre em quais modos fariam sentido.
