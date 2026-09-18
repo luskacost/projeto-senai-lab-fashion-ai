@@ -30,14 +30,27 @@ class TestBuscarDocumentosInternos(unittest.TestCase):
     @patch("rag_manager.montar_prompt_final")
     @patch("rag_manager.buscar_contexto_relevante")
     def test_com_resultados_devolve_prompt_formatado_e_fontes(self, mock_buscar, mock_montar):
-        mock_buscar.return_value = [{"fonte": "manual.pdf", "texto": "trecho relevante", "pagina": 3}]
-        mock_montar.return_value = ("--- TRECHO 1 ---\ntrecho relevante", {"manual.pdf (Página 3)"})
+        # Fase 13, Task 17: "fontes" é uma LISTA na mesma ordem/tamanho de "trechos" -- dois
+        # chunks da MESMA fonte (duas páginas do mesmo manual) precisam gerar duas entradas
+        # paralelas, não colapsar num conjunto deduplicado que desalinha o pareamento por índice
+        # que agente_openai._normalizar_fontes_de_tool faz entre "fontes" e "trechos".
+        mock_buscar.return_value = [
+            {"fonte": "manual.pdf", "texto": "trecho da pagina 3", "pagina": 3},
+            {"fonte": "manual.pdf", "texto": "trecho da pagina 7", "pagina": 7},
+        ]
+        mock_montar.return_value = (
+            "--- TRECHO 1 ---\ntrecho da pagina 3\n--- TRECHO 2 ---\ntrecho da pagina 7",
+            ["manual.pdf (Página 3)", "manual.pdf (Página 7)"],
+        )
 
         resultado = executar_ferramenta("buscar_documentos_internos", {"query": "gramatura do tecido"}, self.ctx)
 
         self.assertFalse(resultado.erro)
-        self.assertIn("trecho relevante", resultado.conteudo)
-        self.assertEqual(resultado.dados_extras["fontes"], ["manual.pdf (Página 3)"])
+        self.assertIn("trecho da pagina 3", resultado.conteudo)
+        self.assertEqual(
+            resultado.dados_extras["fontes"], ["manual.pdf (Página 3)", "manual.pdf (Página 7)"]
+        )
+        self.assertEqual(len(resultado.dados_extras["fontes"]), len(resultado.dados_extras["trechos"]))
         mock_buscar.assert_called_once_with(
             "senai_labfashion", "gramatura do tecido", top_k=10, conversation_id="conv1"
         )

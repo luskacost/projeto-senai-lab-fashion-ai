@@ -470,7 +470,9 @@ def _handler_buscar_documentos_internos(argumentos: Dict[str, Any], contexto: Co
     prompt_com_contexto, fontes = montar_prompt_final(chunks, query)
     return ResultadoFerramenta(
         conteudo=prompt_com_contexto,
-        dados_extras={"trechos": chunks, "fontes": sorted(fontes)},
+        # "fontes" e "trechos" precisam da MESMA ordem/tamanho -- agente_openai._normalizar_fontes_de_tool
+        # os pareia por índice para preencher o trecho de cada fonte (Fase 13, Task 17).
+        dados_extras={"trechos": chunks, "fontes": fontes},
     )
 
 

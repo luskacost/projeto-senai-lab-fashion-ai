@@ -1509,16 +1509,22 @@ def buscar_contexto_relevante(
 # ─────────────────────────────────────────────────────────────────────────────
 # MONTAGEM DO PROMPT FINAL PARA O LLM
 # ─────────────────────────────────────────────────────────────────────────────
-def montar_prompt_final(chunks_relevantes: List[Dict[str, Any]], pergunta: str) -> Tuple[str, Set[str]]:
+def montar_prompt_final(chunks_relevantes: List[Dict[str, Any]], pergunta: str) -> Tuple[str, List[str]]:
     """Monta o prompt final enviado ao LLM a partir dos chunks recuperados pelo RAG.
 
     Formata cada chunk em um bloco "--- TRECHO N ---" com metadados de origem (documento,
     localização, seção/produto/variante), acrescenta a instrução de resposta exclusiva ao
     contexto fornecido e o contrato de dupla notação (numérica + por extenso), e retorna
-    também o conjunto de fontes citadas para exibição na UI ("Fontes consultadas").
+    também os rótulos de fonte para exibição na UI ("Fontes consultadas").
+
+    `fontes_consultadas` é uma LISTA, uma entrada por chunk, na MESMA ORDEM de
+    `chunks_relevantes` -- nunca um conjunto deduplicado (Fase 13, Task 17). Antes disto, o
+    conjunto de fontes tinha ordem e tamanho diferentes da lista de trechos que o chamador exibe
+    lado a lado, e a UI pareava as duas listas por índice: dois chunks da mesma fonte colapsavam
+    em 1 rótulo aqui, e tudo que vinha depois no popover ficava com o trecho errado.
     """
     trechos_formatados: List[str] = []
-    fontes_consultadas: Set[str] = set()
+    fontes_consultadas: List[str] = []
 
     for i, chk in enumerate(chunks_relevantes, 1):
         fonte = chk.get("fonte", "Documento desconhecido")
@@ -1526,7 +1532,7 @@ def montar_prompt_final(chunks_relevantes: List[Dict[str, Any]], pergunta: str) 
         if not rotulo:
             pag = chk.get("pagina", 1)
             rotulo = f"Página {pag}"
-        fontes_consultadas.add(f"{fonte} ({rotulo})")
+        fontes_consultadas.append(f"{fonte} ({rotulo})")
 
         meta_info = []
         if chk.get("secao") or chk.get("secao_origem"):

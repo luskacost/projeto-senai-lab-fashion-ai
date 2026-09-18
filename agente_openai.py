@@ -190,16 +190,25 @@ def _normalizar_fontes_de_tool(dados_extras: Dict[str, Any]) -> List[Dict[str, s
     devolveria dicts {titulo,url,trecho} -- mesmo formato que buscar_tendencias_web (Tavily) usava
     antes de ser removida na Fase 10, Task 6 (substituída por web_search nativo). Mantido genérico
     para não precisar mudar de novo na próxima tool que citar fontes.
+
+    Para o caso de string (Fase 13, Task 17): o texto do trecho vem de "trechos", pareado por
+    índice com "fontes" -- os dois são construídos na mesma iteração em
+    agente_ferramentas._handler_buscar_documentos_internos (via montar_prompt_final), então o
+    pareamento por posição aqui é seguro (nunca reordenado/deduplicado depois de construído).
+    Antes desta correção, esse ramo sempre devolvia trecho="" -- toda fonte de documento interno
+    citada pelo agente aparecia no popover como "Trecho não disponível para esta fonte".
     """
     fontes_raw = dados_extras.get("fontes")
     if not fontes_raw:
         return []
+    trechos_raw = dados_extras.get("trechos") or []
     normalizadas = []
-    for f in fontes_raw:
+    for i, f in enumerate(fontes_raw):
         if isinstance(f, dict):
             normalizadas.append({"titulo": f.get("titulo", ""), "url": f.get("url", ""), "trecho": f.get("trecho", "")})
         else:
-            normalizadas.append({"titulo": str(f), "url": "", "trecho": ""})
+            chunk = trechos_raw[i] if i < len(trechos_raw) else {}
+            normalizadas.append({"titulo": str(f), "url": "", "trecho": chunk.get("texto", "")})
     return normalizadas
 
 

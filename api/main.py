@@ -471,7 +471,9 @@ def chat(payload: ChatRequest) -> Dict[str, Any]:
 
             resultado = {
                 "resposta": resposta,
-                "fontes_consultadas": sorted(fontes_consultadas),
+                # Mesma ordem/tamanho de chunks_relevantes (Fase 13, Task 17) -- nunca
+                # deduplicar/reordenar aqui, ou o pareamento por índice no front-end quebra.
+                "fontes_consultadas": fontes_consultadas,
                 "trechos_consultados": chunks_relevantes
             }
 
