@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
 
 interface Props {
   conversas: Conversa[];
@@ -34,6 +35,7 @@ export default function ConversasHistorico({
   const [aberto, setAberto] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [tituloEmEdicao, setTituloEmEdicao] = useState("");
+  const [conversaPendenteDeExclusao, setConversaPendenteDeExclusao] = useState<string | null>(null);
 
   const conversasOrdenadas = [...conversas].sort(
     (a, b) => new Date(b.atualizado_em).getTime() - new Date(a.atualizado_em).getTime()
@@ -53,9 +55,7 @@ export default function ConversasHistorico({
   }
 
   function confirmarExclusao(id: string) {
-    if (window.confirm("Excluir esta conversa? Essa ação não pode ser desfeita.")) {
-      onDeletar(id);
-    }
+    setConversaPendenteDeExclusao(id);
   }
 
   function selecionarEFechar(id: string) {
@@ -64,6 +64,7 @@ export default function ConversasHistorico({
   }
 
   return (
+    <>
     <Sheet open={aberto} onOpenChange={setAberto}>
       <SheetTrigger
         className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-11")}
@@ -167,5 +168,17 @@ export default function ConversasHistorico({
         </div>
       </SheetContent>
     </Sheet>
+
+    <ConfirmarAcaoDialog
+      open={conversaPendenteDeExclusao !== null}
+      onOpenChange={(aberto) => { if (!aberto) setConversaPendenteDeExclusao(null); }}
+      titulo="Excluir conversa"
+      descricao="Essa ação não pode ser desfeita."
+      textoConfirmar="Excluir"
+      onConfirmar={() => {
+        if (conversaPendenteDeExclusao) onDeletar(conversaPendenteDeExclusao);
+      }}
+    />
+    </>
   );
 }

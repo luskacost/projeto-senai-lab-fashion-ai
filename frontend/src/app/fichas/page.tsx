@@ -17,7 +17,9 @@ import { APP_NOME } from "@/lib/branding";
 import { limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
 import { mensagemAmigavel } from "@/lib/erros";
 import SenhaAdminDialog from "@/components/SenhaAdminDialog";
+import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Copy, FileStack, Loader2, Plus, Trash2 } from "lucide-react";
@@ -42,6 +44,7 @@ export default function FichasPage() {
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [fichaPendenteDeSenha, setFichaPendenteDeSenha] = useState<string | null>(null);
+  const [fichaPendenteDeConfirmacao, setFichaPendenteDeConfirmacao] = useState<{ id: string; nome: string } | null>(null);
 
   useEffect(() => {
     recarregar();
@@ -83,8 +86,6 @@ export default function FichasPage() {
   }
 
   async function excluir(fichaId: string, nome: string) {
-    if (!window.confirm(`Excluir a ficha "${nome || "sem nome"}"? Essa ação não pode ser desfeita.`)) return;
-
     // Excluir ficha é uma ação administrativa (Fase 14, Bloco S, Task 2) -- se a pessoa já
     // autenticou em /admin nesta aba, reaproveita o token; senão, pede a senha agora mesmo.
     const tokenAdmin = obterTokenAdmin();
@@ -141,7 +142,16 @@ export default function FichasPage() {
         </CardHeader>
         <CardContent>
           {carregando ? (
-            <p className="text-sm text-muted-foreground">Carregando...</p>
+            <ul className="divide-y divide-border">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="flex items-center gap-3 py-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-40 max-w-[70%]" />
+                    <Skeleton className="h-3 w-56 max-w-[90%]" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : fichas.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <FileStack className="h-8 w-8 text-muted-foreground" />
@@ -178,7 +188,7 @@ export default function FichasPage() {
                       {duplicandoId === f.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
                     </Button>
                     <Button
-                      onClick={() => excluir(f.id, f.nome)}
+                      onClick={() => setFichaPendenteDeConfirmacao({ id: f.id, nome: f.nome })}
                       disabled={excluindoId === f.id}
                       variant="ghost"
                       size="icon-sm"
@@ -196,6 +206,16 @@ export default function FichasPage() {
         </CardContent>
       </Card>
 
+      <ConfirmarAcaoDialog
+        open={fichaPendenteDeConfirmacao !== null}
+        onOpenChange={(aberto) => { if (!aberto) setFichaPendenteDeConfirmacao(null); }}
+        titulo="Excluir ficha"
+        descricao={`Excluir a ficha "${fichaPendenteDeConfirmacao?.nome || "sem nome"}"? Essa ação não pode ser desfeita.`}
+        textoConfirmar="Excluir"
+        onConfirmar={() => {
+          if (fichaPendenteDeConfirmacao) excluir(fichaPendenteDeConfirmacao.id, fichaPendenteDeConfirmacao.nome);
+        }}
+      />
       <SenhaAdminDialog
         open={fichaPendenteDeSenha !== null}
         onOpenChange={(aberto) => { if (!aberto) setFichaPendenteDeSenha(null); }}

@@ -31,6 +31,7 @@ import {
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { mensagemAmigavel } from "@/lib/erros";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -321,7 +322,22 @@ export default function FichaDetalhePage() {
   if (carregando) {
     return (
       <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
-        <p className="text-sm text-muted-foreground">Carregando...</p>
+        <div className="flex items-center justify-between gap-3">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-9 w-28" />
+        </div>
+        <Skeleton className="h-8 w-64 max-w-full" />
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-28" />
+          <Skeleton className="h-8 w-28" />
+        </div>
+        <div className="space-y-3">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-40 w-full" />
+        </div>
       </div>
     );
   }

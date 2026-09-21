@@ -18,7 +18,9 @@ import {
 import { APP_NOME } from "@/lib/branding";
 import { definirTokenAdmin, limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
 import { mensagemAmigavel } from "@/lib/erros";
+import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
@@ -40,6 +42,8 @@ export default function AdminPage() {
   const [enviando, setEnviando] = useState(false);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
 
+  const [confirmandoRemocaoLogo, setConfirmandoRemocaoLogo] = useState(false);
+  const [documentoPendenteDeRemocao, setDocumentoPendenteDeRemocao] = useState<string | null>(null);
   const [infoLogo, setInfoLogo] = useState<InfoLogo | null>(null);
   const [enviandoLogo, setEnviandoLogo] = useState(false);
   // Muda a cada upload/remoção para furar o cache do navegador -- a URL do logo é sempre a mesma.
@@ -145,7 +149,7 @@ export default function AdminPage() {
   }
 
   async function removerLogo() {
-    if (!tokenAdmin || !window.confirm("Remover o logo da empresa? As fichas passarão a ser geradas sem ele.")) return;
+    if (!tokenAdmin) return;
     try {
       await deletarLogo(TENANT_ID, tokenAdmin);
       setVersaoLogo(Date.now());
@@ -156,7 +160,7 @@ export default function AdminPage() {
   }
 
   async function excluirDocumento(nome: string) {
-    if (!tokenAdmin || !window.confirm(`Remover "${nome}" da Base de Conhecimento?`)) return;
+    if (!tokenAdmin) return;
     try {
       await deletarDocumento(TENANT_ID, nome, tokenAdmin);
       await recarregarDocumentos();
@@ -238,7 +242,7 @@ export default function AdminPage() {
                 </p>
               </div>
               <Button
-                onClick={removerLogo}
+                onClick={() => setConfirmandoRemocaoLogo(true)}
                 variant="ghost"
                 size="icon-sm"
                 className="shrink-0 text-muted-foreground hover:text-destructive"
@@ -295,7 +299,14 @@ export default function AdminPage() {
         </CardHeader>
         <CardContent>
           {carregandoDocs ? (
-            <p className="text-sm text-muted-foreground">Carregando...</p>
+            <ul className="divide-y divide-border">
+              {[0, 1, 2].map((i) => (
+                <li key={i} className="flex items-center gap-2 py-2">
+                  <Skeleton className="h-4 w-4 shrink-0 rounded" />
+                  <Skeleton className="h-4 w-48 max-w-[60%]" />
+                </li>
+              ))}
+            </ul>
           ) : documentos.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum documento indexado ainda.</p>
           ) : (
@@ -307,7 +318,7 @@ export default function AdminPage() {
                     {doc}
                   </span>
                   <Button
-                    onClick={() => excluirDocumento(doc)}
+                    onClick={() => setDocumentoPendenteDeRemocao(doc)}
                     variant="ghost"
                     size="icon-sm"
                     className="shrink-0 text-muted-foreground hover:text-destructive"
@@ -321,6 +332,25 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmarAcaoDialog
+        open={confirmandoRemocaoLogo}
+        onOpenChange={setConfirmandoRemocaoLogo}
+        titulo="Remover logo"
+        descricao="As fichas técnicas passarão a ser geradas sem o logo da empresa."
+        textoConfirmar="Remover"
+        onConfirmar={removerLogo}
+      />
+      <ConfirmarAcaoDialog
+        open={documentoPendenteDeRemocao !== null}
+        onOpenChange={(aberto) => { if (!aberto) setDocumentoPendenteDeRemocao(null); }}
+        titulo="Remover documento"
+        descricao={`Remover "${documentoPendenteDeRemocao}" da Base de Conhecimento? Isso não pode ser desfeito.`}
+        textoConfirmar="Remover"
+        onConfirmar={() => {
+          if (documentoPendenteDeRemocao) excluirDocumento(documentoPendenteDeRemocao);
+        }}
+      />
     </div>
   );
 }
