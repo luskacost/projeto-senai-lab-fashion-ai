@@ -95,6 +95,10 @@ contra esse registry.
 - Limites diários por tenant (`tenant_config.py`): `limite_mensagens_dia` (bloqueia com 429),
   `limite_imagens_dia` (bloqueia com 429), `limite_buscas_web_dia` (degrada graciosamente -- a
   ferramenta some da chamada e o modelo responde sem pesquisar, em vez de travar o modo inteiro).
+  `usage_tracker.verificar_limite` é fail-**closed** (Fase 14, Bloco S, Task 3): se o contador de
+  uso não puder ser lido (arquivo corrompido), o limite é tratado como excedido em vez de
+  liberado -- o oposto do comportamento anterior, que abria uma licença ilimitada até alguém
+  notar o erro no log.
 - Ferramentas que geram um custo real ou efeito visível (`gerar_imagem_croqui`,
   `gerar_ficha_tecnica`) sempre exigem confirmação explícita do usuário antes de executar --
   `POST /chat/croqui/confirmar`.
