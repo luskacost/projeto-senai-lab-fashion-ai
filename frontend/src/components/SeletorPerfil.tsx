@@ -21,12 +21,12 @@ export default function SeletorPerfil({ perfilAtivo, onSelecionar, onLimpar }: P
   return (
     <Popover open={aberto} onOpenChange={setAberto}>
       <PopoverTrigger
-        className="flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/70"
+        className="flex min-h-11 items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/70"
         aria-label="Escolher perfil"
         title={infoAtiva ? `Perfil ativo: ${infoAtiva.nome}` : "Escolher perfil (opcional)"}
       >
         <IconeAtivo className="h-4 w-4" />
-        {infoAtiva && <span className="font-medium">{infoAtiva.nome}</span>}
+        {infoAtiva && <span className="hidden font-medium sm:inline">{infoAtiva.nome}</span>}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-2">
         <div className="flex flex-col gap-1">

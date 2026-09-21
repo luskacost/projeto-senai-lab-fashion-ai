@@ -33,9 +33,13 @@ function LinhaUnidade({ unidade, destaque }: { unidade: UnidadeSenai; destaque?:
 export default function ContatoSenai() {
   return (
     <Dialog>
-      <DialogTrigger className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground">
+      <DialogTrigger
+        className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+        aria-label="Contato do SENAI"
+        title="Contato"
+      >
         <Building2 className="h-3.5 w-3.5" />
-        Contato
+        <span className="hidden sm:inline">Contato</span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto space-y-3 p-4">
         <DialogTitle>Unidades e contato do SENAI Goiás</DialogTitle>

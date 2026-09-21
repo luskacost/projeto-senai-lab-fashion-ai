@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { History, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { cn } from "cn";
 import { Conversa } from "@/lib/api";
 import { buttonVariants } from "@/components/ui/button";
 import { Button } from "@/components/ui/button";
@@ -65,8 +66,9 @@ export default function ConversasHistorico({
   return (
     <Sheet open={aberto} onOpenChange={setAberto}>
       <SheetTrigger
-        className={buttonVariants({ variant: "ghost", size: "icon" })}
+        className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "size-11")}
         aria-label="Histórico de conversas"
+        title="Histórico de conversas"
       >
         <History className="h-4 w-4" />
       </SheetTrigger>
@@ -127,7 +129,11 @@ export default function ConversasHistorico({
                       className={buttonVariants({
                         variant: "ghost",
                         size: "icon-sm",
-                        className: "shrink-0 opacity-0 group-hover:opacity-100 data-popup-open:opacity-100",
+                        // "opacity-0 group-hover:opacity-100" (revelar só no hover do mouse) deixa
+                        // este botão praticamente inalcançável em touch, que não tem hover --
+                        // sempre visível abaixo de sm: (Fase 14, Bloco U, Task 6), hover-reveal
+                        // preservado em telas largas por estética (lista mais "limpa" no mouse).
+                        className: "size-11 shrink-0 opacity-100 sm:size-7 sm:opacity-0 sm:group-hover:opacity-100 sm:data-popup-open:opacity-100",
                       })}
                       onClick={(e: React.MouseEvent) => e.stopPropagation()}
                       aria-label="Ações da conversa"

@@ -396,8 +396,8 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen w-full flex-col">
-      <header className="h-14 shrink-0 px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+      <header className="h-14 shrink-0 px-2 sm:px-4 border-b border-border bg-card text-foreground flex items-center justify-between gap-1 sm:gap-3">
+          <div className="flex items-center gap-1 sm:gap-3 min-w-0">
             <ConversasHistorico
               conversas={conversas}
               conversaAtualId={conversaAtualId}
@@ -406,7 +406,7 @@ export default function ChatPage() {
               onRenomear={renomearConversaAtual}
               onDeletar={excluirConversa}
             />
-            <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-8 w-auto shrink-0" />
+            <Image src="/logo.png" alt={APP_NOME} width={430} height={124} priority className="h-6 w-auto shrink-0 sm:h-8" />
             <SeletorModo
               modoAtivo={modo}
               perfilAtivo={perfilAtivo}
@@ -424,52 +424,58 @@ export default function ChatPage() {
                 variant="outline"
                 size="sm"
               >
-                <ToggleGroupItem value={ESTILO_ILUSTRACAO} className="gap-1.5 text-sm">
+                <ToggleGroupItem value={ESTILO_ILUSTRACAO} className="gap-1.5 text-sm" aria-label="Ilustração" title="Ilustração">
                   <Palette className="h-3.5 w-3.5" />
-                  Ilustração
+                  <span className="hidden sm:inline">Ilustração</span>
                 </ToggleGroupItem>
-                <ToggleGroupItem value={ESTILO_TECNICO} className="gap-1.5 text-sm">
+                <ToggleGroupItem value={ESTILO_TECNICO} className="gap-1.5 text-sm" aria-label="Desenho Técnico" title="Desenho Técnico">
                   <Ruler className="h-3.5 w-3.5" />
-                  Desenho Técnico
+                  <span className="hidden sm:inline">Desenho Técnico</span>
                 </ToggleGroupItem>
               </ToggleGroup>
             )}
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-0.5 sm:gap-3 shrink-0">
             {mensagens.length > 0 && (
-              <div className="flex gap-1 text-sm font-normal">
+              <div className="flex gap-0.5 sm:gap-1 text-sm font-normal">
                 <button
                   onClick={() => exportarConversaAtual("txt")}
-                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                  className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+                  aria-label="Baixar conversa em TXT"
                   title="Baixar conversa em TXT"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  TXT
+                  <span className="hidden sm:inline">TXT</span>
                 </button>
                 <button
                   onClick={() => exportarConversaAtual("pdf")}
-                  className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                  className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+                  aria-label="Baixar conversa em PDF"
                   title="Baixar conversa em PDF"
                 >
                   <Download className="h-3.5 w-3.5" />
-                  PDF
+                  <span className="hidden sm:inline">PDF</span>
                 </button>
               </div>
             )}
             <ContatoSenai />
             <Link
               href="/fichas"
-              className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
+              className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+              aria-label="Fichas Técnicas"
+              title="Fichas Técnicas"
             >
               <FileStack className="h-3.5 w-3.5" />
-              Fichas Técnicas
+              <span className="hidden sm:inline">Fichas Técnicas</span>
             </Link>
             <Link
               href="/admin"
-              className="inline-flex items-center gap-1 text-sm font-normal text-muted-foreground hover:text-foreground"
+              className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+              aria-label="Configurações"
+              title="Configurações"
             >
               <Settings className="h-3.5 w-3.5" />
-              Configurações
+              <span className="hidden sm:inline">Configurações</span>
             </Link>
           </div>
         </header>
@@ -707,7 +713,7 @@ export default function ChatPage() {
                   type="button"
                   variant="outline"
                   size="icon-lg"
-                  className="rounded-xl shrink-0"
+                  className="size-11 rounded-xl shrink-0"
                   disabled={enviandoPlanilha || !conversaAtualId}
                   onClick={() => inputPlanilhaRef.current?.click()}
                   aria-label="Anexar planilha"
@@ -735,7 +741,7 @@ export default function ChatPage() {
               onClick={() => enviar()}
               disabled={carregando || !entrada.trim() || !!pendenteConfirmacao}
               size="icon-lg"
-              className="rounded-xl shrink-0"
+              className="size-11 rounded-xl shrink-0"
               aria-label="Enviar mensagem"
             >
               {carregando ? <Loader2 className="animate-spin" /> : <Send />}

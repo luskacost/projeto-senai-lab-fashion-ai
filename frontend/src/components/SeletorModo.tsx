@@ -64,10 +64,15 @@ export default function SeletorModo({ modoAtivo, perfilAtivo, onSelecionar }: Pr
   return (
     <Popover open={aberto} onOpenChange={setAberto}>
       <PopoverTrigger
-        className="flex items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/70"
+        className="flex min-h-11 items-center gap-1.5 rounded-lg bg-muted px-2.5 py-1.5 text-sm text-foreground hover:bg-muted/70"
+        title={`Modo atual: ${infoAtivo?.id ?? modoAtivo}`}
       >
         {IconeAtivo && <IconeAtivo className="h-4 w-4" />}
-        <span className="font-medium">{infoAtivo?.id ?? modoAtivo}</span>
+        {/* Nome do modo escondido em telas estreitas (Fase 14, Bloco U, Task 6) -- é o elemento
+            mais largo do cabeçalho ("Base de Conhecimento", "Engenharia Têxtil"...); em ~360px
+            de largura ele sozinho já ocupava quase toda a barra. O ícone + title continuam
+            identificando o modo ativo. */}
+        <span className="hidden font-medium sm:inline">{infoAtivo?.id ?? modoAtivo}</span>
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-2">
