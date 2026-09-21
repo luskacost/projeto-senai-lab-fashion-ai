@@ -18,7 +18,9 @@ import {
   enviarMensagemChat,
   listarConversas,
   listarDocumentos,
+  obterUso,
   uploadPlanilha,
+  UsoDiario,
 } from "@/lib/api";
 import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId } from "@/lib/usuario";
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
@@ -159,6 +161,10 @@ export default function ChatPage() {
   // de Conhecimento" só descobria que a base estava vazia depois de perguntar algo e receber
   // "não encontrei nos documentos", sem entender o motivo.
   const [documentosBaseConhecimento, setDocumentosBaseConhecimento] = useState<string[] | null>(null);
+  // Uso visível (Fase 14, Bloco U, Task 9): consultado ao abrir e reconsultado depois de cada
+  // envio (o backend só incrementa o contador depois de responder), pra mostrar "restam N
+  // mensagens hoje" antes do limite chegar como uma mensagem de erro na hora de enviar.
+  const [usoHoje, setUsoHoje] = useState<UsoDiario | null>(null);
   // Sem embaralhar aqui: o estado inicial precisa ser identico entre o HTML renderizado no
   // servidor e a primeira renderizacao no cliente (Math.random() geraria ordens diferentes e
   // quebraria a hidratacao). O useEffect de montagem abaixo reembaralha assim que roda no
@@ -199,6 +205,8 @@ export default function ChatPage() {
         setMensagens(maisRecente.mensagens);
       })
       .catch(() => toast.error("Não foi possível carregar as conversas."));
+
+    obterUso(TENANT_ID).then(setUsoHoje).catch(() => setUsoHoje(null));
   }, []);
 
   useEffect(() => {
@@ -348,6 +356,10 @@ export default function ChatPage() {
         perfilUsuario: perfilAtivo,
       });
 
+      if (resposta.busca_web_desligada_por_cota) {
+        toast.warning("O limite diário de buscas na web deste modo foi atingido -- esta resposta usou só o conhecimento do modelo, sem pesquisar.");
+      }
+
       if (resposta.pendente_confirmacao) {
         setPendenteConfirmacao(resposta.pendente_confirmacao);
         await persistirMensagens(mensagensComUsuario);
@@ -369,6 +381,7 @@ export default function ChatPage() {
       ];
       setMensagens(mensagensFinais);
       await persistirMensagens(mensagensFinais);
+      obterUso(TENANT_ID).then(setUsoHoje).catch(() => {});
     } catch (e) {
       toast.error(mensagemDeErro(e, "enviar mensagem"));
     } finally {
@@ -711,6 +724,11 @@ export default function ChatPage() {
 
         <footer className="p-4 border-t border-border bg-card">
           <div className="max-w-3xl mx-auto">
+          {usoHoje && usoHoje.categorias.mensagens.restante <= Math.max(10, usoHoje.categorias.mensagens.limite * 0.1) && (
+            <p className="mb-2 text-xs text-muted-foreground">
+              Restam {usoHoje.categorias.mensagens.restante} mensagens hoje.
+            </p>
+          )}
           {arquivoAnexado && (
             <div className="mb-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground">
               <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />

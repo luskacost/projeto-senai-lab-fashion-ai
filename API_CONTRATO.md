@@ -49,6 +49,24 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
 - **Headers:** `X-Admin-Token`
 - **Body:** `{ tenant_id, dados_custom }`
 
+### `GET /uso?tenant_id=` (Fase 14, Bloco U, Task 9)
+- **Resposta:** uso do dia por categoria, para o frontend mostrar "restam N mensagens hoje" antes
+  do limite chegar como erro na hora de enviar — não exige auth (mesmo padrão de `GET
+  /config/tenant`, não expõe nada sensível).
+  ```jsonc
+  {
+    "data": "2026-09-21",
+    "categorias": {
+      "mensagens": { "usado": 5, "limite": 200, "restante": 195 },
+      "imagens": { "usado": 0, "limite": 30, "restante": 30 },
+      "buscas_web": { "usado": 2, "limite": 50, "restante": 48 },
+      "fichas": { "usado": 0, "limite": 30, "restante": 30 }
+    }
+  }
+  ```
+  Usa `carregar_uso_do_dia` (versão tolerante do `usage_tracker`), não a versão estrita usada por
+  `verificar_limite` — um erro de leitura aqui vira "0 usado", nunca um 500 numa rota só de leitura.
+
 ## Chat
 
 ### `POST /chat`
@@ -79,9 +97,14 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
       // "url" só presente quando a fonte veio de busca real na web (web_search nativo);
       // ausente/null para documentos internos (RAG) ou dados do sistema
     ],
-    "usou_busca_web": true | false     // distingue "respondeu de conhecimento próprio" de
+    "usou_busca_web": true | false,    // distingue "respondeu de conhecimento próprio" de
                                         // "pesquisou antes de responder" -- só relevante nos
                                         // modos com usar_web_search habilitado
+    "busca_web_desligada_por_cota": true | false  // (Fase 14, Bloco U, Task 9) true quando o modo
+                                        // usa busca web mas o limite diário de buscas_web já foi
+                                        // atingido -- esta resposta saiu sem pesquisar; antes essa
+                                        // degradação era só um log de servidor, invisível pro
+                                        // usuário
   }
   ```
 - **`pendente_confirmacao`** (não `null`): o modelo decidiu chamar uma ferramenta que exige

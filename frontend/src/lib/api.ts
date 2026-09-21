@@ -79,6 +79,9 @@ export interface ChatResponse {
   // True quando o agente usou o web_search nativo para responder (Fase 10, Task 10) -- distingue
   // "respondendo com conhecimento do modelo" de "pesquisou na web antes de responder".
   usou_busca_web?: boolean;
+  // True quando o modo usa busca web mas o limite diário já foi atingido, então esta resposta
+  // saiu sem pesquisar (Fase 14, Bloco U, Task 9) -- antes essa degradação era silenciosa.
+  busca_web_desligada_por_cota?: boolean;
 }
 
 export async function enviarMensagemChat(params: {
@@ -255,6 +258,28 @@ export async function adminLogin(tenantId: string, senha: string): Promise<strin
 
 export async function listarDocumentos(tenantId: string): Promise<string[]> {
   return request<string[]>(`/documentos?tenant_id=${encodeURIComponent(tenantId)}`);
+}
+
+export interface UsoCategoria {
+  usado: number;
+  limite: number;
+  restante: number;
+}
+
+export interface UsoDiario {
+  data: string;
+  categorias: {
+    mensagens: UsoCategoria;
+    imagens: UsoCategoria;
+    buscas_web: UsoCategoria;
+    fichas: UsoCategoria;
+  };
+}
+
+// Fase 14, Bloco U, Task 9 -- pro indicador discreto "restam N mensagens hoje", pra o limite
+// diário não chegar como surpresa na hora de enviar.
+export async function obterUso(tenantId: string): Promise<UsoDiario> {
+  return request<UsoDiario>(`/uso?tenant_id=${encodeURIComponent(tenantId)}`);
 }
 
 export interface UploadDocumentoResponse {

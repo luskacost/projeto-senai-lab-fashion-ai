@@ -60,7 +60,7 @@ from analise_dados import (
     carregar_resumo_estatistico
 )
 from moderacao import validar_prompt_imagem
-from usage_tracker import incrementar_uso, verificar_limite
+from usage_tracker import carregar_uso_do_dia, incrementar_uso, verificar_limite
 from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
@@ -242,6 +242,35 @@ def obter_config_tenant(tenant_id: str) -> Dict[str, Any]:
     if tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
     return carregar_config_tenant(tenant_id, TENANT_CONFIG[tenant_id])
+
+
+@app.get("/uso")
+def obter_uso(tenant_id: str) -> Dict[str, Any]:
+    """Uso visível (Fase 14, Bloco U, Task 9): antes o limite diário só aparecia quando já tinha
+    sido excedido (mensagem de erro na hora de enviar). Devolve usado/limite/restante por
+    categoria para o frontend mostrar um indicador discreto antes disso virar surpresa."""
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    config = carregar_config_tenant(tenant_id, TENANT_CONFIG[tenant_id])
+    uso = carregar_uso_do_dia(tenant_id)
+
+    categorias = {
+        "mensagens": config.get("limite_mensagens_dia", 200),
+        "imagens": config.get("limite_imagens_dia", 30),
+        "buscas_web": config.get("limite_buscas_web_dia", 50),
+        "fichas": config.get("limite_fichas_dia", 30),
+    }
+    return {
+        "data": uso.get("data"),
+        "categorias": {
+            tipo: {
+                "usado": uso.get(tipo, 0),
+                "limite": limite,
+                "restante": max(0, limite - uso.get(tipo, 0)),
+            }
+            for tipo, limite in categorias.items()
+        },
+    }
 
 
 class ConfigTenantUpdate(BaseModel):
@@ -471,6 +500,10 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
     # já foi atingida, a chamada segue sem a ferramenta (o modelo responde com conhecimento
     # próprio) em vez de falhar. Só desliga a busca se o modo de fato a usaria.
     usar_web_search = modo_cfg.get("usar_web_search", False)
+    # Sinalizado pro frontend (Fase 14, Bloco U, Task 9) -- antes a degradação era só um log de
+    # servidor: o usuário recebia uma resposta de qualidade inferior (sem pesquisa) achando que
+    # era normal, sem nenhum aviso de que o limite diário do modo tinha sido atingido.
+    busca_web_desligada_por_cota = False
     if usar_web_search:
         limite_buscas = config.get("limite_buscas_web_dia", 50)
         if not verificar_limite(payload.tenant_id, "buscas_web", limite_buscas, quantidade_necessaria=1):
@@ -478,6 +511,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
                 f"Limite diário de buscas web atingido para o modo '{payload.modo}' -- respondendo sem web_search nesta chamada."
             )
             usar_web_search = False
+            busca_web_desligada_por_cota = True
 
     resultado = chamar_agente(
         client,
@@ -501,6 +535,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
             "fontes_consultadas": [],
             "trechos_consultados": [],
             "usou_busca_web": resultado.usou_web_search,
+            "busca_web_desligada_por_cota": busca_web_desligada_por_cota,
         }
 
     # fontes_consultadas/trechos_consultados unificam citações do web_search nativo (título +
@@ -519,6 +554,7 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
             for f in resultado.fontes
         ],
         "usou_busca_web": resultado.usou_web_search,
+        "busca_web_desligada_por_cota": busca_web_desligada_por_cota,
     }
 
 
