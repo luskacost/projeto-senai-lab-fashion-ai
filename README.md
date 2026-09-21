@@ -155,6 +155,11 @@ Texto livre → extração estruturada (Structured Outputs) → verificação de
   variáveis de ambiente abaixo). Sem ele, as rotas de PDF devolvem `501` com instrução do que fazer.
 - **Logo da empresa** (`/branding/logo`) cadastrado uma vez por tenant e reaproveitado em toda
   ficha, redimensionado proporcionalmente (nunca deformado, nunca estoura a célula do cabeçalho).
+- **"Nova ficha" oferece descrever a peça** (Fase 14, Bloco F): a extração por texto livre já
+  existia na API desde sempre (`POST /fichas` com `texto_origem`), mas só era alcançável pelo
+  atalho `gerar_ficha_tecnica` do chat -- a tela `/fichas` sempre criava em branco. Agora o botão
+  "Nova ficha" pergunta primeiro se a pessoa quer descrever a peça (chamada real à IA, preenche os
+  campos) ou começar em branco (sem custo nenhum).
 
 Ver `API_CONTRATO.md` (seções "Fichas técnicas" e "Logo da empresa") para o contrato completo das
 rotas, e `tests/app/test_fichas_cenarios_e2e.py` para os cenários de ponta a ponta (combinações de

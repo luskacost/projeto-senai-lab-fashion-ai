@@ -18,6 +18,7 @@ import { limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
 import { mensagemAmigavel } from "@/lib/erros";
 import SenhaAdminDialog from "@/components/SenhaAdminDialog";
 import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
+import NovaFichaDialog from "@/components/NovaFichaDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ export default function FichasPage() {
   const [fichas, setFichas] = useState<FichaResumo[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [criando, setCriando] = useState(false);
+  const [dialogoNovaFichaAberto, setDialogoNovaFichaAberto] = useState(false);
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [fichaPendenteDeSenha, setFichaPendenteDeSenha] = useState<string | null>(null);
@@ -62,10 +64,10 @@ export default function FichasPage() {
     }
   }
 
-  async function novaFicha() {
+  async function novaFicha(textoOrigem?: string) {
     setCriando(true);
     try {
-      const { ficha } = await criarFicha(TENANT_ID);
+      const { ficha } = await criarFicha(TENANT_ID, textoOrigem);
       router.push(`/fichas/${ficha.id}`);
     } catch (e) {
       toast.error(mensagemAmigavel(e, "Não foi possível criar a ficha."));
@@ -134,7 +136,7 @@ export default function FichasPage() {
               <CardTitle>Suas fichas ({fichas.length})</CardTitle>
               <CardDescription>Descreva a peça, revise os dados e gere o documento final.</CardDescription>
             </div>
-            <Button onClick={novaFicha} disabled={criando} className="shrink-0">
+            <Button onClick={() => setDialogoNovaFichaAberto(true)} disabled={criando} className="shrink-0">
               {criando ? <Loader2 className="animate-spin" /> : <Plus />}
               {criando ? "Criando..." : "Nova ficha"}
             </Button>
@@ -206,6 +208,13 @@ export default function FichasPage() {
         </CardContent>
       </Card>
 
+      <NovaFichaDialog
+        open={dialogoNovaFichaAberto}
+        onOpenChange={setDialogoNovaFichaAberto}
+        criando={criando}
+        onCriarEmBranco={() => { setDialogoNovaFichaAberto(false); novaFicha(); }}
+        onCriarComTexto={(texto) => { setDialogoNovaFichaAberto(false); novaFicha(texto); }}
+      />
       <ConfirmarAcaoDialog
         open={fichaPendenteDeConfirmacao !== null}
         onOpenChange={(aberto) => { if (!aberto) setFichaPendenteDeConfirmacao(null); }}
