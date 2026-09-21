@@ -17,6 +17,7 @@ import {
   deletarConversa,
   enviarMensagemChat,
   listarConversas,
+  listarDocumentos,
   uploadPlanilha,
 } from "@/lib/api";
 import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId } from "@/lib/usuario";
@@ -153,6 +154,11 @@ export default function ChatPage() {
   const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
   const [arquivoAnexado, setArquivoAnexado] = useState<ArquivoAnexado | null>(null);
   const [perfilAtivo, setPerfilAtivo] = useState<string | null>(null);
+  // null = ainda não verificou; [] = verificou e não há nenhum documento cadastrado (Fase 14,
+  // Bloco U, Task 8) -- antes o chat nunca chamava listarDocumentos, então alguém no modo "Base
+  // de Conhecimento" só descobria que a base estava vazia depois de perguntar algo e receber
+  // "não encontrei nos documentos", sem entender o motivo.
+  const [documentosBaseConhecimento, setDocumentosBaseConhecimento] = useState<string[] | null>(null);
   // Sem embaralhar aqui: o estado inicial precisa ser identico entre o HTML renderizado no
   // servidor e a primeira renderizacao no cliente (Math.random() geraria ordens diferentes e
   // quebraria a hidratacao). O useEffect de montagem abaixo reembaralha assim que roda no
@@ -198,6 +204,15 @@ export default function ChatPage() {
   useEffect(() => {
     fimDaListaRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [mensagens, carregando, pendenteConfirmacao]);
+
+  useEffect(() => {
+    if (modo !== "Base de Conhecimento") return;
+    let cancelado = false;
+    listarDocumentos(TENANT_ID)
+      .then((lista) => { if (!cancelado) setDocumentosBaseConhecimento(lista); })
+      .catch(() => { if (!cancelado) setDocumentosBaseConhecimento(null); });
+    return () => { cancelado = true; };
+  }, [modo]);
 
   function mensagemDeErro(e: unknown, contexto: string): string {
     return mensagemAmigavel(e, `Não foi possível ${contexto}. Tente novamente.`);
@@ -479,6 +494,24 @@ export default function ChatPage() {
             </Link>
           </div>
         </header>
+
+        {modo === "Base de Conhecimento" && documentosBaseConhecimento !== null && (
+          <div className="border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+            <div className="max-w-3xl mx-auto">
+              {documentosBaseConhecimento.length === 0 ? (
+                <p>
+                  📚 Nenhum documento foi cadastrado ainda -- as respostas deste modo dependem de
+                  materiais adicionados por um administrador em{" "}
+                  <Link href="/admin" className="underline hover:text-foreground">Configurações</Link>.
+                </p>
+              ) : (
+                <p className="truncate">
+                  📚 Você pode perguntar sobre: {documentosBaseConhecimento.join(", ")}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto px-4 py-4 chat-wallpaper">
           <div className="max-w-3xl mx-auto space-y-4">

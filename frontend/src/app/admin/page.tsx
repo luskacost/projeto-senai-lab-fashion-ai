@@ -112,7 +112,7 @@ export default function AdminPage() {
     setEnviando(true);
     try {
       const resultado = await uploadDocumento(TENANT_ID, arquivo, tokenAdmin);
-      toast.success(`"${resultado.nome_arquivo}" indexado com sucesso (${resultado.chunks_indexados} trechos).`);
+      toast.success(`"${resultado.nome_arquivo}" adicionado com sucesso.`);
       if (inputArquivoRef.current) inputArquivoRef.current.value = "";
       await recarregarDocumentos();
     } catch (e) {
@@ -275,8 +275,8 @@ export default function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Indexar novo documento</CardTitle>
-          <CardDescription>Formatos aceitos: PDF, Word, TXT, Markdown, CSV, Excel, PowerPoint.</CardDescription>
+          <CardTitle>Adicionar novo documento</CardTitle>
+          <CardDescription>Formatos aceitos: PDF, Word, TXT, Markdown, CSV, Excel, PowerPoint. O assistente passa a poder responder perguntas sobre o conteúdo deste arquivo no modo "Base de Conhecimento".</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex gap-2">
@@ -287,7 +287,7 @@ export default function AdminPage() {
             />
             <Button onClick={enviarArquivo} disabled={enviando} className="shrink-0">
               {enviando ? <Loader2 className="animate-spin" /> : <Upload />}
-              {enviando ? "Enviando..." : "Indexar"}
+              {enviando ? "Adicionando..." : "Adicionar"}
             </Button>
           </div>
         </CardContent>
@@ -295,7 +295,7 @@ export default function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Documentos indexados ({documentos.length})</CardTitle>
+          <CardTitle>Documentos disponíveis ({documentos.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {carregandoDocs ? (
@@ -308,7 +308,7 @@ export default function AdminPage() {
               ))}
             </ul>
           ) : documentos.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nenhum documento indexado ainda.</p>
+            <p className="text-sm text-muted-foreground">Nenhum documento foi cadastrado ainda.</p>
           ) : (
             <ul className="divide-y divide-border">
               {documentos.map((doc) => (
