@@ -227,6 +227,26 @@ versão aprovada entra no documento final — nenhuma é aprovada automaticament
 ### `GET /fichas/{ficha_id}/desenho/{versao}?tenant_id=`
 PNG de uma versão já gerada (só leitura).
 
+## Galeria de croquis (`/croquis`, Fase 14, Bloco G)
+
+Persistência do croqui gerado no chat -- antes só existia como data URI base64 dentro do histórico
+da conversa (perdido se a conversa fosse excluída). `POST /chat/croqui/confirmar` (existente) passa
+a salvar em disco e devolver `croqui_id`; estas rotas só leem/listam/removem o que já foi salvo, não
+há `POST` aqui.
+
+### `GET /croquis?tenant_id=`
+Lista a galeria (id, estilo, resumo, `criado_em`), mais recente primeiro -- mesmo padrão de
+`GET /fichas`.
+
+### `GET /croquis/{croqui_id}/imagem?tenant_id=`
+PNG do croqui. Isenta do gate de acesso (Bloco S, Task 1) pelo mesmo motivo de
+`GET /fichas/{id}/desenho/{versao}`: é consumida por `<img src>`, que não carrega header
+customizado. `400` para `croqui_id` malformado, `404` se não encontrado.
+
+### `DELETE /croquis/{croqui_id}?tenant_id=` — headers `X-Admin-Token`
+Mesma exigência de `DELETE /fichas/{ficha_id}` (Bloco S, Task 2) -- excluir uma imagem já gerada é
+uma ação administrativa, não uma ação de qualquer um que saiba o `tenant_id`.
+
 ## Logo da empresa (`/branding/logo`, Fase 11)
 
 Cadastrado uma vez por tenant e reaproveitado em toda ficha gerada (`InlineImage`, redimensionado

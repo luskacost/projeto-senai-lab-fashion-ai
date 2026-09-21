@@ -81,6 +81,11 @@ from fichas_repo import (
     duplicar_ficha,
     deletar_ficha,
 )
+from croquis_repo import (
+    caminho_croqui,
+    deletar_croqui,
+    listar_croquis,
+)
 
 try:
     # pyrefly: ignore [missing-import]
@@ -155,6 +160,7 @@ _PADROES_SEM_GATE_DE_ACESSO = [
     re.compile(r"^/fichas/[^/]+/pdf$"),
     re.compile(r"^/fichas/[^/]+/desenho/[^/]+$"),
     re.compile(r"^/conversas/[^/]+/export$"),
+    re.compile(r"^/croquis/[^/]+/imagem$"),
 ]
 
 
@@ -1289,6 +1295,52 @@ def deletar_ficha_endpoint(
     if not removida:
         raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
     return {"status": "removida"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GALERIA DE CROQUIS (Fase 14, Bloco G, Task 13)
+#
+# Espelha as rotas de desenho técnico da ficha (GET .../desenho/{versao} acima) -- mesma forma de
+# devolver o PNG cru, mesma isenção do gate de acesso pro <img src> conseguir carregar sem header
+# customizado. Ainda sem POST (a persistência acontece dentro de /chat/croqui/confirmar, Task 14).
+# ─────────────────────────────────────────────────────────────────────────────
+@app.get("/croquis")
+def listar_croquis_endpoint(tenant_id: str) -> List[Dict[str, Any]]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    return listar_croquis(tenant_id)
+
+
+@app.get("/croquis/{croqui_id}/imagem")
+def obter_imagem_croqui(croqui_id: str, tenant_id: str) -> Response:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    try:
+        caminho = caminho_croqui(tenant_id, croqui_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de croqui inválido: '{croqui_id}'.")
+    if not caminho:
+        raise HTTPException(status_code=404, detail=f"Croqui '{croqui_id}' não encontrado.")
+
+    with open(caminho, "rb") as f:
+        return Response(content=f.read(), media_type="image/png")
+
+
+@app.delete("/croquis/{croqui_id}")
+def deletar_croqui_endpoint(
+    croqui_id: str, tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")
+) -> Dict[str, str]:
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    verificar_token_admin(tenant_id, x_admin_token)
+
+    try:
+        removido = deletar_croqui(tenant_id, croqui_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de croqui inválido: '{croqui_id}'.")
+    if not removido:
+        raise HTTPException(status_code=404, detail=f"Croqui '{croqui_id}' não encontrado.")
+    return {"status": "removido"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

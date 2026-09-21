@@ -128,6 +128,16 @@ class TestGateDeAcessoLigado(unittest.TestCase):
         resposta = self.client.post("/acesso/login", json={"senha": "senha-correta-123"})
         self.assertEqual(resposta.status_code, 200)
 
+    def test_imagem_de_croqui_isenta_do_gate_mesmo_ligado(self):
+        # Mesmo motivo da desenho da ficha acima: <img src> não carrega header customizado
+        # (Fase 14, Bloco G, Task 13). O 404 vem da validação da rota (croqui inexistente), não
+        # do gate (que devolveria 401).
+        resposta = self.client.get(
+            "/croquis/11111111-1111-1111-1111-111111111111/imagem",
+            params={"tenant_id": "senai_labfashion"},
+        )
+        self.assertNotEqual(resposta.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
