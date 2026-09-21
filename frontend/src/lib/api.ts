@@ -188,6 +188,11 @@ export interface MensagemConversa {
   fontes_consultadas?: string[];
   trechos_consultados?: ChunkConsultado[];
   imagem_url?: string | null;
+  // Fase 14, Bloco G, Task 15: id na galeria (/croquis) do croqui gerado nesta mensagem. Quando
+  // presente, o frontend busca a imagem por urlCroqui() em vez de usar `imagem_url` (que continua
+  // preenchido só para não quebrar conversas antigas, persistidas antes desta task, sem
+  // croqui_id -- essas continuam consumindo a data URI base64 diretamente).
+  croqui_id?: string | null;
   arquivo_anexado?: ArquivoAnexado | null;
   usou_busca_web?: boolean;
   // Fase 12: presente quando esta resposta veio do atalho gerar_ficha_tecnica -- link para a
@@ -712,6 +717,12 @@ export async function baixarFichaDocumento(
 // nenhum -- a chamada de API de verdade só acontece quando o usuário clica em "Gerar" (gerarDesenho).
 export function urlDesenho(tenantId: string, fichaId: string, versao: number): string {
   return `${API_URL}/fichas/${encodeURIComponent(fichaId)}/desenho/${versao}?tenant_id=${encodeURIComponent(tenantId)}`;
+}
+
+// ── Galeria de croquis (Fase 14, Bloco G, Task 15) ───────────────────────────
+// listarCroquis/deletarCroqui vêm na Task 16, junto com a página /croquis que os consome.
+export function urlCroqui(tenantId: string, croquiId: string): string {
+  return `${API_URL}/croquis/${encodeURIComponent(croquiId)}/imagem?tenant_id=${encodeURIComponent(tenantId)}`;
 }
 
 // `instrucaoAdicional` é o pedido de ajuste da regeneração (ex: "a manga é 3/4, não curta") --

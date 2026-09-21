@@ -20,6 +20,7 @@ import {
   listarDocumentos,
   obterUso,
   uploadPlanilha,
+  urlCroqui,
   UsoDiario,
 } from "@/lib/api";
 import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId } from "@/lib/usuario";
@@ -402,6 +403,7 @@ export default function ChatPage() {
           mode: "Gerador de Croqui",
           tenant_id: TENANT_ID,
           imagem_url: resultado.imagem_url,
+          croqui_id: resultado.croqui_id ?? null,
           ficha_link: resultado.redirecionar_para ?? null,
         },
       ];
@@ -602,9 +604,15 @@ export default function ChatPage() {
                   m.content
                 )}
 
-                {m.imagem_url && (
+                {/* croqui_id (Fase 14, Bloco G, Task 15) tem prioridade -- imagem_url só sobrevive
+                    aqui pra conversas antigas, persistidas antes desta task, que nunca tiveram um
+                    croqui_id (a mensagem guardava só a data URI base64 direto). */}
+                {(m.croqui_id || m.imagem_url) && (
                   <div className="mt-2 w-48">
-                    <ImagemGerada src={m.imagem_url} alt="Croqui gerado pela IA" />
+                    <ImagemGerada
+                      src={m.croqui_id ? urlCroqui(TENANT_ID, m.croqui_id) : m.imagem_url!}
+                      alt="Croqui gerado pela IA"
+                    />
                   </div>
                 )}
 
