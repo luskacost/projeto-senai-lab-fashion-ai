@@ -172,6 +172,16 @@ mensagem do usuário (mesmo pipeline de extração de `POST /fichas`) e devolve 
 `/fichas/{id}` -- em vez do comportamento anterior (gerar uma imagem solta + pedir ao modelo para
 redigir uma tabela markdown que desaparecia ao fechar o chat).
 
+## Galeria de croquis (`/croquis`, Fase 14, Bloco G)
+
+Todo croqui gerado no modo "Gerador de Croqui" (imagem, não ficha técnica) é persistido em disco
+(`croquis_repo.py`) assim que a geração termina -- antes, existia só como data URI dentro do
+histórico de uma conversa específica, perdido se ela fosse excluída. A tela `/croquis`, acessível
+pelo cabeçalho do chat, lista a galeria completa com miniatura, estilo, o resumo em português e a
+data de criação; excluir um croqui é ação administrativa (mesma senha de admin de excluir ficha).
+Conversas antigas, persistidas antes desta fase, continuam funcionando normalmente -- a mensagem
+guarda a data URI base64 de sempre, já que nunca tiveram um `croqui_id`.
+
 ## Como rodar localmente (sem Docker)
 
 **Backend:**

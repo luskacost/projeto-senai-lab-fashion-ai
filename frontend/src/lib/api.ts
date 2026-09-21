@@ -719,10 +719,27 @@ export function urlDesenho(tenantId: string, fichaId: string, versao: number): s
   return `${API_URL}/fichas/${encodeURIComponent(fichaId)}/desenho/${versao}?tenant_id=${encodeURIComponent(tenantId)}`;
 }
 
-// ── Galeria de croquis (Fase 14, Bloco G, Task 15) ───────────────────────────
-// listarCroquis/deletarCroqui vêm na Task 16, junto com a página /croquis que os consome.
+// ── Galeria de croquis (Fase 14, Bloco G, Task 15/16) ────────────────────────
 export function urlCroqui(tenantId: string, croquiId: string): string {
   return `${API_URL}/croquis/${encodeURIComponent(croquiId)}/imagem?tenant_id=${encodeURIComponent(tenantId)}`;
+}
+
+export interface CroquiResumo {
+  id: string;
+  estilo: string;
+  resumo: string;
+  criado_em: string;
+}
+
+export async function listarCroquis(tenantId: string): Promise<CroquiResumo[]> {
+  return request<CroquiResumo[]>(`/croquis?tenant_id=${encodeURIComponent(tenantId)}`);
+}
+
+export async function deletarCroqui(tenantId: string, croquiId: string, tokenAdmin: string): Promise<void> {
+  await request<{ status: string }>(
+    `/croquis/${encodeURIComponent(croquiId)}?tenant_id=${encodeURIComponent(tenantId)}`,
+    { method: "DELETE", headers: { "X-Admin-Token": tokenAdmin } }
+  );
 }
 
 // `instrucaoAdicional` é o pedido de ajuste da regeneração (ex: "a manga é 3/4, não curta") --

@@ -40,7 +40,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, FileStack, FileText, Globe, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
+import { Bot, Download, FileStack, FileText, Globe, Images, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -497,6 +497,15 @@ export default function ChatPage() {
             >
               <FileStack className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Fichas Técnicas</span>
+            </Link>
+            <Link
+              href="/croquis"
+              className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+              aria-label="Galeria de Croquis"
+              title="Galeria de Croquis"
+            >
+              <Images className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Croquis</span>
             </Link>
             <Link
               href="/admin"
