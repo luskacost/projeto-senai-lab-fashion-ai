@@ -14,6 +14,8 @@ import {
 } from "@/lib/api";
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { APP_NOME } from "@/lib/branding";
+import { limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
+import SenhaAdminDialog from "@/components/SenhaAdminDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +40,7 @@ export default function FichasPage() {
   const [criando, setCriando] = useState(false);
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [fichaPendenteDeSenha, setFichaPendenteDeSenha] = useState<string | null>(null);
 
   useEffect(() => {
     recarregar();
@@ -80,12 +83,30 @@ export default function FichasPage() {
 
   async function excluir(fichaId: string, nome: string) {
     if (!window.confirm(`Excluir a ficha "${nome || "sem nome"}"? Essa ação não pode ser desfeita.`)) return;
+
+    // Excluir ficha é uma ação administrativa (Fase 14, Bloco S, Task 2) -- se a pessoa já
+    // autenticou em /admin nesta aba, reaproveita o token; senão, pede a senha agora mesmo.
+    const tokenAdmin = obterTokenAdmin();
+    if (!tokenAdmin) {
+      setFichaPendenteDeSenha(fichaId);
+      return;
+    }
+    await executarExclusao(fichaId, tokenAdmin);
+  }
+
+  async function executarExclusao(fichaId: string, tokenAdmin: string) {
     setExcluindoId(fichaId);
     try {
-      await deletarFicha(TENANT_ID, fichaId);
+      await deletarFicha(TENANT_ID, fichaId, tokenAdmin);
       setFichas((atual) => atual.filter((f) => f.id !== fichaId));
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Falha ao excluir a ficha.");
+      if (e instanceof ApiError && e.status === 401) {
+        limparTokenAdmin();
+        toast.error("Sessão de administrador expirada. Informe a senha novamente.");
+        setFichaPendenteDeSenha(fichaId);
+      } else {
+        toast.error(e instanceof ApiError ? e.message : "Falha ao excluir a ficha.");
+      }
     } finally {
       setExcluindoId(null);
     }
@@ -173,6 +194,17 @@ export default function FichasPage() {
           )}
         </CardContent>
       </Card>
+
+      <SenhaAdminDialog
+        open={fichaPendenteDeSenha !== null}
+        onOpenChange={(aberto) => { if (!aberto) setFichaPendenteDeSenha(null); }}
+        tenantId={TENANT_ID}
+        titulo="Confirmar exclusão"
+        descricao="Excluir uma ficha técnica exige a senha de administrador."
+        onAutorizado={(tokenAdmin) => {
+          if (fichaPendenteDeSenha) executarExclusao(fichaPendenteDeSenha, tokenAdmin);
+        }}
+      />
     </div>
   );
 }

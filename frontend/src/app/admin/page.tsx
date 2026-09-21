@@ -16,6 +16,7 @@ import {
   urlLogo,
 } from "@/lib/api";
 import { APP_NOME } from "@/lib/branding";
+import { definirTokenAdmin, limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,6 @@ const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 // Guarda o token de sessão de verdade (emitido por POST /admin/login e validado no backend em
 // cada rota administrativa, Fase 9/Bloco B) -- não é mais um "1" opaco que só escondia o botão
 // no front-end sem nenhuma checagem real do lado do servidor.
-const CHAVE_SESSAO_ADMIN = "labfashion_admin_token";
 
 export default function AdminPage() {
   const [tokenAdmin, setTokenAdmin] = useState<string | null>(null);
@@ -46,10 +46,8 @@ export default function AdminPage() {
   const inputLogoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const tokenSalvo = window.sessionStorage.getItem(CHAVE_SESSAO_ADMIN);
-      if (tokenSalvo) setTokenAdmin(tokenSalvo);
-    }
+    const tokenSalvo = obterTokenAdmin();
+    if (tokenSalvo) setTokenAdmin(tokenSalvo);
   }, []);
 
   useEffect(() => {
@@ -63,7 +61,7 @@ export default function AdminPage() {
   // retorna 401 -- desloga de volta pra tela de login em vez de mostrar um erro confuso.
   function tratarErroAdmin(e: unknown, mensagemPadrao: string) {
     if (e instanceof ApiError && e.status === 401) {
-      window.sessionStorage.removeItem(CHAVE_SESSAO_ADMIN);
+      limparTokenAdmin();
       setTokenAdmin(null);
       toast.error("Sessão de administrador expirada. Faça login novamente.");
       return;
@@ -91,7 +89,7 @@ export default function AdminPage() {
       const token = await adminLogin(TENANT_ID, senha);
       if (token) {
         setTokenAdmin(token);
-        window.sessionStorage.setItem(CHAVE_SESSAO_ADMIN, token);
+        definirTokenAdmin(token);
       } else {
         setErroLogin("Senha incorreta.");
       }

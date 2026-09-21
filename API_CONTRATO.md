@@ -34,7 +34,9 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
 ### `POST /admin/login`
 - **Body:** `{ tenant_id, senha }`
 - **Lógica:** compara `senha` com `obter_secret_tenant(tenant_id, "ADMIN_PASSWORD")` via
-  `hmac.compare_digest` (constant-time); bloqueio de 15min após 5 tentativas incorretas por tenant.
+  `hmac.compare_digest` (constant-time); bloqueio de 15min após 5 tentativas incorretas **por IP**
+  (corrigido na Fase 14, Bloco S, Task 2 -- era por `tenant_id`, uma string pública, então
+  qualquer um negava o acesso do admin legítimo só errando a senha 5 vezes de propósito).
 - **Resposta:** `{ autorizado: bool, token: string | null }` — `token` é opaco, válido por 4h,
   exigido no header `X-Admin-Token` nas rotas administrativas abaixo.
 
@@ -168,7 +170,11 @@ de cada ficha.
 ### `POST /fichas/{ficha_id}/duplicar` — `{ tenant_id }`
 Cópia com novo `id`, mesma finalidade de "vou usar como base para outro modelo".
 
-### `DELETE /fichas/{ficha_id}?tenant_id=`
+### `DELETE /fichas/{ficha_id}?tenant_id=` — headers `X-Admin-Token`
+Exige token de admin desde a Fase 14, Bloco S, Task 2 -- antes, qualquer um que soubesse o
+`tenant_id` (uma string pública) apagava qualquer ficha sem autenticação nenhuma. O frontend
+(`/fichas`) pede a senha administrativa na hora, via `SenhaAdminDialog`, se ainda não houver uma
+sessão de admin ativa nesta aba.
 
 ### `GET /fichas/{ficha_id}/docx?tenant_id=`
 Renderiza (`docxtpl`) e devolve o `.docx` para download; marca `status = DOCUMENTO_GERADO` e grava

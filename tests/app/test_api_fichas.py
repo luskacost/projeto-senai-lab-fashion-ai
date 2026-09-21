@@ -15,6 +15,7 @@ tenant_data/fichas/{tenant}_* e tenant_data/{tenant}_usage.json* no tearDown.
 import glob
 import os
 import shutil
+import time
 import unittest
 from unittest.mock import patch
 
@@ -25,7 +26,7 @@ import fichas_modelo as fm
 import fichas_pdf as fp
 import fichas_repo as fr
 import tenant_config
-from api.main import app
+from api.main import _ADMIN_TOKENS, app
 from usage_tracker import incrementar_uso
 
 TENANT_TESTE = "teste_task6_api_fichas"
@@ -87,7 +88,13 @@ class TestTenantInexistente(TestApiFichasBase):
         self.assertEqual(r.status_code, 404)
 
     def test_deletar(self):
-        r = self.client.delete(f"/fichas/{UUID_INEXISTENTE}", params={"tenant_id": "tenant_que_nao_existe"})
+        # X-Admin-Token é obrigatório na requisição (Fase 14, Bloco S, Task 2) -- o valor em si é
+        # irrelevante aqui, só precisa estar presente para a validação de parâmetros do FastAPI
+        # deixar a rota checar o tenant primeiro, que é o que este teste verifica.
+        r = self.client.delete(
+            f"/fichas/{UUID_INEXISTENTE}", params={"tenant_id": "tenant_que_nao_existe"},
+            headers={"X-Admin-Token": "qualquer-coisa"},
+        )
         self.assertEqual(r.status_code, 404)
 
 
@@ -529,18 +536,32 @@ class TestObterDesenhoFicha(TestApiFichasBase):
 
 
 class TestDeletarFicha(TestApiFichasBase):
+    """Excluir ficha exige token de admin desde a Fase 14, Bloco S, Task 2 -- antes, qualquer um
+    que soubesse o tenant_id (uma string pública) apagava qualquer ficha sem autenticação nenhuma."""
+
+    def setUp(self):
+        super().setUp()
+        self.token_admin = "token-teste-deletar-ficha"
+        _ADMIN_TOKENS[self.token_admin] = {"tenant_id": TENANT_TESTE, "expira_em": time.time() + 3600}
+
+    def tearDown(self):
+        super().tearDown()
+        _ADMIN_TOKENS.pop(self.token_admin, None)
+
+    def _headers(self):
+        return {"X-Admin-Token": self.token_admin}
 
     def test_inexistente_404(self):
-        r = self.client.delete(f"/fichas/{UUID_INEXISTENTE}", params={"tenant_id": TENANT_TESTE})
+        r = self.client.delete(f"/fichas/{UUID_INEXISTENTE}", params={"tenant_id": TENANT_TESTE}, headers=self._headers())
         self.assertEqual(r.status_code, 404)
 
     def test_id_malformado_400(self):
-        r = self.client.delete("/fichas/nao-e-um-uuid", params={"tenant_id": TENANT_TESTE})
+        r = self.client.delete("/fichas/nao-e-um-uuid", params={"tenant_id": TENANT_TESTE}, headers=self._headers())
         self.assertEqual(r.status_code, 400)
 
     def test_deleta_e_depois_404(self):
         criado = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
-        r = self.client.delete(f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE})
+        r = self.client.delete(f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE}, headers=self._headers())
         self.assertEqual(r.status_code, 200)
 
         r2 = self.client.get(f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE})
@@ -548,9 +569,30 @@ class TestDeletarFicha(TestApiFichasBase):
 
     def test_removida_do_indice(self):
         criado = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
-        self.client.delete(f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE})
+        self.client.delete(f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE}, headers=self._headers())
         r = self.client.get("/fichas", params={"tenant_id": TENANT_TESTE})
         self.assertNotIn(criado["id"], [e["id"] for e in r.json()])
+
+    def test_sem_token_e_recusado(self):
+        criado = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        r = self.client.delete(f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 422)  # header obrigatório ausente
+
+    def test_token_de_outro_tenant_e_recusado(self):
+        outro_tenant = "teste_task6_outro_tenant_delete_ficha"
+        tenant_config.TENANT_CONFIG[outro_tenant] = {"nome": "Outro tenant"}
+        token_outro = "token-outro-tenant-delete-ficha"
+        _ADMIN_TOKENS[token_outro] = {"tenant_id": outro_tenant, "expira_em": time.time() + 3600}
+        try:
+            criado = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+            r = self.client.delete(
+                f"/fichas/{criado['id']}", params={"tenant_id": TENANT_TESTE},
+                headers={"X-Admin-Token": token_outro},
+            )
+            self.assertEqual(r.status_code, 401)
+        finally:
+            tenant_config.TENANT_CONFIG.pop(outro_tenant, None)
+            _ADMIN_TOKENS.pop(token_outro, None)
 
 
 if __name__ == "__main__":

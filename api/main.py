@@ -273,7 +273,7 @@ def atualizar_config_tenant(payload: ConfigTenantUpdate, x_admin_token: str = He
 # o que é aceitável: exige só um novo login.
 # ─────────────────────────────────────────────────────────────────────────────
 _ADMIN_TOKENS: Dict[str, Dict[str, Any]] = {}  # token -> {"tenant_id": ..., "expira_em": timestamp}
-_ADMIN_LOGIN_TENTATIVAS: Dict[str, Dict[str, Any]] = {}  # tenant_id -> {"falhas": int, "bloqueado_ate": timestamp}
+_ADMIN_LOGIN_TENTATIVAS: Dict[str, Dict[str, Any]] = {}  # ip -> {"falhas": int, "bloqueado_ate": timestamp}
 
 DURACAO_TOKEN_ADMIN_SEGUNDOS = 4 * 60 * 60  # 4 horas
 MAX_TENTATIVAS_LOGIN_ADMIN = 5
@@ -300,12 +300,16 @@ class AdminLoginRequest(BaseModel):
 
 
 @app.post("/admin/login")
-def admin_login(payload: AdminLoginRequest) -> Dict[str, Any]:
+def admin_login(payload: AdminLoginRequest, request: Request) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
 
+    # Bloqueio por IP (Fase 14, Bloco S, Task 2) -- antes era por tenant_id, e como este projeto é
+    # single-tenant, qualquer um conseguia negar o acesso do admin legítimo por 15 minutos só
+    # errando a senha 5 vezes (DoS trivial, sem precisar saber nada além do tenant_id público).
+    ip_cliente = request.client.host if request.client else "desconhecido"
     agora = time.time()
-    estado = _ADMIN_LOGIN_TENTATIVAS.get(payload.tenant_id, {"falhas": 0, "bloqueado_ate": 0.0})
+    estado = _ADMIN_LOGIN_TENTATIVAS.get(ip_cliente, {"falhas": 0, "bloqueado_ate": 0.0})
     if estado["bloqueado_ate"] > agora:
         minutos_restantes = int((estado["bloqueado_ate"] - agora) / 60) + 1
         raise HTTPException(
@@ -323,10 +327,10 @@ def admin_login(payload: AdminLoginRequest) -> Dict[str, Any]:
         if estado["falhas"] >= MAX_TENTATIVAS_LOGIN_ADMIN:
             estado["bloqueado_ate"] = agora + DURACAO_BLOQUEIO_LOGIN_SEGUNDOS
             estado["falhas"] = 0
-        _ADMIN_LOGIN_TENTATIVAS[payload.tenant_id] = estado
+        _ADMIN_LOGIN_TENTATIVAS[ip_cliente] = estado
         return {"autorizado": False, "token": None}
 
-    _ADMIN_LOGIN_TENTATIVAS.pop(payload.tenant_id, None)
+    _ADMIN_LOGIN_TENTATIVAS.pop(ip_cliente, None)
     return {"autorizado": True, "token": _gerar_token_admin(payload.tenant_id)}
 
 
@@ -1235,9 +1239,12 @@ def obter_desenho_ficha(ficha_id: str, versao: int, tenant_id: str) -> Response:
 
 
 @app.delete("/fichas/{ficha_id}")
-def deletar_ficha_endpoint(ficha_id: str, tenant_id: str) -> Dict[str, str]:
+def deletar_ficha_endpoint(
+    ficha_id: str, tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")
+) -> Dict[str, str]:
     if tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    verificar_token_admin(tenant_id, x_admin_token)
 
     try:
         removida = deletar_ficha(tenant_id, ficha_id)

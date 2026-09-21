@@ -709,10 +709,10 @@ export async function aprovarDesenho(tenantId: string, fichaId: string, versao: 
   });
 }
 
-export async function deletarFicha(tenantId: string, fichaId: string): Promise<void> {
+export async function deletarFicha(tenantId: string, fichaId: string, tokenAdmin: string): Promise<void> {
   await request<{ status: string }>(
     `/fichas/${encodeURIComponent(fichaId)}?tenant_id=${encodeURIComponent(tenantId)}`,
-    { method: "DELETE" }
+    { method: "DELETE", headers: { "X-Admin-Token": tokenAdmin } }
   );
 }
 
