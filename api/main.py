@@ -10,6 +10,7 @@ Rodar localmente: uvicorn api.main:app --reload
 """
 
 import asyncio
+import base64
 import hmac
 import io
 import os
@@ -62,7 +63,7 @@ from analise_dados import (
 from moderacao import validar_prompt_imagem
 from usage_tracker import carregar_uso_do_dia, incrementar_uso, verificar_limite
 from logger_config import obter_logger
-from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO
+from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO, PREFIXO_IMAGEM_GERADA, eh_imagem_gerada
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
 from fichas_modelo import STATUS_DESENHO_GERADO, STATUS_DOCUMENTO_GERADO, valor_de
@@ -85,6 +86,7 @@ from croquis_repo import (
     caminho_croqui,
     deletar_croqui,
     listar_croquis,
+    salvar_croqui,
 )
 
 try:
@@ -674,6 +676,25 @@ def _confirmar_criacao_de_ficha(payload: "ConfirmarCroquiRequest", client: OpenA
     }
 
 
+def _persistir_croqui_best_effort(tenant_id: str, imagem_url: str, estilo: str, resumo: str) -> Optional[str]:
+    """Decodifica a data URI do croqui recém-gerado e salva na galeria (Fase 14, Bloco G, Task 14).
+
+    Best-effort de propósito: a imagem já foi gerada e cobrada (incrementar_uso já rodou antes
+    desta chamada) -- uma falha ao gravar em disco não pode virar erro 500 pro usuário nem
+    descartar a resposta que ele já pagou por ela, só significa que este croqui em particular não
+    aparecerá na galeria depois. `None` sinaliza "não foi possível persistir" sem quebrar o fluxo.
+    """
+    try:
+        if not eh_imagem_gerada(imagem_url):
+            raise ValueError("imagem_url não é uma data URI PNG reconhecida.")
+        conteudo = base64.b64decode(imagem_url[len(PREFIXO_IMAGEM_GERADA):])
+        entrada = salvar_croqui(tenant_id, conteudo, estilo=estilo, resumo=resumo)
+        return entrada["id"]
+    except Exception as e:
+        obter_logger(tenant_id).error(f"Falha ao persistir croqui na galeria: {e}", exc_info=True)
+        return None
+
+
 @app.post("/chat/croqui/confirmar")
 def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
     """Segundo passo dos modos com ferramenta cara: confirma ou cancela a execução.
@@ -737,8 +758,12 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
     resultado_ferramenta = executar_ferramenta(nome_ferramenta, payload.pendente.get("argumentos", {}), contexto)
 
     imagem_url_gerada = resultado_ferramenta.dados_extras.get("imagem_url")
+    croqui_id = None
     if imagem_url_gerada:
         incrementar_uso(payload.tenant_id, "imagens")
+        croqui_id = _persistir_croqui_best_effort(
+            payload.tenant_id, imagem_url_gerada, estilo, payload.pendente.get("resumo_confirmacao", "")
+        )
 
     instructions = payload.pendente.get("instructions", "")
     texto_final = retomar_apos_confirmacao(
@@ -747,7 +772,8 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 
     return {
         "resposta": texto_final,
-        "imagem_url": imagem_url_gerada
+        "imagem_url": imagem_url_gerada,
+        "croqui_id": croqui_id,
     }
 
 

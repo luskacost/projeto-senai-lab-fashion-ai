@@ -122,7 +122,11 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
   - **`gerar_imagem_croqui`:** modera o prompt visual (`validar_prompt_imagem`), checa
     `limite_imagens_dia` (`429` se excedido), executa a ferramenta de verdade (gera a imagem via
     gpt-image-1), incrementa o uso, e retoma a conversa até obter a resposta final (síntese em
-    texto). **Resposta:** `{ resposta: "string", imagem_url: "string | null" }`
+    texto). **Resposta:** `{ resposta: "string", imagem_url: "string | null", croqui_id: "string | null" }`
+    — `croqui_id` (Fase 14, Bloco G, Task 14) é o id na galeria (`GET /croquis`), persistido a
+    partir da mesma data URI que `imagem_url` traz; gravação é *best-effort* (a imagem já foi
+    gerada e cobrada antes deste ponto) — `null` se a escrita em disco falhar, sem afetar o
+    resto da resposta.
   - **`gerar_ficha_tecnica` (Fase 12):** checa `limite_fichas_dia` (`429` se excedido) e cria uma
     ficha real — mesmo pipeline de `POST /fichas` com `texto_origem` (extração estruturada +
     verificação de proveniência + persistência), usando a mensagem que o usuário digitou nesta

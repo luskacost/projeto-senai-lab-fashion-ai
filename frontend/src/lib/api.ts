@@ -110,6 +110,10 @@ export async function enviarMensagemChat(params: {
 export interface ConfirmarCroquiResponse {
   resposta: string;
   imagem_url: string | null;
+  // Presente quando a imagem foi gerada com sucesso (Fase 14, Bloco G, Task 14) -- o croqui já foi
+  // persistido na galeria (/croquis); null se a gravação em disco falhou (best-effort, nunca
+  // derruba a resposta) ou se este pendente não gerou imagem nenhuma.
+  croqui_id?: string | null;
   // Só presentes quando pendente.nome_ferramenta é "gerar_ficha_tecnica" (Fase 12) -- a ferramenta
   // não gera imagem, cria uma ficha real em /fichas e devolve o link pra lá.
   ficha_id?: string | null;
