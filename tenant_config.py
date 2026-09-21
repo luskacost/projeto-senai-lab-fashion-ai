@@ -160,7 +160,12 @@ Recuse perguntas fora do escopo educadamente.""",
                     "relevante, diga claramente que não encontrou informação atual sobre o assunto em vez de "
                     "inventar."
                 ),
-                "tools": ["buscar_documentos_internos", "listar_documentos_disponiveis"],
+                # consultar_resumo_planilha (Fase 14, Bloco X, Task 11): estava registrada no
+                # agente_ferramentas.py desde a Fase 10 mas não aparecia em nenhum modo -- é
+                # justamente aqui que a motivação documentada no registry se cumpre (cruzar a
+                # planilha de vendas/estoque da empresa com uma tendência de mercado pesquisada na
+                # web, numa única resposta).
+                "tools": ["buscar_documentos_internos", "listar_documentos_disponiveis", "consultar_resumo_planilha"],
                 # Fase 10, Bloco C: web_search nativo (Responses API) substitui a tool
                 # buscar_tendencias_web (Tavily, Fase 7) -- decisão validada com o usuário: citações
                 # estruturadas nativas em vez de uma segunda integração paga. A função/tool antiga
@@ -199,7 +204,14 @@ Recuse perguntas fora do escopo educadamente.""",
                     "(notícias, preços, eventos recentes, versões de software, etc.) ou de um fato específico que "
                     "você não tenha certeza. Para conhecimento geral estável, responda direto, sem pesquisar."
                 ),
-                "tools": ["buscar_documentos_internos", "listar_documentos_disponiveis"],
+                # consultar_resumo_planilha e consultar_unidades_senai (Fase 14, Bloco X, Task 11):
+                # únicas duas ferramentas do registry sem restrição de escopo a moda -- fazem
+                # sentido aqui, o único modo sem essa restrição (perguntas gerais sobre a planilha
+                # da empresa ou "onde fica a unidade SENAI mais próxima" cabem num assistente geral).
+                "tools": [
+                    "buscar_documentos_internos", "listar_documentos_disponiveis",
+                    "consultar_resumo_planilha", "consultar_unidades_senai",
+                ],
                 # Fase 10, Bloco C: web_search nativo.
                 "usar_web_search": True,
                 # Único modo sem restrição de escopo a moda -- ver _montar_custom_prompt

@@ -76,8 +76,9 @@ Usuário → POST /chat → agente_openai.chamar_agente()
                                    │     Estilo, Professor Técnico, Engenharia Têxtil, Tendências
                                    │     e Assistente Geral)
                                    ├── listar_documentos_disponiveis (mesmos modos acima)
-                                   ├── consultar_resumo_planilha
-                                   ├── consultar_unidades_senai (contato SENAI)
+                                   ├── consultar_resumo_planilha (Tendências, Assistente Geral --
+                                   │     cruza a planilha da empresa com tendência de mercado)
+                                   ├── consultar_unidades_senai (contato SENAI; só Assistente Geral)
                                    ├── gerar_imagem_croqui (gera imagem)
                                    └── gerar_ficha_tecnica (cria ficha real em /fichas -- não gera imagem)
                                           └── exigem confirmação explícita do usuário antes de executar
