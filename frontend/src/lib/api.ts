@@ -766,6 +766,16 @@ export async function aprovarDesenho(tenantId: string, fichaId: string, versao: 
   });
 }
 
+// Reaproveita um croqui já salvo na galeria como versão do desenho técnico -- sem moderação, sem
+// cota, sem chamada de API (Fase 14, Bloco G, Task 17): a imagem já foi moderada e cobrada quando
+// foi gerada no chat.
+export async function importarCroquiComoDesenho(tenantId: string, fichaId: string, croquiId: string): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/desenho/importar-croqui`, {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, croqui_id: croquiId }),
+  });
+}
+
 export async function deletarFicha(tenantId: string, fichaId: string, tokenAdmin: string): Promise<void> {
   await request<{ status: string }>(
     `/fichas/${encodeURIComponent(fichaId)}?tenant_id=${encodeURIComponent(tenantId)}`,

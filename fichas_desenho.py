@@ -173,6 +173,42 @@ def acumular_instrucao(instrucoes_anteriores: str, instrucao_adicional: str) -> 
     return f"{instrucoes_anteriores}\n{instrucao_adicional}"
 
 
+def anexar_versao(
+    tenant_id: str,
+    ficha: Dict[str, Any],
+    conteudo: bytes,
+    prompt_visual: str = "",
+    instrucoes_acumuladas: str = "",
+) -> Dict[str, Any]:
+    """Persiste bytes de imagem já prontos como a próxima versão do desenho técnico e devolve a
+    ficha com ela anexada -- sem moderar, sem checar cota, sem chamar API de geração nenhuma.
+
+    Extraída de `gerar_nova_versao` (Fase 14, Bloco G, Task 17) para ter dois chamadores: a
+    geração de verdade (que modera + checa cota + gera antes de chegar aqui) e a importação de um
+    croqui já salvo na galeria (`POST /fichas/{id}/desenho/importar-croqui`), que reaproveita bytes
+    de uma imagem que já foi moderada e cobrada quando foi gerada no chat -- repetir moderação e
+    cota ali seria cobrar duas vezes pela mesma imagem.
+
+    Não persiste a ficha em disco -- quem chama decide quando salvar (mesma convenção de
+    fichas_docx.py/fichas_pdf.py: este módulo só monta o resultado, a rota HTTP orquestra o
+    disco). O status inicial da versão já sai como AGUARDANDO_APROVACAO.
+    """
+    versoes = ficha["desenho"]["versoes"]
+    numero_versao = len(versoes) + 1
+
+    salvar_desenho(tenant_id, ficha["id"], numero_versao, conteudo)
+
+    ficha["desenho"]["solicitado"] = True
+    ficha["desenho"]["versoes"] = versoes + [{
+        "versao": numero_versao,
+        "prompt_visual": prompt_visual,
+        "instrucoes_acumuladas": instrucoes_acumuladas,
+        "status": fm.DESENHO_AGUARDANDO_APROVACAO,
+        "criado_em": datetime.now().isoformat(),
+    }]
+    return ficha
+
+
 def gerar_nova_versao(
     client: Any,
     tenant_id: str,
@@ -180,13 +216,8 @@ def gerar_nova_versao(
     limite_imagens_dia: int,
     instrucao_adicional: str = "",
 ) -> Dict[str, Any]:
-    """Gera uma nova versão do desenho técnico e devolve a ficha com ela anexada.
-
-    Não persiste a ficha em disco -- quem chama decide quando salvar (mesma convenção de
-    fichas_docx.py/fichas_pdf.py: este módulo só monta o resultado, a rota HTTP orquestra o
-    disco). O status inicial da versão já sai como AGUARDANDO_APROVACAO: neste fluxo síncrono
-    (pedido → resposta), não existe um momento intermediário em que a imagem está "gerada" mas
-    ainda não visível ao usuário para decidir -- os dois acontecem na mesma resposta HTTP.
+    """Gera uma nova versão do desenho técnico via gpt-image-1 e devolve a ficha com ela anexada
+    (persistência em disco por `anexar_versao`, acima).
 
     A ordem moderação → cota → geração é a mesma que POST /chat/croqui/confirmar já usa: nenhuma
     chamada cara acontece se uma verificação mais barata antes dela já reprovou.
@@ -195,7 +226,6 @@ def gerar_nova_versao(
     imagem -- nenhum dos dois gasta o crédito da geração em si.
     """
     versoes = ficha["desenho"]["versoes"]
-    numero_versao = len(versoes) + 1
 
     instrucoes_anteriores = versoes[-1]["instrucoes_acumuladas"] if versoes else ""
     instrucoes_acumuladas = acumular_instrucao(instrucoes_anteriores, instrucao_adicional)
@@ -219,17 +249,8 @@ def gerar_nova_versao(
     if conteudo is None:
         raise RuntimeError("Falha ao gerar o desenho técnico. Tente novamente em instantes.")
 
-    salvar_desenho(tenant_id, ficha["id"], numero_versao, conteudo)
+    ficha = anexar_versao(tenant_id, ficha, conteudo, prompt_visual=prompt_visual, instrucoes_acumuladas=instrucoes_acumuladas)
     incrementar_uso(tenant_id, "imagens")
-
-    ficha["desenho"]["solicitado"] = True
-    ficha["desenho"]["versoes"] = versoes + [{
-        "versao": numero_versao,
-        "prompt_visual": prompt_visual,
-        "instrucoes_acumuladas": instrucoes_acumuladas,
-        "status": fm.DESENHO_AGUARDANDO_APROVACAO,
-        "criado_em": datetime.now().isoformat(),
-    }]
     return ficha
 
 

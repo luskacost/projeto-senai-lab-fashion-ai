@@ -21,6 +21,7 @@ import {
   campoEditado,
   corBeneficiamentoVazia,
   gerarDesenho,
+  importarCroquiComoDesenho,
   obterFicha,
   operacaoVazia,
   parteModelagemVazia,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/api";
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { mensagemAmigavel } from "@/lib/erros";
+import ImportarCroquiDialog from "@/components/ImportarCroquiDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -41,7 +43,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import OrigemIndicador from "@/components/fichas/OrigemIndicador";
-import { AlertTriangle, ArrowLeft, FileDown, ImagePlus, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, FileDown, ImagePlus, Images, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -158,6 +160,8 @@ export default function FichaDetalhePage() {
   const [erro, setErro] = useState<string | null>(null);
   const [gerandoDesenho, setGerandoDesenho] = useState(false);
   const [instrucaoAdicional, setInstrucaoAdicional] = useState("");
+  const [dialogoImportarCroquiAberto, setDialogoImportarCroquiAberto] = useState(false);
+  const [importandoCroqui, setImportandoCroqui] = useState(false);
 
   useEffect(() => {
     if (!fichaId) return;
@@ -239,6 +243,22 @@ export default function FichaDetalhePage() {
       toast.success(`Versão ${versao} aprovada.`);
     } catch (e) {
       toast.error(mensagemAmigavel(e, "Não foi possível aprovar a versão."));
+    }
+  }
+
+  async function importarCroqui(croquiId: string) {
+    if (!ficha) return;
+    setImportandoCroqui(true);
+    try {
+      const resultado = await importarCroquiComoDesenho(TENANT_ID, ficha.id, croquiId);
+      setFicha(resultado.ficha);
+      setAlertas(resultado.alertas);
+      setDialogoImportarCroquiAberto(false);
+      toast.success("Croqui importado como desenho técnico.");
+    } catch (e) {
+      toast.error(mensagemAmigavel(e, "Não foi possível importar o croqui."));
+    } finally {
+      setImportandoCroqui(false);
     }
   }
 
@@ -357,6 +377,7 @@ export default function FichaDetalhePage() {
   const dados = ficha.dados;
 
   return (
+    <>
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <div className="flex items-center justify-between gap-3">
         <Link href="/fichas" className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -494,10 +515,16 @@ export default function FichaDetalhePage() {
               {ficha.desenho.solicitado && (
                 <div className="space-y-4">
                   {ficha.desenho.versoes.length === 0 ? (
-                    <Button onClick={gerarOuRegenerarDesenho} disabled={gerandoDesenho} variant="outline" size="sm">
-                      {gerandoDesenho ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-                      {gerandoDesenho ? "Gerando..." : "Gerar desenho técnico"}
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={gerarOuRegenerarDesenho} disabled={gerandoDesenho} variant="outline" size="sm">
+                        {gerandoDesenho ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+                        {gerandoDesenho ? "Gerando..." : "Gerar desenho técnico"}
+                      </Button>
+                      <Button onClick={() => setDialogoImportarCroquiAberto(true)} variant="outline" size="sm">
+                        <Images className="h-3.5 w-3.5" />
+                        Importar da galeria de croquis
+                      </Button>
+                    </div>
                   ) : (
                     <>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -541,10 +568,16 @@ export default function FichaDetalhePage() {
                           onChange={(e) => setInstrucaoAdicional(e.target.value)}
                           rows={2}
                         />
-                        <Button onClick={gerarOuRegenerarDesenho} disabled={gerandoDesenho} variant="outline" size="sm">
-                          {gerandoDesenho ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                          {gerandoDesenho ? "Gerando..." : "Gerar nova versão"}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button onClick={gerarOuRegenerarDesenho} disabled={gerandoDesenho} variant="outline" size="sm">
+                            {gerandoDesenho ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                            {gerandoDesenho ? "Gerando..." : "Gerar nova versão"}
+                          </Button>
+                          <Button onClick={() => setDialogoImportarCroquiAberto(true)} variant="outline" size="sm">
+                            <Images className="h-3.5 w-3.5" />
+                            Importar da galeria
+                          </Button>
+                        </div>
                       </div>
                     </>
                   )}
@@ -1047,6 +1080,14 @@ export default function FichaDetalhePage() {
         </TabsContent>
       </Tabs>
     </div>
+    <ImportarCroquiDialog
+      open={dialogoImportarCroquiAberto}
+      onOpenChange={setDialogoImportarCroquiAberto}
+      tenantId={TENANT_ID}
+      importando={importandoCroqui}
+      onImportar={importarCroqui}
+    />
+    </>
   );
 }
 

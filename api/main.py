@@ -1306,6 +1306,34 @@ def obter_desenho_ficha(ficha_id: str, versao: int, tenant_id: str) -> Response:
         return Response(content=f.read(), media_type="image/png")
 
 
+class ImportarCroquiComoDesenhoRequest(BaseModel):
+    tenant_id: str
+    croqui_id: str
+
+
+@app.post("/fichas/{ficha_id}/desenho/importar-croqui")
+def importar_croqui_como_desenho(ficha_id: str, payload: ImportarCroquiComoDesenhoRequest) -> Dict[str, Any]:
+    """Reaproveita um croqui já salvo na galeria como uma nova versão do desenho técnico da ficha
+    (Fase 14, Bloco G, Task 17) -- sem moderação, sem checagem de cota, sem chamada de API: a
+    imagem já foi moderada e cobrada quando foi gerada originalmente no chat."""
+    ficha = _carregar_ficha_ou_404(payload.tenant_id, ficha_id)
+
+    try:
+        caminho = caminho_croqui(payload.tenant_id, payload.croqui_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"ID de croqui inválido: '{payload.croqui_id}'.")
+    if not caminho:
+        raise HTTPException(status_code=404, detail=f"Croqui '{payload.croqui_id}' não encontrado.")
+
+    with open(caminho, "rb") as f:
+        conteudo = f.read()
+
+    ficha = fichas_desenho.anexar_versao(payload.tenant_id, ficha, conteudo, prompt_visual="(Importado da galeria de croquis)")
+    ficha["status"] = STATUS_DESENHO_GERADO
+    ficha = salvar_ficha(payload.tenant_id, ficha)
+    return _ficha_com_alertas(ficha)
+
+
 @app.delete("/fichas/{ficha_id}")
 def deletar_ficha_endpoint(
     ficha_id: str, tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")

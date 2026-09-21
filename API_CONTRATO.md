@@ -231,12 +231,21 @@ versão aprovada entra no documento final — nenhuma é aprovada automaticament
 ### `GET /fichas/{ficha_id}/desenho/{versao}?tenant_id=`
 PNG de uma versão já gerada (só leitura).
 
+### `POST /fichas/{ficha_id}/desenho/importar-croqui` — `{ tenant_id, croqui_id }` (Fase 14, Bloco G, Task 17)
+Reaproveita um croqui já salvo na galeria (`/croquis`) como uma nova versão do desenho técnico
+desta ficha -- **sem** moderação, **sem** checagem de `limite_imagens_dia`, **sem** chamar
+gpt-image-1: a imagem já foi moderada e cobrada quando foi gerada originalmente no chat, então
+repetir qualquer uma dessas checagens cobraria/bloquearia a mesma imagem duas vezes. `400` para
+`croqui_id` malformado, `404` se o croqui não existir. Marca `status = DESENHO_GERADO`, mesma
+convenção de `POST /fichas/{id}/desenho`.
+
 ## Galeria de croquis (`/croquis`, Fase 14, Bloco G)
 
 Persistência do croqui gerado no chat -- antes só existia como data URI base64 dentro do histórico
 da conversa (perdido se a conversa fosse excluída). `POST /chat/croqui/confirmar` (existente) passa
-a salvar em disco e devolver `croqui_id`; estas rotas só leem/listam/removem o que já foi salvo, não
-há `POST` aqui.
+a salvar em disco e devolver `croqui_id`; estas rotas só leem/listam/removem o que já foi salvo (o
+único `POST` que consome um croqui salvo é `.../desenho/importar-croqui`, acima, que vive sob
+`/fichas` por natureza, não sob `/croquis`).
 
 ### `GET /croquis?tenant_id=`
 Lista a galeria (id, estilo, resumo, `criado_em`), mais recente primeiro -- mesmo padrão de

@@ -32,6 +32,7 @@ import GraficoBarras from "@/components/GraficoBarras";
 import SeletorModo from "@/components/SeletorModo";
 import SeletorPerfil from "@/components/SeletorPerfil";
 import { MODO_PADRAO_SEM_PERFIL, ehModoDeAgente } from "@/lib/modos";
+import { ESTILO_ILUSTRACAO, ESTILO_TECNICO } from "@/lib/estilos-croqui";
 import { MODO_PADRAO_POR_PERFIL, PERGUNTAS_POR_PERFIL, PerfilId } from "@/lib/perfis";
 import { mensagemAmigavel } from "@/lib/erros";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -105,9 +106,6 @@ const TEXTO_CARREGANDO_POR_MODO: Record<string, string> = {
   "Engenharia Têxtil": "Consultando normas e especificações...",
   "Assistente Geral": "Pensando...",
 };
-const ESTILO_ILUSTRACAO = "🎨 Ilustração de Moda";
-const ESTILO_TECNICO = "📐 Desenho Técnico (Flat Sketch)";
-
 function embaralhar<T>(lista: T[]): T[] {
   const copia = [...lista];
   for (let i = copia.length - 1; i > 0; i--) {
