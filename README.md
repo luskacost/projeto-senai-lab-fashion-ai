@@ -50,6 +50,13 @@ caso precise consultar).
 | Base de Conhecimento | Pergunta sobre documentos indexados pelo tenant (RAG). |
 | Assistente Geral | Sem restrição de escopo a moda -- qualquer assunto. |
 
+**Modo inicial (Fase 14, Bloco U):** quem nunca escolheu um perfil começa em "Consultor de
+Estilo" (`MODO_PADRAO_SEM_PERFIL`, `frontend/src/lib/modos.ts`) -- não depende de nenhum documento
+indexado, ao contrário de "Base de Conhecimento", que era o ponto de partida antigo e respondia
+"não encontrei nos documentos" para um app recém-instalado. Quem já escolheu um perfil numa visita
+anterior volta direto no modo padrão daquele perfil (`MODO_PADRAO_POR_PERFIL`,
+`frontend/src/lib/perfis.ts`) a cada novo carregamento, não só no momento da escolha.
+
 ---
 
 ## Arquitetura do agente

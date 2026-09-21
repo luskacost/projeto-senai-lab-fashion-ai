@@ -64,6 +64,15 @@ export const MODOS: ModoInfo[] = [
 
 export const MODOS_DISPONIVEIS = MODOS.map((m) => m.id);
 
+// Modo inicial para quem ainda não escolheu um perfil (Fase 14, Bloco U, Task 5) -- antes, o chat
+// sempre começava em MODOS_DISPONIVEIS[0] ("Base de Conhecimento"), que só funciona depois que um
+// admin sobe documentos em /admin. Um usuário novo caía direto num modo que, sem nenhuma
+// explicação, respondia "não encontrei nos documentos" para qualquer pergunta. "Consultor de
+// Estilo" não depende de nenhuma configuração prévia -- funciona de imediato para qualquer
+// pessoa. A escolha de perfil continua opcional e pulável (decisão da Fase 6): isto só muda o
+// ponto de partida de quem nunca escolheu um.
+export const MODO_PADRAO_SEM_PERFIL = "Consultor de Estilo";
+
 // Modos que rodam via chamar_agente() no backend (tool calling) e por isso se beneficiam
 // de receber o histórico completo da conversa a cada chamada -- ao contrário de
 // "Base de Conhecimento" (usa buscar_contexto_relevante + conversation_id) e

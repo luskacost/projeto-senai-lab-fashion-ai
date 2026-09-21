@@ -27,7 +27,7 @@ import ImagemGerada from "@/components/ImagemGerada";
 import GraficoBarras from "@/components/GraficoBarras";
 import SeletorModo from "@/components/SeletorModo";
 import SeletorPerfil from "@/components/SeletorPerfil";
-import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
+import { MODO_PADRAO_SEM_PERFIL, ehModoDeAgente } from "@/lib/modos";
 import { MODO_PADRAO_POR_PERFIL, PERGUNTAS_POR_PERFIL, PerfilId } from "@/lib/perfis";
 import { mensagemAmigavel } from "@/lib/erros";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -147,7 +147,7 @@ export default function ChatPage() {
   const [mensagens, setMensagens] = useState<MensagemConversa[]>([]);
   const [entrada, setEntrada] = useState("");
   const [carregando, setCarregando] = useState(false);
-  const [modo, setModo] = useState(MODOS_DISPONIVEIS[0]);
+  const [modo, setModo] = useState(MODO_PADRAO_SEM_PERFIL);
   const [estiloCroqui, setEstiloCroqui] = useState(ESTILO_ILUSTRACAO);
   const [pendenteConfirmacao, setPendenteConfirmacao] = useState<PendenteConfirmacao | null>(null);
   const [enviandoPlanilha, setEnviandoPlanilha] = useState(false);
@@ -157,7 +157,7 @@ export default function ChatPage() {
   // servidor e a primeira renderizacao no cliente (Math.random() geraria ordens diferentes e
   // quebraria a hidratacao). O useEffect de montagem abaixo reembaralha assim que roda no
   // cliente, ja depois da hidratacao estar concluida.
-  const [sugestoesAtuais, setSugestoesAtuais] = useState<string[]>(() => sugestoesBase(MODOS_DISPONIVEIS[0], null));
+  const [sugestoesAtuais, setSugestoesAtuais] = useState<string[]>(() => sugestoesBase(MODO_PADRAO_SEM_PERFIL, null));
   const fimDaListaRef = useRef<HTMLDivElement>(null);
   const inputPlanilhaRef = useRef<HTMLInputElement>(null);
 
@@ -166,7 +166,15 @@ export default function ChatPage() {
     setUsuarioId(uid);
     const perfilSalvo = obterPerfilAtivo();
     setPerfilAtivo(perfilSalvo);
-    setSugestoesAtuais(embaralhar(sugestoesBase(MODOS_DISPONIVEIS[0], perfilSalvo)));
+    // Quem já escolheu um perfil numa visita anterior (perfil fica salvo entre sessões) volta
+    // direto no modo padrão daquele perfil, em vez de resetar para MODO_PADRAO_SEM_PERFIL a cada
+    // carregamento -- antes, o modo só era aplicado no momento em que a pessoa clicava no
+    // seletor de perfil, nunca ao simplesmente reabrir o app já com um perfil salvo.
+    const modoInicial = perfilSalvo
+      ? MODO_PADRAO_POR_PERFIL[perfilSalvo as PerfilId] ?? MODO_PADRAO_SEM_PERFIL
+      : MODO_PADRAO_SEM_PERFIL;
+    setModo(modoInicial);
+    setSugestoesAtuais(embaralhar(sugestoesBase(modoInicial, perfilSalvo)));
 
     listarConversas(TENANT_ID, uid)
       .then(async (lista) => {
@@ -299,8 +307,8 @@ export default function ChatPage() {
     setConversas((atual) => atual.map((c) => (c.id === conversaAtualId ? conversaAtualizada : c)));
   }
 
-  async function enviar() {
-    const texto = entrada.trim();
+  async function enviar(textoForcado?: string) {
+    const texto = (textoForcado ?? entrada).trim();
     if (!texto || carregando || pendenteConfirmacao || !usuarioId || !conversaAtualId) return;
 
     const mensagensComUsuario: MensagemConversa[] = [
@@ -490,7 +498,8 @@ export default function ChatPage() {
                       key={sugestao}
                       variant="outline"
                       className="h-auto justify-start whitespace-normal text-left py-2.5 px-3.5 font-normal text-foreground"
-                      onClick={() => setEntrada(sugestao)}
+                      disabled={carregando}
+                      onClick={() => enviar(sugestao)}
                     >
                       {sugestao}
                     </Button>
@@ -723,7 +732,7 @@ export default function ChatPage() {
               className="flex-1 max-h-40 overflow-y-auto resize-none rounded-xl min-h-11 py-2.5"
             />
             <Button
-              onClick={enviar}
+              onClick={() => enviar()}
               disabled={carregando || !entrada.trim() || !!pendenteConfirmacao}
               size="icon-lg"
               className="rounded-xl shrink-0"
