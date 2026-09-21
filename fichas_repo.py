@@ -43,7 +43,7 @@ DIRETORIO_FICHAS = os.path.join("tenant_data", "fichas")
 # do que travar a requisição indefinidamente.
 TIMEOUT_LOCK_SEGUNDOS = 5
 
-_REGEX_FICHA_ID = re.compile(
+_REGEX_UUID = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
@@ -54,10 +54,18 @@ class ConflitoDeVersaoError(Exception):
     e a tentativa de escrita atual. A rota (Task 6) traduz isso para HTTP 412."""
 
 
+def validar_id_uuid(valor: Any, rotulo: str = "id") -> str:
+    """Confirma que `valor` tem formato UUID antes de virar caminho de arquivo -- pública (Fase
+    14, Bloco G, Task 12) para `croquis_repo.py` reaproveitar em vez de duplicar a mesma regex e o
+    mesmo risco de divergir dela com o tempo. `rotulo` só personaliza a mensagem de erro (ex:
+    "ficha_id", "croqui_id")."""
+    if not isinstance(valor, str) or not _REGEX_UUID.match(valor):
+        raise ValueError(f"{rotulo} inválido: {valor!r}")
+    return valor
+
+
 def _validar_ficha_id(ficha_id: Any) -> str:
-    if not isinstance(ficha_id, str) or not _REGEX_FICHA_ID.match(ficha_id):
-        raise ValueError(f"ficha_id inválido: {ficha_id!r}")
-    return ficha_id
+    return validar_id_uuid(ficha_id, rotulo="ficha_id")
 
 
 def _dir_ficha(tenant_id: str, ficha_id: str) -> str:
@@ -90,7 +98,7 @@ def _caminho_lock_indice(tenant_id: str) -> str:
     return os.path.join(DIRETORIO_FICHAS, f"{tenant_id}_index.json.lock")
 
 
-def _escrever_json_atomico(caminho: str, dados: Any) -> None:
+def escrever_json_atomico(caminho: str, dados: Any) -> None:
     """Escreve num arquivo temporário e troca com `os.replace` -- um leitor concorrente nunca vê
     um arquivo pela metade (o replace é atômico no nível do sistema de arquivos), diferente de
     escrever direto no destino."""
@@ -136,7 +144,7 @@ def _indice_upsert(tenant_id: str, entrada: dict) -> None:
             indice = _indice_carregar(tenant_id)
             indice = [e for e in indice if e.get("id") != entrada["id"]]
             indice.append(entrada)
-            _escrever_json_atomico(_caminho_indice(tenant_id), indice)
+            escrever_json_atomico(_caminho_indice(tenant_id), indice)
     except Timeout:
         obter_logger(tenant_id).error(f"Timeout ao atualizar índice de fichas ({entrada.get('id')}).")
 
@@ -148,7 +156,7 @@ def _indice_remover(tenant_id: str, ficha_id: str) -> bool:
             novo_indice = [e for e in indice if e.get("id") != ficha_id]
             removeu = len(novo_indice) != len(indice)
             if removeu:
-                _escrever_json_atomico(_caminho_indice(tenant_id), novo_indice)
+                escrever_json_atomico(_caminho_indice(tenant_id), novo_indice)
             return removeu
     except Timeout:
         obter_logger(tenant_id).error(f"Timeout ao remover ficha {ficha_id} do índice.")
@@ -159,7 +167,7 @@ def _persistir(tenant_id: str, ficha: dict) -> None:
     """Grava ficha.json (com lock próprio da ficha) e atualiza o índice em seguida."""
     ficha_id = _validar_ficha_id(ficha["id"])
     with FileLock(_caminho_lock_ficha(tenant_id, ficha_id), timeout=TIMEOUT_LOCK_SEGUNDOS):
-        _escrever_json_atomico(_caminho_ficha_json(tenant_id, ficha_id), ficha)
+        escrever_json_atomico(_caminho_ficha_json(tenant_id, ficha_id), ficha)
     _indice_upsert(tenant_id, _resumo_indice(ficha))
 
 
@@ -220,7 +228,7 @@ def salvar_ficha(tenant_id: str, ficha: dict, atualizado_em_esperado: Optional[s
                     f"A ficha {ficha_id} foi modificada em outra sessão desde a última leitura."
                 )
         ficha["atualizado_em"] = datetime.now().isoformat()
-        _escrever_json_atomico(_caminho_ficha_json(tenant_id, ficha_id), ficha)
+        escrever_json_atomico(_caminho_ficha_json(tenant_id, ficha_id), ficha)
 
     _indice_upsert(tenant_id, _resumo_indice(ficha))
     return ficha
