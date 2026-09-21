@@ -29,6 +29,7 @@ import {
   urlPreviewFicha,
 } from "@/lib/api";
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
+import { mensagemAmigavel } from "@/lib/erros";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -171,7 +172,7 @@ export default function FichaDetalhePage() {
         setAlertas(resultado.alertas);
       } catch (e) {
         if (cancelado) return;
-        const msg = e instanceof ApiError ? e.message : "Falha ao carregar a ficha.";
+        const msg = mensagemAmigavel(e, "Não foi possível carregar a ficha.");
         setErro(msg);
         toast.error(msg);
       } finally {
@@ -221,7 +222,7 @@ export default function FichaDetalhePage() {
         // casos a mensagem do backend já é a que deve chegar ao usuário, sem reformular.
         toast.error(e.message);
       } else {
-        toast.error(e instanceof ApiError ? e.message : "Falha ao gerar o desenho técnico.");
+        toast.error(mensagemAmigavel(e, "Não foi possível gerar o desenho técnico."));
       }
     } finally {
       setGerandoDesenho(false);
@@ -236,7 +237,7 @@ export default function FichaDetalhePage() {
       setAlertas(resultado.alertas);
       toast.success(`Versão ${versao} aprovada.`);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Falha ao aprovar a versão.");
+      toast.error(mensagemAmigavel(e, "Não foi possível aprovar a versão."));
     }
   }
 
@@ -252,7 +253,7 @@ export default function FichaDetalhePage() {
       if (e instanceof ApiError && e.status === 412) {
         toast.error("Esta ficha foi alterada em outra sessão/aba. Recarregue a página para ver a versão mais recente antes de salvar de novo.");
       } else {
-        toast.error(e instanceof ApiError ? e.message : "Falha ao salvar a ficha.");
+        toast.error(mensagemAmigavel(e, "Não foi possível salvar a ficha."));
       }
     } finally {
       setSalvando(false);
@@ -280,12 +281,11 @@ export default function FichaDetalhePage() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
         toast.error("Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de gerar o documento.");
-      } else if (e instanceof ApiError && e.status === 501) {
-        // 501 = LibreOffice ausente no servidor. É falta de dependência de sistema, não bug --
-        // e a mensagem do backend já diz o que instalar.
-        toast.error(e.message);
       } else {
-        toast.error(e instanceof ApiError ? e.message : "Falha ao gerar o documento.");
+        // 501 = LibreOffice ausente no servidor -- a mensagem crua do backend fala em variável de
+        // ambiente e caminho de executável (jargão de infraestrutura); mensagemAmigavel() já
+        // traduz isso para algo que faz sentido pra quem não instalou nada (Fase 14, Bloco U).
+        toast.error(mensagemAmigavel(e, "Não foi possível gerar o documento."));
       }
     } finally {
       setGerando(null);
@@ -310,9 +310,7 @@ export default function FichaDetalhePage() {
       const msg =
         e instanceof ApiError && e.status === 412
           ? "Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de atualizar a prévia."
-          : e instanceof ApiError
-            ? e.message
-            : "Falha ao gerar a pré-visualização.";
+          : mensagemAmigavel(e, "Não foi possível gerar a pré-visualização.");
       setErroPreview(msg);
       toast.error(msg);
     } finally {

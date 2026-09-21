@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {
-  ApiError,
   ArquivoAnexado,
   Conversa,
   GraficoBarrasDados,
@@ -30,6 +29,7 @@ import SeletorModo from "@/components/SeletorModo";
 import SeletorPerfil from "@/components/SeletorPerfil";
 import { MODOS_DISPONIVEIS, ehModoDeAgente } from "@/lib/modos";
 import { MODO_PADRAO_POR_PERFIL, PERGUNTAS_POR_PERFIL, PerfilId } from "@/lib/perfis";
+import { mensagemAmigavel } from "@/lib/erros";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -192,8 +192,7 @@ export default function ChatPage() {
   }, [mensagens, carregando, pendenteConfirmacao]);
 
   function mensagemDeErro(e: unknown, contexto: string): string {
-    if (e instanceof ApiError) return e.message;
-    return `Falha ao conectar com a API (${contexto}). Verifique se o servidor está rodando e tente novamente.`;
+    return mensagemAmigavel(e, `Não foi possível ${contexto}. Tente novamente.`);
   }
 
   function selecionarConversa(id: string) {

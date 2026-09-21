@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { APP_NOME } from "@/lib/branding";
 import { definirTokenAdmin, limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
+import { mensagemAmigavel } from "@/lib/erros";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ export default function AdminPage() {
       toast.error("Sessão de administrador expirada. Faça login novamente.");
       return;
     }
-    toast.error(e instanceof ApiError ? e.message : mensagemPadrao);
+    toast.error(mensagemAmigavel(e, mensagemPadrao));
   }
 
   async function recarregarDocumentos() {
@@ -94,7 +95,7 @@ export default function AdminPage() {
         setErroLogin("Senha incorreta.");
       }
     } catch (e) {
-      setErroLogin(e instanceof ApiError ? e.message : "Falha ao conectar com a API.");
+      setErroLogin(mensagemAmigavel(e, "Não foi possível entrar. Tente novamente."));
     } finally {
       setValidandoLogin(false);
     }

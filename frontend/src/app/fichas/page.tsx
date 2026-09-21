@@ -15,6 +15,7 @@ import {
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { APP_NOME } from "@/lib/branding";
 import { limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
+import { mensagemAmigavel } from "@/lib/erros";
 import SenhaAdminDialog from "@/components/SenhaAdminDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -64,7 +65,7 @@ export default function FichasPage() {
       const { ficha } = await criarFicha(TENANT_ID);
       router.push(`/fichas/${ficha.id}`);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Falha ao criar a ficha.");
+      toast.error(mensagemAmigavel(e, "Não foi possível criar a ficha."));
       setCriando(false);
     }
   }
@@ -76,7 +77,7 @@ export default function FichasPage() {
       toast.success("Ficha duplicada.");
       router.push(`/fichas/${ficha.id}`);
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Falha ao duplicar a ficha.");
+      toast.error(mensagemAmigavel(e, "Não foi possível duplicar a ficha."));
       setDuplicandoId(null);
     }
   }
@@ -105,7 +106,7 @@ export default function FichasPage() {
         toast.error("Sessão de administrador expirada. Informe a senha novamente.");
         setFichaPendenteDeSenha(fichaId);
       } else {
-        toast.error(e instanceof ApiError ? e.message : "Falha ao excluir a ficha.");
+        toast.error(mensagemAmigavel(e, "Não foi possível excluir a ficha."));
       }
     } finally {
       setExcluindoId(null);

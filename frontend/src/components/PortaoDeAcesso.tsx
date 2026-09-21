@@ -6,8 +6,9 @@
 // nunca aparece na prática -- o portão só se torna real quando o backend define a variável.
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { acessoLogin, ApiError } from "@/lib/api";
+import { acessoLogin } from "@/lib/api";
 import { definirTokenAcesso, obterTokenAcesso, registrarAoPerderAcesso } from "@/lib/acesso";
+import { mensagemAmigavel } from "@/lib/erros";
 import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,7 +44,7 @@ export default function PortaoDeAcesso({ children }: { children: React.ReactNode
         setErro("Senha incorreta.");
       }
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : "Falha ao conectar com a API.");
+      setErro(mensagemAmigavel(e, "Não foi possível entrar. Tente novamente."));
     } finally {
       setValidando(false);
     }

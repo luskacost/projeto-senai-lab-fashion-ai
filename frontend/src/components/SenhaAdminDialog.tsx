@@ -9,8 +9,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
-import { adminLogin, ApiError } from "@/lib/api";
+import { adminLogin } from "@/lib/api";
 import { definirTokenAdmin } from "@/lib/admin-sessao";
+import { mensagemAmigavel } from "@/lib/erros";
 
 export default function SenhaAdminDialog({
   open,
@@ -46,7 +47,7 @@ export default function SenhaAdminDialog({
         setErro("Senha incorreta.");
       }
     } catch (e) {
-      setErro(e instanceof ApiError ? e.message : "Falha ao conectar com a API.");
+      setErro(mensagemAmigavel(e, "Não foi possível confirmar. Tente novamente."));
     } finally {
       setValidando(false);
     }
