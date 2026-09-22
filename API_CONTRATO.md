@@ -211,7 +211,28 @@ de cada ficha.
 - O `id` do path é sempre a fonte de verdade — um `id` divergente no corpo é ignorado.
 
 ### `POST /fichas/{ficha_id}/duplicar` — `{ tenant_id }`
-Cópia com novo `id`, mesma finalidade de "vou usar como base para outro modelo".
+Cópia com novo `id`, mesma finalidade de "vou usar como base para outro modelo". Não herda a
+aprovação da original (nem o desenho/documentos) — a cópia nasce `RASCUNHO`.
+
+### `POST /fichas/{ficha_id}/aprovar` — `{ tenant_id, aprovada_por, atualizado_em_esperado, observacao? }` (Fase 14, Bloco AP)
+Registra a aprovação e leva o status para `APROVADA`. É um **registro nominal, não uma assinatura
+digital**: guarda o nome que a pessoa digitou, sem autenticação por trás (decisão travada com o
+usuário) — a UI precisa rotulá-lo assim pelo mesmo motivo.
+
+- `atualizado_em_esperado` é **obrigatório** aqui (diferente do `PUT`): aprovar é declarar "conferi
+  ESTA versão", então uma ficha que mudou entre a leitura e o clique devolve `412` — é o caso em
+  que o 412 deixa de ser conveniência e vira requisito.
+- `400` para nome em branco; `409` se a ficha já estiver aprovada (reabra antes de aprovar de novo).
+
+### `POST /fichas/{ficha_id}/reabrir` — `{ tenant_id, reaberta_por, observacao? }`
+Devolve a ficha para edição (`EM_REVISAO`), zerando a aprovação vigente mas **preservando
+`aprovacao.historico`** — é o que torna a trilha auditável. `409` se a ficha não estiver aprovada.
+Sem `atualizado_em_esperado`: reabrir não declara nada sobre o conteúdo.
+
+**Congelamento leve:** `PUT /fichas/{id}` numa ficha aprovada devolve `409`. O `PUT` também ignora
+`aprovacao` vinda do corpo (escrita só por estas duas rotas), senão um cliente apagaria a trilha
+de auditoria num salvamento comum. Gerar `.docx`/PDF/desenho numa ficha aprovada continua
+permitido e **não rebaixa mais o status** — antes da Fase 14 isso desfazia a aprovação em silêncio.
 
 ### `DELETE /fichas/{ficha_id}?tenant_id=` — headers `X-Admin-Token`
 Exige token de admin desde a Fase 14, Bloco S, Task 2 -- antes, qualquer um que soubesse o

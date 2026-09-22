@@ -340,6 +340,12 @@ def custo_vazio() -> dict:
     return {"custo": campo_numero_vazio(), "observacao": campo_texto_vazio()}
 
 
+def aprovacao_vazia() -> dict:
+    """Ficha sem aprovação vigente. Campos simples (não campos de proveniência): não são dados da
+    peça extraíveis de texto, são o registro de um ato humano -- quem apertou o botão."""
+    return {"aprovada_por": "", "aprovada_em": "", "observacao": "", "historico": []}
+
+
 def tamanhos_da_grade(dados: dict) -> List[str]:
     """Tamanhos escolhidos na grade, em ordem canônica (numéricos crescentes, depois comerciais do
     menor ao maior) -- NÃO na ordem em que o usuário os digitou.
@@ -449,6 +455,16 @@ def ficha_vazia() -> dict:
             "comissao_percentual": 0.0,
             "margem_lucro_percentual": 0.0,
         },
+        # Registro de aprovação (Fase 14, Bloco AP, Task 24). É um REGISTRO NOMINAL, não uma
+        # assinatura digital: guarda quem declarou ter aprovado e quando, sem autenticação nenhuma
+        # por trás -- decisão travada com o usuário. A UI precisa chamá-lo de "registro de
+        # aprovação" pelo mesmo motivo: prometer "assinatura" seria prometer uma garantia
+        # criptográfica que este campo não tem.
+        #
+        # Os campos do topo descrevem a aprovação VIGENTE (zerados ao reabrir); `historico` é a
+        # trilha de auditoria completa, que só cresce -- reabrir não apaga o que foi aprovado
+        # antes, senão a trilha não serviria para nada.
+        "aprovacao": aprovacao_vazia(),
         "documentos": {"docx": "", "pdf": "", "gerado_em": ""},
     }
 

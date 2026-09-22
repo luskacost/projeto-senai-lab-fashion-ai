@@ -111,6 +111,7 @@ def escrever_json_atomico(caminho: str, dados: Any) -> None:
 
 def _resumo_indice(ficha: dict) -> dict:
     dados_ficha = (ficha.get("dados") or {}).get("ficha", {})
+    aprovacao = ficha.get("aprovacao") or {}
     return {
         "id": ficha["id"],
         "ref": fm.valor_de(dados_ficha.get("ref")) or "",
@@ -118,6 +119,9 @@ def _resumo_indice(ficha: dict) -> dict:
         "status": ficha.get("status", fm.STATUS_RASCUNHO),
         "criado_em": ficha.get("criado_em", ""),
         "atualizado_em": ficha.get("atualizado_em", ""),
+        # No índice (Fase 14, Bloco AP) para a lista de fichas mostrar quem aprovou sem precisar
+        # abrir o JSON completo de cada uma -- mesma razão de ref/nome estarem aqui.
+        "aprovada_por": aprovacao.get("aprovada_por", ""),
     }
 
 

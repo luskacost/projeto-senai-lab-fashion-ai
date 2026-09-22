@@ -66,7 +66,14 @@ from logger_config import obter_logger
 from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO, PREFIXO_IMAGEM_GERADA, eh_imagem_gerada
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
-from fichas_modelo import STATUS_DESENHO_GERADO, STATUS_DOCUMENTO_GERADO, valor_de
+from fichas_modelo import (
+    STATUS_APROVADA,
+    STATUS_DESENHO_GERADO,
+    STATUS_DOCUMENTO_GERADO,
+    STATUS_EM_REVISAO,
+    aprovacao_vazia,
+    valor_de,
+)
 from fichas_precificacao import calcular as calcular_precificacao
 import fichas_desenho
 import fichas_docx
@@ -1002,6 +1009,27 @@ def _nome_arquivo_ficha(ficha: Dict[str, Any], extensao: str) -> str:
     return f"ficha_{rotulo or 'sem_nome'}.{extensao}"
 
 
+def _ficha_esta_aprovada(ficha: Dict[str, Any]) -> bool:
+    return ficha.get("status") == STATUS_APROVADA
+
+
+def _avancar_status(ficha: Dict[str, Any], novo_status: str) -> None:
+    """Muda o status da ficha, EXCETO quando ela está aprovada (Fase 14, Bloco AP, Task 24).
+
+    Antes disto, três rotas atribuíam status incondicionalmente (gerar .docx, gerar desenho,
+    importar croqui como desenho) -- então baixar o Word de uma ficha aprovada a rebaixava para
+    DOCUMENTO_GERADO em silêncio, desfazendo a aprovação sem ninguém pedir e sem nenhum aviso.
+    Justamente a ação mais natural depois de aprovar (emitir o documento) era a que apagava a
+    aprovação.
+
+    A ação em si continua permitida -- gerar o Word de uma ficha aprovada é o caso de uso
+    principal. O que não pode é o efeito colateral no status.
+    """
+    if _ficha_esta_aprovada(ficha):
+        return
+    ficha["status"] = novo_status
+
+
 def _ficha_com_alertas(ficha: Dict[str, Any], alertas_extra: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     alertas = list(alertas_extra or [])
     alertas.extend(validar_ficha(ficha.get("dados", {})))
@@ -1087,6 +1115,10 @@ def atualizar_ficha_endpoint(ficha_id: str, payload: AtualizarFichaRequest) -> D
     `atualizado_em_esperado`, quando informado, é o timestamp que o cliente tinha ao abrir a
     ficha para edição -- divergência do valor salvo em disco indica edição concorrente em outra
     sessão (ConflitoDeVersaoError, traduzido para HTTP 412 aqui).
+
+    Ficha aprovada é congelada (409): editar o conteúdo depois de aprovado esvaziaria o sentido da
+    aprovação -- quem aprovou teria assinado embaixo de um texto que mudou. Para voltar a editar,
+    `POST /fichas/{id}/reabrir`, que deixa registro de quem reabriu.
     """
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
@@ -1098,8 +1130,19 @@ def atualizar_ficha_endpoint(ficha_id: str, payload: AtualizarFichaRequest) -> D
     if existente is None:
         raise HTTPException(status_code=404, detail=f"Ficha '{ficha_id}' não encontrada.")
 
+    # Checa o status PERSISTIDO, não o que veio no corpo: confiar no corpo deixaria o congelamento
+    # ser desligado por um cliente que simplesmente enviasse outro status.
+    if _ficha_esta_aprovada(existente):
+        raise HTTPException(
+            status_code=409,
+            detail="Esta ficha está aprovada e não pode ser editada. Reabra-a para voltar a editar.",
+        )
+
     ficha = dict(payload.ficha)
     ficha["id"] = ficha_id  # o path é a fonte de verdade do id, não o corpo da requisição
+    # Mesma lógica para o registro de aprovação: ele é escrito só pelas rotas de aprovar/reabrir.
+    # Sem isto, um cliente poderia apagar a trilha de auditoria num PUT comum.
+    ficha["aprovacao"] = existente.get("aprovacao") or aprovacao_vazia()
 
     try:
         ficha_salva = salvar_ficha(payload.tenant_id, ficha, atualizado_em_esperado=payload.atualizado_em_esperado)
@@ -1107,6 +1150,105 @@ def atualizar_ficha_endpoint(ficha_id: str, payload: AtualizarFichaRequest) -> D
         raise HTTPException(status_code=412, detail=str(err_conflito))
 
     return _ficha_com_alertas(ficha_salva)
+
+
+class AprovarFichaRequest(BaseModel):
+    tenant_id: str
+    aprovada_por: str
+    # Obrigatório aqui, ao contrário do PUT: aprovar é declarar "eu conferi ESTA versão". Se a
+    # ficha mudou entre a tela que a pessoa leu e o clique, a aprovação registraria o nome dela
+    # embaixo de um conteúdo que ela nunca viu -- é o caso em que o 412 deixa de ser conveniência
+    # e vira requisito.
+    atualizado_em_esperado: str
+    observacao: Optional[str] = None
+
+
+class ReabrirFichaRequest(BaseModel):
+    tenant_id: str
+    reaberta_por: str
+    observacao: Optional[str] = None
+
+
+def _registrar_no_historico(ficha: Dict[str, Any], acao: str, por: str, observacao: str) -> None:
+    aprovacao = ficha.get("aprovacao") or aprovacao_vazia()
+    historico = list(aprovacao.get("historico") or [])
+    historico.append({
+        "acao": acao,
+        "por": por,
+        "em": datetime.now().isoformat(),
+        "observacao": observacao,
+    })
+    aprovacao["historico"] = historico
+    ficha["aprovacao"] = aprovacao
+
+
+@app.post("/fichas/{ficha_id}/aprovar")
+def aprovar_ficha_endpoint(ficha_id: str, payload: AprovarFichaRequest) -> Dict[str, Any]:
+    """Registra a aprovação da ficha (Fase 14, Bloco AP, Task 24).
+
+    É um REGISTRO NOMINAL, não uma assinatura digital: guarda o nome que a pessoa digitou, sem
+    autenticação por trás -- decisão travada com o usuário. Serve para saber a quem perguntar
+    sobre a peça, não para provar criptograficamente quem foi.
+    """
+    nome = (payload.aprovada_por or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome de quem está aprovando a ficha.")
+
+    ficha = _carregar_ficha_ou_404(payload.tenant_id, ficha_id)
+
+    if _ficha_esta_aprovada(ficha):
+        raise HTTPException(
+            status_code=409,
+            detail="Esta ficha já está aprovada. Reabra-a antes de aprovar de novo.",
+        )
+    if ficha.get("atualizado_em") != payload.atualizado_em_esperado:
+        raise HTTPException(
+            status_code=412,
+            detail="Esta ficha mudou desde que você a abriu. Recarregue a página e confira o "
+                   "conteúdo atual antes de aprovar.",
+        )
+
+    observacao = (payload.observacao or "").strip()
+    ficha["aprovacao"] = {
+        "aprovada_por": nome,
+        "aprovada_em": datetime.now().isoformat(),
+        "observacao": observacao,
+        "historico": (ficha.get("aprovacao") or {}).get("historico") or [],
+    }
+    _registrar_no_historico(ficha, "aprovada", nome, observacao)
+    ficha["status"] = STATUS_APROVADA
+
+    ficha = salvar_ficha(payload.tenant_id, ficha)
+    return _ficha_com_alertas(ficha)
+
+
+@app.post("/fichas/{ficha_id}/reabrir")
+def reabrir_ficha_endpoint(ficha_id: str, payload: ReabrirFichaRequest) -> Dict[str, Any]:
+    """Reabre uma ficha aprovada para edição, deixando registro de quem reabriu.
+
+    Sem `atualizado_em_esperado`: reabrir não declara nada sobre o conteúdo (só devolve a ficha
+    para edição), então exigir que a pessoa tivesse a versão mais recente em mãos só atrapalharia.
+    A aprovação vigente é zerada, mas o histórico NÃO -- é o que torna a trilha auditável.
+    """
+    nome = (payload.reaberta_por or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Informe o nome de quem está reabrindo a ficha.")
+
+    ficha = _carregar_ficha_ou_404(payload.tenant_id, ficha_id)
+
+    if not _ficha_esta_aprovada(ficha):
+        raise HTTPException(status_code=409, detail="Esta ficha não está aprovada, então não há o que reabrir.")
+
+    observacao = (payload.observacao or "").strip()
+    _registrar_no_historico(ficha, "reaberta", nome, observacao)
+    aprovacao = ficha["aprovacao"]
+    aprovacao["aprovada_por"] = ""
+    aprovacao["aprovada_em"] = ""
+    aprovacao["observacao"] = ""
+    ficha["status"] = STATUS_EM_REVISAO
+
+    ficha = salvar_ficha(payload.tenant_id, ficha)
+    return _ficha_com_alertas(ficha)
 
 
 @app.post("/fichas/{ficha_id}/duplicar")
@@ -1155,7 +1297,7 @@ def _gerar_docx_e_marcar(tenant_id: str, ficha: Dict[str, Any], marcar: bool = T
     if marcar:
         ficha["documentos"]["docx"] = fichas_docx.NOME_ARQUIVO_DOCX
         ficha["documentos"]["gerado_em"] = datetime.now().isoformat()
-        ficha["status"] = STATUS_DOCUMENTO_GERADO
+        _avancar_status(ficha, STATUS_DOCUMENTO_GERADO)
         salvar_ficha(tenant_id, ficha)
     return caminho
 
@@ -1273,7 +1415,7 @@ def gerar_desenho_endpoint(ficha_id: str, payload: GerarDesenhoRequest) -> Dict[
     except RuntimeError as err:
         raise HTTPException(status_code=500, detail=str(err))
 
-    ficha["status"] = STATUS_DESENHO_GERADO
+    _avancar_status(ficha, STATUS_DESENHO_GERADO)
     ficha = salvar_ficha(payload.tenant_id, ficha)
     return _ficha_com_alertas(ficha)
 
@@ -1337,7 +1479,7 @@ def importar_croqui_como_desenho(ficha_id: str, payload: ImportarCroquiComoDesen
         conteudo = f.read()
 
     ficha = fichas_desenho.anexar_versao(payload.tenant_id, ficha, conteudo, prompt_visual="(Importado da galeria de croquis)")
-    ficha["status"] = STATUS_DESENHO_GERADO
+    _avancar_status(ficha, STATUS_DESENHO_GERADO)
     ficha = salvar_ficha(payload.tenant_id, ficha)
     return _ficha_com_alertas(ficha)
 

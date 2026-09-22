@@ -121,7 +121,29 @@ class TestListarFichas(TestRepoFichasBase):
     def test_entrada_tem_campos_esperados(self):
         ficha = fr.criar_ficha(TENANT_TESTE)
         entrada = next(e for e in fr.listar_fichas(TENANT_TESTE) if e["id"] == ficha["id"])
-        self.assertEqual(set(entrada.keys()), {"id", "ref", "nome", "status", "criado_em", "atualizado_em"})
+        # "aprovada_por" entrou na Fase 14, Bloco AP: a lista de fichas mostra quem aprovou sem
+        # precisar abrir o JSON completo de cada uma -- mesma razão de ref/nome estarem no índice.
+        self.assertEqual(
+            set(entrada.keys()),
+            {"id", "ref", "nome", "status", "criado_em", "atualizado_em", "aprovada_por"},
+        )
+
+    def test_entrada_traz_quem_aprovou(self):
+        ficha = fr.criar_ficha(TENANT_TESTE)
+        ficha["aprovacao"]["aprovada_por"] = "Ana Paula"
+        fr.salvar_ficha(TENANT_TESTE, ficha)
+
+        entrada = next(e for e in fr.listar_fichas(TENANT_TESTE) if e["id"] == ficha["id"])
+        self.assertEqual(entrada["aprovada_por"], "Ana Paula")
+
+    def test_entrada_de_ficha_antiga_sem_aprovacao_nao_quebra(self):
+        # Ficha salva antes da Fase 14 não tem a chave "aprovacao" nenhuma.
+        ficha = fr.criar_ficha(TENANT_TESTE)
+        del ficha["aprovacao"]
+        fr.salvar_ficha(TENANT_TESTE, ficha)
+
+        entrada = next(e for e in fr.listar_fichas(TENANT_TESTE) if e["id"] == ficha["id"])
+        self.assertEqual(entrada["aprovada_por"], "")
 
     def test_entrada_reflete_ref_e_nome_da_ficha(self):
         ficha = fr.criar_ficha(TENANT_TESTE)

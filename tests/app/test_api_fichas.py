@@ -572,6 +572,194 @@ class TestObterDesenhoFicha(TestApiFichasBase):
         self.assertEqual(r2.content, b"conteudo v2")
 
 
+class TestAprovarEReabrirFicha(TestApiFichasBase):
+    """Registro de aprovação (Fase 14, Bloco AP, Task 24) -- nominal, sem autenticação."""
+
+    def _criar(self):
+        return self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+
+    def _aprovar(self, ficha, nome="Ana Paula", observacao=None, atualizado_em=None):
+        corpo = {
+            "tenant_id": TENANT_TESTE,
+            "aprovada_por": nome,
+            "atualizado_em_esperado": atualizado_em if atualizado_em is not None else ficha["atualizado_em"],
+        }
+        if observacao is not None:
+            corpo["observacao"] = observacao
+        return self.client.post(f"/fichas/{ficha['id']}/aprovar", json=corpo)
+
+    def test_aprova_e_registra_quem_aprovou(self):
+        criada = self._criar()
+        r = self._aprovar(criada, observacao="Conferido com a modelista")
+
+        self.assertEqual(r.status_code, 200)
+        ficha = r.json()["ficha"]
+        self.assertEqual(ficha["status"], fm.STATUS_APROVADA)
+        self.assertEqual(ficha["aprovacao"]["aprovada_por"], "Ana Paula")
+        self.assertEqual(ficha["aprovacao"]["observacao"], "Conferido com a modelista")
+        self.assertTrue(ficha["aprovacao"]["aprovada_em"])
+
+    def test_aprovacao_entra_no_historico(self):
+        criada = self._criar()
+        ficha = self._aprovar(criada).json()["ficha"]
+        historico = ficha["aprovacao"]["historico"]
+        self.assertEqual(len(historico), 1)
+        self.assertEqual(historico[0]["acao"], "aprovada")
+        self.assertEqual(historico[0]["por"], "Ana Paula")
+
+    def test_nome_em_branco_e_recusado(self):
+        criada = self._criar()
+        self.assertEqual(self._aprovar(criada, nome="   ").status_code, 400)
+
+    def test_versao_divergente_e_recusada_com_412(self):
+        # O caso que motiva o campo obrigatório: aprovar uma versão que não é a que está na tela
+        # registraria o nome da pessoa embaixo de um conteúdo que ela nunca leu.
+        criada = self._criar()
+        r = self._aprovar(criada, atualizado_em="2020-01-01T00:00:00")
+        self.assertEqual(r.status_code, 412)
+
+    def test_aprovar_duas_vezes_e_recusado(self):
+        criada = self._criar()
+        aprovada = self._aprovar(criada).json()["ficha"]
+        self.assertEqual(self._aprovar(aprovada).status_code, 409)
+
+    def test_ficha_aprovada_nao_aceita_put(self):
+        criada = self._criar()
+        aprovada = self._aprovar(criada).json()["ficha"]
+        r = self.client.put(f"/fichas/{aprovada['id']}", json={"tenant_id": TENANT_TESTE, "ficha": aprovada})
+        self.assertEqual(r.status_code, 409)
+
+    def test_put_nao_apaga_a_trilha_de_auditoria(self):
+        criada = self._criar()
+        aprovada = self._aprovar(criada).json()["ficha"]
+        reaberta = self.client.post(
+            f"/fichas/{aprovada['id']}/reabrir",
+            json={"tenant_id": TENANT_TESTE, "reaberta_por": "Carlos"},
+        ).json()["ficha"]
+
+        # Cliente tenta zerar o histórico num PUT comum.
+        reaberta["aprovacao"] = {"aprovada_por": "", "aprovada_em": "", "observacao": "", "historico": []}
+        r = self.client.put(f"/fichas/{reaberta['id']}", json={"tenant_id": TENANT_TESTE, "ficha": reaberta})
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()["ficha"]["aprovacao"]["historico"]), 2)
+
+    def test_reabrir_limpa_aprovacao_vigente_mas_preserva_historico(self):
+        criada = self._criar()
+        aprovada = self._aprovar(criada).json()["ficha"]
+
+        r = self.client.post(
+            f"/fichas/{aprovada['id']}/reabrir",
+            json={"tenant_id": TENANT_TESTE, "reaberta_por": "Carlos", "observacao": "Erro na gola"},
+        )
+
+        self.assertEqual(r.status_code, 200)
+        ficha = r.json()["ficha"]
+        self.assertEqual(ficha["status"], fm.STATUS_EM_REVISAO)
+        self.assertEqual(ficha["aprovacao"]["aprovada_por"], "")
+        self.assertEqual([e["acao"] for e in ficha["aprovacao"]["historico"]], ["aprovada", "reaberta"])
+        self.assertEqual(ficha["aprovacao"]["historico"][1]["observacao"], "Erro na gola")
+
+    def test_reabrir_ficha_nao_aprovada_e_recusado(self):
+        criada = self._criar()
+        r = self.client.post(
+            f"/fichas/{criada['id']}/reabrir", json={"tenant_id": TENANT_TESTE, "reaberta_por": "Carlos"}
+        )
+        self.assertEqual(r.status_code, 409)
+
+    def test_depois_de_reabrir_da_pra_editar_e_aprovar_de_novo(self):
+        criada = self._criar()
+        aprovada = self._aprovar(criada).json()["ficha"]
+        reaberta = self.client.post(
+            f"/fichas/{aprovada['id']}/reabrir", json={"tenant_id": TENANT_TESTE, "reaberta_por": "Carlos"}
+        ).json()["ficha"]
+
+        salva = self.client.put(
+            f"/fichas/{reaberta['id']}", json={"tenant_id": TENANT_TESTE, "ficha": reaberta}
+        ).json()["ficha"]
+        r = self._aprovar(salva, nome="Ana Paula")
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()["ficha"]["aprovacao"]["historico"]), 3)
+
+    def test_aprovador_aparece_na_listagem(self):
+        criada = self._criar()
+        self._aprovar(criada)
+        entrada = [e for e in self.client.get("/fichas", params={"tenant_id": TENANT_TESTE}).json()
+                   if e["id"] == criada["id"]][0]
+        self.assertEqual(entrada["aprovada_por"], "Ana Paula")
+
+    def test_copia_nao_herda_aprovacao(self):
+        criada = self._criar()
+        aprovada = self._aprovar(criada).json()["ficha"]
+        copia = self.client.post(
+            f"/fichas/{aprovada['id']}/duplicar", json={"tenant_id": TENANT_TESTE}
+        ).json()["ficha"]
+
+        self.assertEqual(copia["status"], fm.STATUS_RASCUNHO)
+        self.assertEqual(copia["aprovacao"]["aprovada_por"], "")
+        self.assertEqual(copia["aprovacao"]["historico"], [])
+
+
+class TestFichaAprovadaNaoPerdeOStatus(TestApiFichasBase):
+    """O bug que a aprovação expõe (Fase 14, Bloco AP, Task 24): três rotas atribuíam status
+    incondicionalmente, então a ação mais natural depois de aprovar -- emitir o documento --
+    rebaixava a ficha para DOCUMENTO_GERADO e desfazia a aprovação em silêncio."""
+
+    def _aprovada(self):
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        return self.client.post(
+            f"/fichas/{criada['id']}/aprovar",
+            json={
+                "tenant_id": TENANT_TESTE,
+                "aprovada_por": "Ana Paula",
+                "atualizado_em_esperado": criada["atualizado_em"],
+            },
+        ).json()["ficha"]
+
+    def test_baixar_docx_nao_desaprova(self):
+        ficha = self._aprovada()
+        r = self.client.get(f"/fichas/{ficha['id']}/docx", params={"tenant_id": TENANT_TESTE})
+        self.assertEqual(r.status_code, 200)
+
+        depois = fr.carregar_ficha(TENANT_TESTE, ficha["id"])
+        self.assertEqual(depois["status"], fm.STATUS_APROVADA)
+        self.assertEqual(depois["aprovacao"]["aprovada_por"], "Ana Paula")
+
+    def test_baixar_docx_de_ficha_nao_aprovada_continua_marcando(self):
+        # A correção não pode ter desligado o comportamento normal.
+        criada = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        self.client.get(f"/fichas/{criada['id']}/docx", params={"tenant_id": TENANT_TESTE})
+        depois = fr.carregar_ficha(TENANT_TESTE, criada["id"])
+        self.assertEqual(depois["status"], fm.STATUS_DOCUMENTO_GERADO)
+
+    @patch("api.main.OpenAI")
+    @patch("fichas_desenho.validar_prompt_imagem", return_value={"aprovado": True, "motivo": ""})
+    def test_gerar_desenho_nao_desaprova(self, _mod, mock_openai_cls):
+        mock_openai_cls.return_value.images.generate.return_value = _resposta_imagem_ok()
+        ficha = self._aprovada()
+
+        r = self.client.post(f"/fichas/{ficha['id']}/desenho", json={"tenant_id": TENANT_TESTE})
+
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["ficha"]["status"], fm.STATUS_APROVADA)
+
+    def test_importar_croqui_nao_desaprova(self):
+        import croquis_repo as cr
+
+        ficha = self._aprovada()
+        croqui = cr.salvar_croqui(TENANT_TESTE, b"\x89PNG\r\n\x1a\n" + b"fake")
+        try:
+            r = self.client.post(
+                f"/fichas/{ficha['id']}/desenho/importar-croqui",
+                json={"tenant_id": TENANT_TESTE, "croqui_id": croqui["id"]},
+            )
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json()["ficha"]["status"], fm.STATUS_APROVADA)
+        finally:
+            cr.deletar_croqui(TENANT_TESTE, croqui["id"])
+
+
 class TestDeletarFicha(TestApiFichasBase):
     """Excluir ficha exige token de admin desde a Fase 14, Bloco S, Task 2 -- antes, qualquer um
     que soubesse o tenant_id (uma string pública) apagava qualquer ficha sem autenticação nenhuma."""
