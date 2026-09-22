@@ -21,6 +21,36 @@ Uso:
 O script **recusa rodar** se a estrutura não for a do formulário em branco esperado (número de
 tabelas/linhas/colunas), para nunca anotar duas vezes o mesmo arquivo nem mutilar um documento
 diferente por engano.
+
+## Como recuperar o formulário em branco (Fase 14, Bloco T, Task 26)
+
+O template versionado já está anotado, então rodar este script nele é recusado -- para regenerar
+a anotação do zero é preciso partir do formulário em branco original, que está no commit
+`c738eba` (o último antes da anotação):
+
+    git checkout c738eba -- templates/ficha_tecnica_v1.docx
+
+**Não use `git show c738eba:... > arquivo.docx` no PowerShell**: o `>` do PowerShell trata a saída
+como texto e a reescreve na codificação do console, corrompendo o zip do `.docx` em silêncio --
+o arquivo até existe, mas não abre. (No Git Bash o mesmo comando funciona, porque lá o `>` é um
+redirecionamento binário; `git checkout` é seguro nos dois.)
+
+## Auditoria de reprodutibilidade
+
+Para conferir que o template em produção ainda é exatamente o que este script gera -- ou seja,
+que ninguém o editou à mão no Word, o que uma regeneração apagaria --, compare o **inventário de
+placeholders**, nunca os bytes: `.docx` é um zip e carrega timestamps, então dois arquivos
+idênticos em conteúdo diferem byte a byte.
+
+    # numa cópia descartável, fora de templates/
+    git show c738eba:templates/ficha_tecnica_v1.docx > /tmp/branco.docx   # Git Bash, não PowerShell
+    python scripts/anotar_template.py /tmp/branco.docx
+    python -c "from fichas_template import inspecionar_template as i; \
+               a=i('templates/ficha_tecnica_v1.docx'); b=i('/tmp/branco.docx'); \
+               print(a['placeholders']==b['placeholders'] and a['tabelas']==b['tabelas'])"
+
+Auditado na Fase 14, Bloco T: reproduzível (79 placeholders, 29 variáveis, 5 listas, 13 tabelas,
+idênticos em conteúdo e ordem).
 """
 
 import copy
