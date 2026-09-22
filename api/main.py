@@ -67,6 +67,7 @@ from geracao_imagem import ESTILO_ILUSTRACAO, ESTILO_TECNICO, SUFIXO_TECNICO, PR
 from agente_ferramentas import ContextoExecucao, executar_ferramenta
 from agente_openai import chamar_agente, montar_input_historico, retomar_apos_confirmacao
 from fichas_modelo import STATUS_DESENHO_GERADO, STATUS_DOCUMENTO_GERADO, valor_de
+from fichas_precificacao import calcular as calcular_precificacao
 import fichas_desenho
 import fichas_docx
 import fichas_logo
@@ -1004,7 +1005,11 @@ def _nome_arquivo_ficha(ficha: Dict[str, Any], extensao: str) -> str:
 def _ficha_com_alertas(ficha: Dict[str, Any], alertas_extra: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     alertas = list(alertas_extra or [])
     alertas.extend(validar_ficha(ficha.get("dados", {})))
-    return {"ficha": ficha, "alertas": alertas}
+    # Preço sugerido (Fase 14, Bloco P, Task 19): recalculado a cada leitura/escrita, igual aos
+    # alertas -- nunca um snapshot persistido (ver docstring de fichas_precificacao.py). Uma
+    # mudança aqui e toda rota que devolve uma ficha passa a trazer o bloco calculado.
+    precificacao = calcular_precificacao(ficha.get("dados", {}), ficha.get("precificacao"))
+    return {"ficha": ficha, "alertas": alertas, "precificacao_calculada": precificacao}
 
 
 class CriarFichaRequest(BaseModel):
@@ -1031,10 +1036,11 @@ def criar_ficha_endpoint(payload: CriarFichaRequest) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
 
+    config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
+    precificacao_padrao = config.get("precificacao_padrao")
     alertas_proveniencia: List[Dict[str, Any]] = []
 
     if payload.texto_origem:
-        config = carregar_config_tenant(payload.tenant_id, TENANT_CONFIG[payload.tenant_id])
         limite_fichas = config.get("limite_fichas_dia", 30)
         if not verificar_limite(payload.tenant_id, "fichas", limite_fichas, quantidade_necessaria=1):
             raise HTTPException(status_code=429, detail="Limite diário de fichas técnicas atingido. Novas extrações estarão disponíveis amanhã.")
@@ -1044,9 +1050,11 @@ def criar_ficha_endpoint(payload: CriarFichaRequest) -> Dict[str, Any]:
             raise HTTPException(status_code=500, detail=f"OPENAI_API_KEY não configurada para o tenant '{payload.tenant_id}'.")
         client = OpenAI(api_key=api_key)
 
-        ficha, alertas_proveniencia = criar_ficha_a_partir_de_texto(payload.tenant_id, payload.texto_origem, client)
+        ficha, alertas_proveniencia = criar_ficha_a_partir_de_texto(
+            payload.tenant_id, payload.texto_origem, client, precificacao_padrao=precificacao_padrao
+        )
     else:
-        ficha = criar_ficha(payload.tenant_id, texto_origem="")
+        ficha = criar_ficha(payload.tenant_id, texto_origem="", precificacao_padrao=precificacao_padrao)
 
     return _ficha_com_alertas(ficha, alertas_proveniencia)
 

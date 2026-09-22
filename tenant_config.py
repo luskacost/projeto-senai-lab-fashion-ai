@@ -45,6 +45,15 @@ TENANT_CONFIG = {
         # dedicado, POST /fichas com texto_origem ficaria com gasto ilimitado, ao contrário de
         # toda outra ação com custo de API neste tenant.
         "limite_fichas_dia": 30,
+        # Preço sugerido (Fase 14, Bloco P, Task 19): parâmetros padrão aplicados a toda ficha
+        # nova (fichas_repo.criar_ficha), editáveis por ficha depois em ficha["precificacao"] --
+        # este bloco é só a semente. Zerados por padrão: sem configurar nada, o preço sugerido sai
+        # igual ao custo (fichas_precificacao.parametros_padrao()), nunca um percentual inventado.
+        "precificacao_padrao": {
+            "imposto_percentual": 0.0,
+            "comissao_percentual": 0.0,
+            "margem_lucro_percentual": 0.0,
+        },
         # Regras de segurança: sempre aplicadas, em TODOS os modos (inclusive o "Assistente Geral",
         # que não tem restrição de escopo a moda). Separado de prompt_escopo_moda abaixo para que o
         # modo generalista possa herdar só a parte de segurança (Fase 7, Bloco E).

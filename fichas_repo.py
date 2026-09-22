@@ -171,16 +171,23 @@ def _persistir(tenant_id: str, ficha: dict) -> None:
     _indice_upsert(tenant_id, _resumo_indice(ficha))
 
 
-def criar_ficha(tenant_id: str, texto_origem: str = "") -> dict:
+def criar_ficha(tenant_id: str, texto_origem: str = "", precificacao_padrao: Optional[dict] = None) -> dict:
     """Cria uma ficha nova (fichas_modelo.ficha_vazia() com id/timestamps preenchidos), persiste
     e a devolve. `texto_origem` é opcional -- o texto livre que originou a ficha, quando a
-    extração (Task 3) já rodou; uma ficha pode nascer em branco também (revisão manual direta)."""
+    extração (Task 3) já rodou; uma ficha pode nascer em branco também (revisão manual direta).
+
+    `precificacao_padrao` (Fase 14, Bloco P, Task 19) semeia `ficha["precificacao"]` com os
+    parâmetros configurados no tenant (`TENANT_CONFIG[...]["precificacao_padrao"]`) -- este módulo
+    não conhece TENANT_CONFIG, então quem chama (a rota HTTP) decide o valor e só repassa aqui.
+    Sem ele, a ficha nasce com os zeros de fichas_modelo.ficha_vazia()."""
     ficha = fm.ficha_vazia()
     ficha["id"] = str(uuid.uuid4())
     agora = datetime.now().isoformat()
     ficha["criado_em"] = agora
     ficha["atualizado_em"] = agora
     ficha["texto_origem"] = texto_origem or ""
+    if precificacao_padrao:
+        ficha["precificacao"] = {**ficha["precificacao"], **precificacao_padrao}
     _persistir(tenant_id, ficha)
     return ficha
 
@@ -250,6 +257,10 @@ def duplicar_ficha(tenant_id: str, ficha_id: str) -> Optional[dict]:
     copia["atualizado_em"] = agora
     copia["texto_origem"] = original.get("texto_origem", "")
     copia["dados"] = copy.deepcopy(original.get("dados") or fm.dados_vazios())
+    # precificacao (Fase 14, Bloco P, Task 19) segue o mesmo tratamento de "dados", não o de
+    # "desenho": são parâmetros que a pessoa configurou para esta peça, não um artefato derivado
+    # de uma chamada de API específica desta ficha -- faz sentido herdar numa cópia usada como base.
+    copia["precificacao"] = copy.deepcopy(original.get("precificacao") or copia["precificacao"])
     _persistir(tenant_id, copia)
     return copia
 

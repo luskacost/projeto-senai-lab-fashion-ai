@@ -182,6 +182,28 @@ data de criação; excluir um croqui é ação administrativa (mesma senha de ad
 Conversas antigas, persistidas antes desta fase, continuam funcionando normalmente -- a mensagem
 guarda a data URI base64 de sempre, já que nunca tiveram um `croqui_id`.
 
+## Preço sugerido (Fase 14, Bloco P)
+
+Na aba "2. Tamanhos e Custos" do editor de ficha, além dos 4 campos de custo já existentes
+(aviamentos, tecidos, costura/beneficiamento, outros), agora há imposto/comissão/margem de lucro
+(`ficha["precificacao"]`, editável, semeado dos padrões do tenant) e um preço sugerido **calculado
+pelo sistema** a partir deles -- rotulado assim explicitamente na tela, para não ser confundido com
+um preço sugerido pela IA (é uma conta determinística, `fichas_precificacao.py`, sem chamada de
+API nenhuma).
+
+- **Markup divisor**, não multiplicador: `preco = custo / (1 - percentual_total/100)`. É a forma
+  correta quando imposto, comissão e margem incidem sobre o **preço de venda** (o normal no
+  varejo), não sobre o custo -- somar os percentuais em cima do custo entregaria menos do que a
+  margem pedida.
+- **`Decimal` com `ROUND_HALF_UP`**, não `float` puro -- evita que um erro de arredondamento de
+  centavo se esconda dentro da tolerância de R$ 0,05 do alerta "custos não batem"
+  (`fichas_validacao.TOLERANCIA_CUSTO_REAIS`).
+- **Nunca é persistido.** Como os alertas, é recalculado a cada leitura/escrita da ficha
+  (`api/main.py:_ficha_com_alertas`) -- gravar um número calculado com uma `origem` de proveniência
+  o transformaria num dado com cara de "informado", violando a regra de não-invenção do projeto.
+- **Botão "usar como preço total"** grava o valor calculado no campo de custo existente, só por
+  ação humana explícita -- nunca automaticamente.
+
 ## Como rodar localmente (sem Docker)
 
 **Backend:**

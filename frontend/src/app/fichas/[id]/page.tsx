@@ -13,6 +13,8 @@ import {
   DesenhoFicha,
   Ficha,
   Operacao,
+  PrecificacaoCalculada,
+  PrecificacaoFicha,
   Tecido,
   aprovarDesenho,
   aviamentoVazio,
@@ -149,6 +151,9 @@ export default function FichaDetalhePage() {
   // Vem junto do envelope de toda leitura/escrita (fichas_validacao.validar_ficha, backend) --
   // guardados à parte de `ficha` porque não fazem parte do documento persistido em si.
   const [alertas, setAlertas] = useState<AlertaFicha[]>([]);
+  // Preço sugerido (Fase 14, Bloco P, Task 20): mesmo tratamento de "alertas" -- vem junto do
+  // envelope de toda leitura/escrita, recalculado no backend, nunca editado localmente aqui.
+  const [precificacaoCalculada, setPrecificacaoCalculada] = useState<PrecificacaoCalculada | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   // Guarda qual formato está sendo gerado (não só "gerando: sim/não"), para o spinner aparecer
@@ -175,6 +180,7 @@ export default function FichaDetalhePage() {
         if (cancelado) return;
         setFicha(resultado.ficha);
         setAlertas(resultado.alertas);
+        setPrecificacaoCalculada(resultado.precificacao_calculada);
       } catch (e) {
         if (cancelado) return;
         const msg = mensagemAmigavel(e, "Não foi possível carregar a ficha.");
@@ -203,6 +209,26 @@ export default function FichaDetalhePage() {
     setFicha((atual) => (atual ? { ...atual, desenho: atualizar(atual.desenho) } : atual));
   }
 
+  // Mesma ideia, para "precificacao" (Fase 14, Bloco P, Task 20) -- os parâmetros (imposto,
+  // comissão, margem) são editados localmente aqui; o número calculado a partir deles só existe
+  // no backend, recalculado a cada leitura/escrita (ver setPrecificacaoCalculada acima).
+  function atualizarPrecificacao(atualizar: (p: PrecificacaoFicha) => PrecificacaoFicha) {
+    setFicha((atual) => (atual ? { ...atual, precificacao: atualizar(atual.precificacao) } : atual));
+  }
+
+  // Grava o preço calculado no campo "preço total" -- só por ação humana explícita neste botão,
+  // nunca automaticamente: o preço sugerido é uma conta, "preço total" é a decisão de quanto
+  // cobrar (que pode legitimamente ser outro valor, arredondado ou ajustado por outro motivo).
+  function usarPrecoSugeridoComoPrecoTotal() {
+    if (!precificacaoCalculada?.calculavel || precificacaoCalculada.preco_sugerido === null) return;
+    const valor = precificacaoCalculada.preco_sugerido;
+    atualizarDados((d) => ({
+      ...d,
+      custos: { ...d.custos, preco_total: { ...d.custos.preco_total, custo: campoEditado(valor) } },
+    }));
+    toast.success("Preço total preenchido com o valor sugerido -- lembre-se de salvar a ficha.");
+  }
+
   async function gerarOuRegenerarDesenho() {
     if (!ficha) return;
     setGerandoDesenho(true);
@@ -213,10 +239,12 @@ export default function FichaDetalhePage() {
       const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
       setFicha(salva.ficha);
       setAlertas(salva.alertas);
+      setPrecificacaoCalculada(salva.precificacao_calculada);
 
       const resultado = await gerarDesenho(TENANT_ID, salva.ficha.id, instrucaoAdicional || undefined);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
+      setPrecificacaoCalculada(resultado.precificacao_calculada);
       setInstrucaoAdicional("");
       toast.success("Desenho técnico gerado.");
     } catch (e) {
@@ -240,6 +268,7 @@ export default function FichaDetalhePage() {
       const resultado = await aprovarDesenho(TENANT_ID, ficha.id, versao);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
+      setPrecificacaoCalculada(resultado.precificacao_calculada);
       toast.success(`Versão ${versao} aprovada.`);
     } catch (e) {
       toast.error(mensagemAmigavel(e, "Não foi possível aprovar a versão."));
@@ -253,6 +282,7 @@ export default function FichaDetalhePage() {
       const resultado = await importarCroquiComoDesenho(TENANT_ID, ficha.id, croquiId);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
+      setPrecificacaoCalculada(resultado.precificacao_calculada);
       setDialogoImportarCroquiAberto(false);
       toast.success("Croqui importado como desenho técnico.");
     } catch (e) {
@@ -269,6 +299,7 @@ export default function FichaDetalhePage() {
       const resultado = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
+      setPrecificacaoCalculada(resultado.precificacao_calculada);
       toast.success("Ficha salva.");
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
@@ -290,6 +321,7 @@ export default function FichaDetalhePage() {
       const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
       setFicha(salva.ficha);
       setAlertas(salva.alertas);
+      setPrecificacaoCalculada(salva.precificacao_calculada);
 
       await baixarFichaDocumento(TENANT_ID, ficha.id, formato);
       toast.success(formato === "pdf" ? "PDF gerado." : "Documento Word gerado.");
@@ -299,6 +331,7 @@ export default function FichaDetalhePage() {
       const atualizada = await obterFicha(TENANT_ID, ficha.id);
       setFicha(atualizada.ficha);
       setAlertas(atualizada.alertas);
+      setPrecificacaoCalculada(atualizada.precificacao_calculada);
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
         toast.error("Esta ficha foi alterada em outra sessão/aba. Recarregue a página antes de gerar o documento.");
@@ -323,6 +356,7 @@ export default function FichaDetalhePage() {
       const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
       setFicha(salva.ficha);
       setAlertas(salva.alertas);
+      setPrecificacaoCalculada(salva.precificacao_calculada);
 
       // Cache-buster: sem isso, o navegador poderia reaproveitar o PDF antigo da mesma URL em
       // vez de buscar a versão recém-atualizada.
@@ -887,6 +921,85 @@ export default function FichaDetalhePage() {
                   />
                 </div>
               ))}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Preço sugerido</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">
+                Calculado pelo sistema a partir dos custos informados acima -- <strong>não é um
+                preço sugerido pela IA</strong>. Ajuste os percentuais abaixo e o valor é
+                recalculado ao salvar.
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="imposto-percentual">Imposto (%)</Label>
+                  <Input
+                    id="imposto-percentual"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={ficha.precificacao.imposto_percentual}
+                    onChange={(e) =>
+                      atualizarPrecificacao((p) => ({ ...p, imposto_percentual: e.target.valueAsNumber || 0 }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="comissao-percentual">Comissão (%)</Label>
+                  <Input
+                    id="comissao-percentual"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={ficha.precificacao.comissao_percentual}
+                    onChange={(e) =>
+                      atualizarPrecificacao((p) => ({ ...p, comissao_percentual: e.target.valueAsNumber || 0 }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="margem-percentual">Margem de lucro (%)</Label>
+                  <Input
+                    id="margem-percentual"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={ficha.precificacao.margem_lucro_percentual}
+                    onChange={(e) =>
+                      atualizarPrecificacao((p) => ({ ...p, margem_lucro_percentual: e.target.valueAsNumber || 0 }))
+                    }
+                  />
+                </div>
+              </div>
+
+              {precificacaoCalculada && (
+                precificacaoCalculada.calculavel ? (
+                  <div className="space-y-2 rounded-lg border border-border p-3">
+                    <p className="text-sm text-muted-foreground">
+                      Custo total informado: R$ {precificacaoCalculada.custo_total?.toFixed(2)}
+                      {precificacaoCalculada.categorias_ausentes.length > 0 && (
+                        <> (categoria(s) sem custo informado não entram na soma)</>
+                      )}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Fórmula: custo ÷ (1 − {precificacaoCalculada.percentual_total?.toFixed(2)}% ÷ 100) = custo ÷{" "}
+                      {precificacaoCalculada.divisor?.toFixed(4)}
+                    </p>
+                    <p className="text-2xl font-semibold text-foreground">
+                      R$ {precificacaoCalculada.preco_sugerido?.toFixed(2)}
+                    </p>
+                    <Button onClick={usarPrecoSugeridoComoPrecoTotal} variant="outline" size="sm">
+                      Usar como preço total
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{precificacaoCalculada.motivo}</p>
+                )
+              )}
             </CardContent>
           </Card>
         </TabsContent>

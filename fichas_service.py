@@ -24,18 +24,19 @@ from usage_tracker import incrementar_uso
 
 
 def criar_ficha_a_partir_de_texto(
-    tenant_id: str, texto_origem: str, client: Any
+    tenant_id: str, texto_origem: str, client: Any, precificacao_padrao: Any = None
 ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Cria e persiste uma ficha a partir de texto livre. Devolve (ficha, alertas_de_proveniencia).
 
     Chamada real de API (extrair_dados, Structured Outputs) -- o chamador decide se/quando essa
     chamada é autorizada (cota diária), este módulo só executa o pipeline depois que essa decisão
-    já foi tomada.
+    já foi tomada. `precificacao_padrao` (Fase 14, Bloco P, Task 19) só repassa a semente de
+    ficha_vazia() para fichas_repo.criar_ficha -- ver docstring lá.
     """
     dados_extraidos = extrair_dados(client, texto_origem, tenant_id)
     dados_corrigidos, alertas = verificar_proveniencia(dados_extraidos, texto_origem)
 
-    ficha = criar_ficha(tenant_id, texto_origem=texto_origem)
+    ficha = criar_ficha(tenant_id, texto_origem=texto_origem, precificacao_padrao=precificacao_padrao)
     ficha["dados"] = dados_corrigidos
     ficha["status"] = STATUS_EM_REVISAO
     ficha = salvar_ficha(tenant_id, ficha)

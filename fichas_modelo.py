@@ -373,6 +373,16 @@ def ficha_vazia() -> dict:
             "versoes": [],
             "versao_aprovada": None,
         },
+        # Parâmetros do preço sugerido (Fase 14, Bloco P, Task 19) -- FORA de "dados" de propósito:
+        # tudo em "dados" precisa estar no SCHEMA_EXTRACAO (strict mode da extração), e markup não é
+        # algo que um LLM deveria "extrair" do texto do usuário. O preço sugerido em si NUNCA é
+        # persistido aqui -- é recalculado a cada leitura (fichas_precificacao.calcular), igual aos
+        # alertas; só os parâmetros que alimentam a conta são dado de verdade, editável por ficha.
+        "precificacao": {
+            "imposto_percentual": 0.0,
+            "comissao_percentual": 0.0,
+            "margem_lucro_percentual": 0.0,
+        },
         "documentos": {"docx": "", "pdf": "", "gerado_em": ""},
     }
 

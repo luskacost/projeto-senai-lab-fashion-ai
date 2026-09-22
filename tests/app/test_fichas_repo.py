@@ -51,6 +51,18 @@ class TestCriarFicha(TestRepoFichasBase):
         ficha = fr.criar_ficha(TENANT_TESTE)
         self.assertEqual(ficha["texto_origem"], "")
 
+    def test_sem_precificacao_padrao_nasce_zerada(self):
+        ficha = fr.criar_ficha(TENANT_TESTE)
+        self.assertEqual(ficha["precificacao"], {
+            "imposto_percentual": 0.0, "comissao_percentual": 0.0, "margem_lucro_percentual": 0.0,
+        })
+
+    def test_com_precificacao_padrao_semeia_os_parametros(self):
+        ficha = fr.criar_ficha(TENANT_TESTE, precificacao_padrao={"margem_lucro_percentual": 30.0})
+        self.assertEqual(ficha["precificacao"]["margem_lucro_percentual"], 30.0)
+        # Chaves não informadas no padrão continuam zeradas -- merge parcial, não substituição.
+        self.assertEqual(ficha["precificacao"]["imposto_percentual"], 0.0)
+
     def test_persiste_em_disco_e_e_recarregavel(self):
         ficha = fr.criar_ficha(TENANT_TESTE)
         recarregada = fr.carregar_ficha(TENANT_TESTE, ficha["id"])
@@ -186,6 +198,13 @@ class TestDuplicarFicha(TestRepoFichasBase):
         copia = fr.duplicar_ficha(TENANT_TESTE, original["id"])
         self.assertEqual(copia["dados"]["ficha"]["nome"]["valor"], "Camisa Azul")
         self.assertEqual(copia["texto_origem"], "camisa azul")
+
+    def test_copia_preserva_precificacao(self):
+        # Fase 14, Bloco P, Task 19: precificacao segue o tratamento de "dados" (copiado), não o
+        # de "desenho" (derivado, não copiado) -- são parâmetros configurados pela pessoa.
+        original = fr.criar_ficha(TENANT_TESTE, precificacao_padrao={"margem_lucro_percentual": 40.0})
+        copia = fr.duplicar_ficha(TENANT_TESTE, original["id"])
+        self.assertEqual(copia["precificacao"]["margem_lucro_percentual"], 40.0)
 
     def test_copia_nao_herda_desenho_nem_documentos(self):
         original = fr.criar_ficha(TENANT_TESTE)

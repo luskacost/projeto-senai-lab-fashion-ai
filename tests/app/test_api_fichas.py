@@ -124,6 +124,43 @@ class TestCriarFichaSemTexto(TestApiFichasBase):
         self.assertIn(criado["id"], [e["id"] for e in r.json()])
 
 
+class TestPrecificacaoNaFicha(TestApiFichasBase):
+    """Preço sugerido (Fase 14, Bloco P, Task 19): toda rota que devolve uma ficha passa a trazer
+    `precificacao_calculada`, recalculada a cada leitura -- nunca um snapshot persistido."""
+
+    def test_ficha_nova_traz_precificacao_calculada_nao_calculavel(self):
+        r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE})
+        corpo = r.json()
+        self.assertIn("precificacao_calculada", corpo)
+        self.assertFalse(corpo["precificacao_calculada"]["calculavel"])
+
+    def test_precificacao_padrao_do_tenant_semeia_ficha_nova(self):
+        tenant_config.TENANT_CONFIG[TENANT_TESTE]["precificacao_padrao"] = {"margem_lucro_percentual": 25.0}
+        try:
+            r = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE})
+            self.assertEqual(r.json()["ficha"]["precificacao"]["margem_lucro_percentual"], 25.0)
+        finally:
+            tenant_config.TENANT_CONFIG[TENANT_TESTE].pop("precificacao_padrao", None)
+
+    def test_editar_custos_e_parametros_reflete_no_preco_calculado(self):
+        criado = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        criado["dados"]["custos"]["aviamentos"]["custo"] = {"valor": 100, "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        criado["precificacao"] = {"imposto_percentual": 0, "comissao_percentual": 0, "margem_lucro_percentual": 20}
+
+        r = self.client.put(f"/fichas/{criado['id']}", json={"tenant_id": TENANT_TESTE, "ficha": criado})
+        corpo = r.json()
+        self.assertTrue(corpo["precificacao_calculada"]["calculavel"])
+        self.assertEqual(corpo["precificacao_calculada"]["preco_sugerido"], 125.0)  # 100 / 0.8
+
+    def test_precificacao_calculada_nunca_e_persistida_em_disco(self):
+        criado = self.client.post("/fichas", json={"tenant_id": TENANT_TESTE}).json()["ficha"]
+        criado["dados"]["custos"]["aviamentos"]["custo"] = {"valor": 50, "origem": fm.ORIGEM_FORNECIDO, "trecho": ""}
+        self.client.put(f"/fichas/{criado['id']}", json={"tenant_id": TENANT_TESTE, "ficha": criado})
+
+        ficha_em_disco = fr.carregar_ficha(TENANT_TESTE, criado["id"])
+        self.assertNotIn("precificacao_calculada", ficha_em_disco)
+
+
 class TestCriarFichaComTexto(TestApiFichasBase):
 
     def _dados_mockados(self):

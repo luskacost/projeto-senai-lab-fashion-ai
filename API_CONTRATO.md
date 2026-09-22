@@ -177,12 +177,28 @@ conversa, não produz documento nenhum).
   (`fichas_extracao`, Structured Outputs, chamada real de API) → verificação de proveniência
   (`fichas_verificacao`, zera campos não-inferíveis sem origem `FORNECIDO`) → persiste com status
   `EM_REVISAO`.
+- Semeia `ficha["precificacao"]` com `TENANT_CONFIG[...]["precificacao_padrao"]` (Fase 14, Bloco P,
+  Task 19) — zerado por padrão, editável depois por ficha via `PUT /fichas/{id}` normal.
 - **Resposta** (mesmo envelope em toda rota que devolve uma ficha):
   ```jsonc
-  { "ficha": { ... }, "alertas": [ { "codigo", "severidade", "campo", "mensagem" }, ... ] }
+  {
+    "ficha": { ..., "precificacao": { "imposto_percentual", "comissao_percentual", "margem_lucro_percentual" } },
+    "alertas": [ { "codigo", "severidade", "campo", "mensagem" }, ... ],
+    "precificacao_calculada": {
+      "calculavel": true, "motivo": "",
+      "preco_sugerido": 181.82, "custo_total": 100.0,
+      "categorias_informadas": { "aviamentos": 100.0 }, "categorias_ausentes": ["tecidos", "..."],
+      "parametros": { "imposto_percentual": 10, "comissao_percentual": 15, "margem_lucro_percentual": 20 },
+      "percentual_total": 45.0, "divisor": 0.55
+    }
+  }
   ```
-  `alertas` é recalculado a cada leitura/escrita (`fichas_validacao.validar_ficha`) — nunca um
-  snapshot congelado de quando a ficha foi criada.
+  `alertas` e `precificacao_calculada` são recalculados a cada leitura/escrita
+  (`fichas_validacao.validar_ficha`, `fichas_precificacao.calcular`) — nunca um snapshot congelado.
+  `precificacao_calculada` usa markup **divisor** (`preco = custo / (1 - percentual_total/100)`),
+  correto quando imposto/comissão/margem incidem sobre o preço de venda, não sobre o custo.
+  `calculavel: false` (com `motivo`) quando nenhum custo foi informado ainda, ou quando os
+  percentuais somam 100% ou mais (denominador ≤ 0) — nunca uma exceção nem um preço negativo.
 
 ### `GET /fichas?tenant_id=`
 Lista o histórico leve (id, ref, nome, status, datas) — `fichas_repo`, sem carregar o JSON completo

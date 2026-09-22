@@ -496,6 +496,15 @@ export interface DesenhoFicha {
   versao_aprovada: number | null;
 }
 
+// Parâmetros do preço sugerido (Fase 14, Bloco P, Task 19) -- FORA de "dados" de propósito
+// (mesmo motivo do backend: markup não é algo que um LLM deveria extrair do texto do usuário).
+// Editável como qualquer outro campo da ficha, salvo por PUT /fichas/{id} normalmente.
+export interface PrecificacaoFicha {
+  imposto_percentual: number;
+  comissao_percentual: number;
+  margem_lucro_percentual: number;
+}
+
 export interface Ficha {
   id: string;
   status: StatusFicha;
@@ -504,6 +513,7 @@ export interface Ficha {
   texto_origem: string;
   dados: DadosFicha;
   desenho: DesenhoFicha;
+  precificacao: PrecificacaoFicha;
   documentos: { docx: string; pdf: string; gerado_em: string };
 }
 
@@ -575,11 +585,28 @@ export interface AlertaFicha {
   mensagem: string;
 }
 
-// Envelope devolvido por toda rota que lê/escreve uma ficha específica -- os alertas são
-// recalculados no backend a cada chamada, nunca um snapshot congelado (api/main.py:_ficha_com_alertas).
+// Resultado do cálculo do preço sugerido (fichas_precificacao.calcular), recalculado a cada
+// leitura/escrita -- nunca persistido (Fase 14, Bloco P, Task 19). "calculavel: false" +
+// "motivo" no lugar de um número quando os custos/parâmetros não permitem calcular.
+export interface PrecificacaoCalculada {
+  calculavel: boolean;
+  motivo: string;
+  preco_sugerido: number | null;
+  custo_total: number | null;
+  categorias_informadas: Record<string, number>;
+  categorias_ausentes: string[];
+  parametros: PrecificacaoFicha;
+  percentual_total: number | null;
+  divisor: number | null;
+}
+
+// Envelope devolvido por toda rota que lê/escreve uma ficha específica -- os alertas e a
+// precificação calculada são recalculados no backend a cada chamada, nunca um snapshot congelado
+// (api/main.py:_ficha_com_alertas).
 export interface FichaComAlertas {
   ficha: Ficha;
   alertas: AlertaFicha[];
+  precificacao_calculada: PrecificacaoCalculada;
 }
 
 // ── Logo da empresa ──────────────────────────────────────────────────────────

@@ -174,6 +174,17 @@ class TestValoresVazios(unittest.TestCase):
         self.assertEqual(desenho["versoes"], [])
         self.assertIsNone(desenho["versao_aprovada"])
 
+    def test_ficha_vazia_precificacao_nasce_zerada_e_fora_de_dados(self):
+        # Fase 14, Bloco P, Task 19: "precificacao" é irmã de "dados", não filha -- markup não
+        # entra no SCHEMA_EXTRACAO (não é algo que um LLM deveria extrair do texto do usuário).
+        ficha = fm.ficha_vazia()
+        self.assertNotIn("precificacao", ficha["dados"])
+        self.assertEqual(ficha["precificacao"], {
+            "imposto_percentual": 0.0,
+            "comissao_percentual": 0.0,
+            "margem_lucro_percentual": 0.0,
+        })
+
     def test_itens_vazios_batem_com_o_schema_da_lista(self):
         pares = (
             ("aviamentos[]", fm.aviamento_vazio()),
