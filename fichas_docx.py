@@ -139,6 +139,50 @@ def _tecidos(dados: Dict[str, Any]) -> List[Dict[str, str]]:
     ]
 
 
+def _medidas_tamanhos(dados: Dict[str, Any]) -> List[str]:
+    """Colunas da tabela de medidas que de fato entram no documento (Fase 14, Bloco M, Task 22).
+
+    Saem da grade, na ordem canônica (`fm.tamanhos_da_grade`), truncadas em
+    `fm.MAX_COLUNAS_MEDIDAS` -- a tabela do .docx tem um número fixo de colunas, e a grade permite
+    mais tamanhos que isso. O truncamento aqui é silencioso *neste módulo* de propósito: quem avisa
+    o usuário é `fichas_validacao.validar_medidas`, que nomeia os tamanhos deixados de fora na tela
+    de revisão. Sumir calado do documento sem alerta nenhum é que não podia acontecer.
+    """
+    return fm.tamanhos_da_grade(dados)[:fm.MAX_COLUNAS_MEDIDAS]
+
+
+def _medidas(dados: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Linhas da tabela de medidas, cada uma com `valores` NA MESMA ORDEM de `_medidas_tamanhos`.
+
+    O alinhamento posicional é o ponto crítico: no Word, o cabeçalho e o corpo da tabela são dois
+    laços Jinja independentes, então uma medida que saísse em posição diferente da sua coluna
+    imprimiria o número certo debaixo do tamanho errado -- um erro que passa despercebido na
+    revisão e vira peça cortada errada no chão de fábrica. Por isso a lista é construída
+    percorrendo os tamanhos (não as chaves do dict de valores): tamanho sem medida vira célula
+    vazia, e medida de um tamanho fora da grade não entra (já alertada na revisão).
+
+    Linha completamente vazia (sem ponto e sem nenhum valor) é descartada -- é o "Adicionar linha"
+    clicado e nunca preenchido, que não carrega informação nenhuma para o documento impresso.
+    """
+    tamanhos = _medidas_tamanhos(dados)
+    linhas = []
+
+    for linha in (dados.get("medidas") or []):
+        if not isinstance(linha, dict):
+            continue
+        valores_por_tamanho = linha.get("valores")
+        valores_por_tamanho = valores_por_tamanho if isinstance(valores_por_tamanho, dict) else {}
+
+        ponto = _texto(linha.get("ponto"))
+        valores = [_quantidade(valores_por_tamanho.get(tamanho)) for tamanho in tamanhos]
+
+        if not ponto and not any(valores):
+            continue
+        linhas.append({"ponto": ponto, "valores": valores})
+
+    return linhas
+
+
 def _sequencia_operacional(dados: Dict[str, Any]) -> List[Dict[str, str]]:
     # A coluna ETAPA não vem daqui: o template numera pelo loop.index, então inserir/remover uma
     # operação na revisão nunca deixa a numeração impressa furada.
@@ -201,6 +245,14 @@ def montar_contexto(ficha: Dict[str, Any]) -> Dict[str, Any]:
         "grade": _grade(dados),
         "aviamentos": _aviamentos(dados),
         "tecidos": _tecidos(dados),
+
+        # Medidas por tamanho (Fase 14, Bloco M, Task 22). Duas chaves em vez de uma estrutura
+        # aninhada porque o cabeçalho e o corpo da tabela são dois laços Jinja separados dentro do
+        # Word, e expressão aninhada em célula de tabela do Word é ilegível de editar. Ficam aqui
+        # antes de o template usá-las (Bloco T): StrictUndefined reclama de variável que o template
+        # usa e o contexto não tem, nunca do contrário -- então sobra inerte até lá, sem risco.
+        "medidas_tamanhos": _medidas_tamanhos(dados),
+        "medidas": _medidas(dados),
 
         "custo_aviamentos": custo("aviamentos"),
         "custo_tecidos": custo("tecidos"),

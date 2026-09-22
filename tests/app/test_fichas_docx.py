@@ -200,6 +200,101 @@ class TestPartesDaModelagemNuncaVazia(unittest.TestCase):
         self.assertEqual(contexto["partes"][0]["descricao"], "Frente")
 
 
+def _ficha_com_medidas(numericos=(), comerciais=(), linhas=()):
+    ficha = fm.ficha_vazia()
+    ficha["dados"]["grade"]["numericos"] = _campo(list(numericos))
+    ficha["dados"]["grade"]["comerciais"] = _campo(list(comerciais))
+    ficha["dados"]["medidas"] = [
+        {"ponto": _campo(ponto), "valores": {t: _campo(v) for t, v in valores.items()}}
+        for ponto, valores in linhas
+    ]
+    return ficha
+
+
+class TestMedidasNoContexto(unittest.TestCase):
+    """Fase 14, Bloco M, Task 22 -- contexto pronto antes de o template usá-lo (Bloco T).
+
+    O que mais importa aqui é o alinhamento posicional: cabeçalho e corpo da tabela são dois laços
+    Jinja separados no Word, então valores[i] TEM que ser a medida de medidas_tamanhos[i].
+    """
+
+    def test_ficha_sem_medidas_nao_quebra(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        self.assertEqual(contexto["medidas"], [])
+        self.assertEqual(contexto["medidas_tamanhos"], [])
+
+    def test_colunas_saem_da_grade_em_ordem_canonica(self):
+        ficha = _ficha_com_medidas(numericos=["42", "38"], comerciais=["M"])
+        self.assertEqual(fd.montar_contexto(ficha)["medidas_tamanhos"], ["38", "42", "M"])
+
+    def test_valores_alinham_com_as_colunas(self):
+        ficha = _ficha_com_medidas(
+            numericos=["38", "40", "42"],
+            linhas=[("Busto", {"40": 96.0, "38": 92.0, "42": 100.0})],  # fora de ordem de propósito
+        )
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(contexto["medidas_tamanhos"], ["38", "40", "42"])
+        self.assertEqual(contexto["medidas"][0]["valores"], ["92", "96", "100"])
+
+    def test_tamanho_sem_medida_vira_celula_vazia_na_posicao_certa(self):
+        ficha = _ficha_com_medidas(
+            numericos=["38", "40", "42"],
+            linhas=[("Busto", {"38": 92.0, "42": 100.0})],  # 40 em branco
+        )
+        self.assertEqual(fd.montar_contexto(ficha)["medidas"][0]["valores"], ["92", "", "100"])
+
+    def test_medida_de_tamanho_fora_da_grade_nao_entra(self):
+        ficha = _ficha_com_medidas(
+            numericos=["38"],
+            linhas=[("Busto", {"38": 92.0, "44": 98.0})],
+        )
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(contexto["medidas_tamanhos"], ["38"])
+        self.assertEqual(contexto["medidas"][0]["valores"], ["92"])
+
+    def test_decimal_sai_no_padrao_brasileiro(self):
+        ficha = _ficha_com_medidas(numericos=["38"], linhas=[("Ombro", {"38": 41.5})])
+        self.assertEqual(fd.montar_contexto(ficha)["medidas"][0]["valores"], ["41,5"])
+
+    def test_nunca_vaza_none_para_o_documento(self):
+        ficha = _ficha_com_medidas(numericos=["38"], linhas=[("Ombro", {"38": None})])
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(contexto["medidas"][0]["valores"], [""])
+
+    def test_linha_totalmente_vazia_e_descartada(self):
+        ficha = fm.ficha_vazia()
+        ficha["dados"]["grade"]["numericos"] = _campo(["38"])
+        ficha["dados"]["medidas"] = [fm.linha_medida_vazia(["38"])]
+        self.assertEqual(fd.montar_contexto(ficha)["medidas"], [])
+
+    def test_linha_so_com_ponto_e_mantida(self):
+        # Ponto nomeado sem medida ainda é informação: o documento impresso mostra a linha
+        # esperando preenchimento à mão, como no formulário original.
+        ficha = _ficha_com_medidas(numericos=["38"], linhas=[("Ombro", {})])
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(len(contexto["medidas"]), 1)
+        self.assertEqual(contexto["medidas"][0]["ponto"], "Ombro")
+
+    def test_grade_maior_que_o_limite_e_truncada_nas_colunas_do_documento(self):
+        nove = ["34", "36", "38", "40", "42", "44", "46", "48", "50"]
+        ficha = _ficha_com_medidas(
+            numericos=nove,
+            linhas=[("Busto", {t: 80.0 + i for i, t in enumerate(nove)})],
+        )
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(len(contexto["medidas_tamanhos"]), fm.MAX_COLUNAS_MEDIDAS)
+        self.assertNotIn("50", contexto["medidas_tamanhos"])
+        # Alinhamento tem que sobreviver ao truncamento.
+        self.assertEqual(len(contexto["medidas"][0]["valores"]), fm.MAX_COLUNAS_MEDIDAS)
+
+    def test_medidas_malformadas_nao_quebram_o_render(self):
+        for medidas in ("nao e uma lista", [None], ["nao e um dict"], [{"valores": "nao e um dict"}]):
+            with self.subTest(medidas=medidas):
+                ficha = fm.ficha_vazia()
+                ficha["dados"]["medidas"] = medidas
+                fd.montar_contexto(ficha)  # não deve levantar
+
+
 class TestRenderCompleto(unittest.TestCase):
     """Render de verdade contra o template de produção."""
 
