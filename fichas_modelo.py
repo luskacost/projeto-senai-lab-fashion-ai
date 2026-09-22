@@ -27,7 +27,7 @@ de informação é representada por valor vazio ("" para texto, null para númer
 `origem: DESCONHECIDO` -- e não pela omissão da chave.
 """
 
-from typing import Any
+from typing import Any, List, Optional
 
 # --- Proveniência -----------------------------------------------------------------------------
 
@@ -68,6 +68,24 @@ CAMPOS_NAO_INFERIVEIS = (
 
 TAMANHOS_NUMERICOS = ("34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54", "56")
 TAMANHOS_COMERCIAIS = ("PP", "P", "M", "G", "GG", "XG")
+
+# --- Medidas por tamanho (Fase 14, Bloco M, Task 21) -------------------------------------------
+#
+# `dados["medidas"]` é a única chave de `dados` que NÃO está em SCHEMA_EXTRACAO, de propósito:
+# tabela de medidas é exatamente onde um LLM mais "completa a lacuna com o plausível" (um número
+# redondo que parece razoável para um ombro), e um número de medida inventado vira peça cortada
+# errada -- o mesmo raciocínio de CAMPOS_NAO_INFERIVEIS, levado ao extremo de nem oferecer o campo
+# à extração. Toda medida entra a mão, na revisão.
+#
+# A consequência prática: uma ficha criada a partir de texto livre recebe `dados` inteiro vindo da
+# API (schema-shaped, sem esta chave), então quem monta a ficha precisa reintroduzir as chaves
+# listadas aqui -- ver `garantir_chaves_nao_extraidas()` abaixo.
+CHAVES_NAO_EXTRAIDAS = ("medidas",)
+
+# Teto de colunas de tamanho que a tabela de medidas do .docx comporta (decisão travada com o
+# usuário: até 8 colunas fixas, e a ficha pode crescer para 4 páginas). A grade permite 18
+# tamanhos no total -- o excedente vira alerta na revisão, nunca some calado do documento.
+MAX_COLUNAS_MEDIDAS = 8
 
 # --- Status da ficha --------------------------------------------------------------------------
 
@@ -322,8 +340,54 @@ def custo_vazio() -> dict:
     return {"custo": campo_numero_vazio(), "observacao": campo_texto_vazio()}
 
 
+def tamanhos_da_grade(dados: dict) -> List[str]:
+    """Tamanhos escolhidos na grade, em ordem canônica (numéricos crescentes, depois comerciais do
+    menor ao maior) -- NÃO na ordem em que o usuário os digitou.
+
+    É esta ordem que define as colunas da tabela de medidas, na tela e no documento: derivar as
+    colunas da grade (em vez de deixar a pessoa criá-las à mão) é o que garante que medida e
+    tamanho não saiam dessincronizados, e a ordem canônica é o que permite checar progressão entre
+    tamanhos vizinhos (`fichas_validacao.validar_medidas`).
+    """
+    grade = dados.get("grade") if isinstance(dados, dict) else None
+    grade = grade if isinstance(grade, dict) else {}
+    numericos = valor_de(grade.get("numericos")) or []
+    comerciais = valor_de(grade.get("comerciais")) or []
+
+    ordenados = [t for t in TAMANHOS_NUMERICOS if t in numericos]
+    ordenados += [t for t in TAMANHOS_COMERCIAIS if t in comerciais]
+    return ordenados
+
+
+def linha_medida_vazia(tamanhos: Optional[List[str]] = None) -> dict:
+    """Uma linha da tabela de medidas: o ponto de medida (ex: "Largura do ombro") e uma célula por
+    tamanho da grade. Células são campos de proveniência como qualquer outro campo de `dados` --
+    na prática sempre FORNECIDO (digitado) ou DESCONHECIDO (em branco), já que medida nunca vem da
+    extração (ver CHAVES_NAO_EXTRAIDAS)."""
+    return {
+        "ponto": campo_texto_vazio(),
+        "valores": {tamanho: campo_numero_vazio() for tamanho in (tamanhos or [])},
+    }
+
+
+def garantir_chaves_nao_extraidas(dados: dict) -> dict:
+    """Reintroduz em `dados` as chaves que existem em `dados_vazios()` mas não em SCHEMA_EXTRACAO.
+
+    Necessário porque o resultado da extração substitui `dados` inteiro (fichas_service) e vem com
+    exatamente as chaves do schema -- sem isto, uma ficha criada a partir de texto livre nasceria
+    sem "medidas", enquanto uma ficha em branco teria a chave, e a tela quebraria em uma das duas.
+    Modifica e devolve o próprio dict recebido.
+    """
+    vazios = dados_vazios()
+    for chave in CHAVES_NAO_EXTRAIDAS:
+        dados.setdefault(chave, vazios[chave])
+    return dados
+
+
 def dados_vazios() -> dict:
-    """Dados extraíveis zerados -- mesma forma que SCHEMA_EXTRACAO descreve."""
+    """Dados da peça zerados -- mesma forma que SCHEMA_EXTRACAO descreve, mais as chaves de
+    CHAVES_NAO_EXTRAIDAS (hoje só "medidas"), que existem em `dados` mas nunca são oferecidas à
+    extração."""
     return {
         "ficha": {
             "ref": campo_texto_vazio(),
@@ -337,6 +401,8 @@ def dados_vazios() -> dict:
         },
         "cores_beneficiamentos": [],
         "grade": {"numericos": _campo_vazio([]), "comerciais": _campo_vazio([])},
+        # Fora de SCHEMA_EXTRACAO de propósito -- ver CHAVES_NAO_EXTRAIDAS no topo do módulo.
+        "medidas": [],
         "aviamentos": [],
         "tecidos": [],
         "custos": {

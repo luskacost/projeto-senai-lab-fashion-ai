@@ -219,5 +219,140 @@ class TestValidarFicha(unittest.TestCase):
         self.assertEqual(alertas[0]["codigo"], "campo_essencial_ausente")
 
 
+def _dados_com_medidas(tamanhos_numericos=(), tamanhos_comerciais=(), linhas=()):
+    dados = fm.dados_vazios()
+    dados["grade"]["numericos"] = _campo(list(tamanhos_numericos))
+    dados["grade"]["comerciais"] = _campo(list(tamanhos_comerciais))
+    dados["medidas"] = list(linhas)
+    return dados
+
+
+def _linha_medida(ponto, valores):
+    return {
+        "ponto": _campo(ponto),
+        "valores": {t: _campo(v) for t, v in valores.items()},
+    }
+
+
+def _codigos(alertas):
+    return [a["codigo"] for a in alertas]
+
+
+class TestValidarMedidas(unittest.TestCase):
+    """Fase 14, Bloco M, Task 21 -- medida nunca vem da extração, então o que importa aqui é erro
+    de digitação e dessincronia com a grade, não invenção da IA."""
+
+    def test_sem_medidas_nao_gera_alerta(self):
+        self.assertEqual(fv.validar_medidas(fm.dados_vazios()), [])
+        self.assertEqual(fv.validar_medidas({}), [])
+
+    def test_tabela_consistente_nao_gera_alerta(self):
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40", "42"],
+            linhas=[_linha_medida("Largura do ombro", {"38": 40.0, "40": 41.5, "42": 43.0})],
+        )
+        self.assertEqual(fv.validar_medidas(dados), [])
+
+    def test_valor_igual_entre_tamanhos_vizinhos_e_aceito(self):
+        # Progressão é "não decrescente", não "estritamente crescente": há ponto de medida que
+        # legitimamente não muda entre dois tamanhos vizinhos.
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40"],
+            linhas=[_linha_medida("Comprimento da gola", {"38": 8.0, "40": 8.0})],
+        )
+        self.assertEqual(fv.validar_medidas(dados), [])
+
+    def test_progressao_invertida_gera_alerta(self):
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40"],
+            linhas=[_linha_medida("Busto", {"38": 92.0, "40": 24.0})],  # 24 no lugar de 42
+        )
+        alertas = fv.validar_medidas(dados)
+        self.assertIn("medida_nao_progressiva", _codigos(alertas))
+
+    def test_progressao_nao_compara_numerico_com_comercial(self):
+        # Grade mista: a fronteira 56 -> PP não é progressão real; comparar os dois acusaria erro
+        # onde não há.
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["56"],
+            tamanhos_comerciais=["PP"],
+            linhas=[_linha_medida("Busto", {"56": 120.0, "PP": 80.0})],
+        )
+        self.assertNotIn("medida_nao_progressiva", _codigos(fv.validar_medidas(dados)))
+
+    def test_valor_zero_ou_negativo_gera_alerta(self):
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40"],
+            linhas=[_linha_medida("Busto", {"38": 0.0, "40": -5.0})],
+        )
+        alertas = fv.validar_medidas(dados)
+        self.assertIn("medida_nao_positiva", _codigos(alertas))
+        self.assertIn("38", alertas[0]["mensagem"])
+        self.assertIn("40", alertas[0]["mensagem"])
+
+    def test_tamanho_fora_da_grade_gera_alerta(self):
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38"],
+            linhas=[_linha_medida("Busto", {"38": 92.0, "44": 98.0})],  # 44 saiu da grade
+        )
+        alertas = fv.validar_medidas(dados)
+        self.assertIn("medida_fora_da_grade", _codigos(alertas))
+
+    def test_celula_em_branco_gera_um_alerta_por_linha_nao_por_celula(self):
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40", "42"],
+            linhas=[_linha_medida("Busto", {"38": 92.0})],  # 40 e 42 em branco
+        )
+        alertas = [a for a in fv.validar_medidas(dados) if a["codigo"] == "medida_incompleta"]
+        self.assertEqual(len(alertas), 1)
+        self.assertIn("40", alertas[0]["mensagem"])
+        self.assertIn("42", alertas[0]["mensagem"])
+
+    def test_linha_totalmente_vazia_nao_gera_alerta_de_incompleta(self):
+        # Rascunho com a linha só criada e ainda não preenchida -- alertar aqui seria ruído.
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40"],
+            linhas=[fm.linha_medida_vazia(["38", "40"])],
+        )
+        self.assertEqual(fv.validar_medidas(dados), [])
+
+    def test_valores_sem_nome_do_ponto_gera_alerta(self):
+        linha = _linha_medida("", {"38": 92.0})
+        dados = _dados_com_medidas(tamanhos_numericos=["38"], linhas=[linha])
+        self.assertIn("medida_sem_ponto", _codigos(fv.validar_medidas(dados)))
+
+    def test_grade_acima_do_limite_de_colunas_do_documento(self):
+        nove_tamanhos = ["34", "36", "38", "40", "42", "44", "46", "48", "50"]
+        dados = _dados_com_medidas(
+            tamanhos_numericos=nove_tamanhos,
+            linhas=[_linha_medida("Busto", {t: 80.0 + i for i, t in enumerate(nove_tamanhos)})],
+        )
+        alertas = [a for a in fv.validar_medidas(dados) if a["codigo"] == "grade_excede_colunas_do_documento"]
+        self.assertEqual(len(alertas), 1)
+        self.assertIn("50", alertas[0]["mensagem"])  # o excedente é nomeado, não some calado
+
+    def test_grade_no_limite_exato_nao_gera_alerta_de_colunas(self):
+        oito = ["34", "36", "38", "40", "42", "44", "46", "48"]
+        dados = _dados_com_medidas(
+            tamanhos_numericos=oito,
+            linhas=[_linha_medida("Busto", {t: 80.0 + i for i, t in enumerate(oito)})],
+        )
+        self.assertNotIn("grade_excede_colunas_do_documento", _codigos(fv.validar_medidas(dados)))
+
+    def test_nunca_lanca_excecao_com_medidas_malformadas(self):
+        for medidas in ("nao e uma lista", [None], ["nao e um dict"], [{"valores": "nao e um dict"}]):
+            with self.subTest(medidas=medidas):
+                dados = fm.dados_vazios()
+                dados["medidas"] = medidas
+                fv.validar_medidas(dados)  # não deve levantar
+
+    def test_entra_no_validar_ficha(self):
+        dados = _dados_com_medidas(
+            tamanhos_numericos=["38", "40"],
+            linhas=[_linha_medida("Busto", {"38": 92.0, "40": 24.0})],
+        )
+        self.assertIn("medida_nao_progressiva", _codigos(fv.validar_ficha(dados)))
+
+
 if __name__ == "__main__":
     unittest.main()

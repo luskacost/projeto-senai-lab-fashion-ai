@@ -139,6 +139,12 @@ class TestValoresVazios(unittest.TestCase):
             tipo = schema.get("type")
             if tipo == "object":
                 esperadas = set(schema.get("properties", {}).keys())
+                if caminho == "raiz":
+                    # Fase 14, Bloco M: "medidas" existe em dados mas NÃO no schema, de propósito
+                    # -- tabela de medidas é onde um LLM mais inventa número plausível, então nem
+                    # é oferecida à extração. A exceção é nomeada em fm.CHAVES_NAO_EXTRAIDAS, não
+                    # um "set() diferente" solto aqui.
+                    esperadas |= set(fm.CHAVES_NAO_EXTRAIDAS)
                 self.assertIsInstance(dados, dict, f"esperava dict em '{caminho}'")
                 self.assertEqual(set(dados.keys()), esperadas, f"chaves divergentes em '{caminho}'")
                 for nome, sub in schema["properties"].items():
@@ -147,6 +153,13 @@ class TestValoresVazios(unittest.TestCase):
                 self.assertIsInstance(dados, list, f"esperava lista em '{caminho}'")
 
         comparar(fm.SCHEMA_EXTRACAO, fm.dados_vazios(), "raiz")
+
+    def test_chaves_nao_extraidas_estao_em_dados_mas_fora_do_schema(self):
+        dados = fm.dados_vazios()
+        for chave in fm.CHAVES_NAO_EXTRAIDAS:
+            with self.subTest(chave=chave):
+                self.assertIn(chave, dados)
+                self.assertNotIn(chave, fm.SCHEMA_EXTRACAO["properties"])
 
     def test_campos_vazios_nascem_como_desconhecido(self):
         dados = fm.dados_vazios()
@@ -292,6 +305,68 @@ class TestConstantes(unittest.TestCase):
 
     def test_status_rascunho_e_o_inicial(self):
         self.assertEqual(fm.STATUS_FICHA[0], fm.STATUS_RASCUNHO)
+
+
+def _grade(numericos=(), comerciais=()):
+    return {
+        "grade": {
+            "numericos": {"valor": list(numericos), "origem": fm.ORIGEM_FORNECIDO, "trecho": ""},
+            "comerciais": {"valor": list(comerciais), "origem": fm.ORIGEM_FORNECIDO, "trecho": ""},
+        }
+    }
+
+
+class TestTamanhosDaGrade(unittest.TestCase):
+    """As colunas da tabela de medidas (Fase 14, Bloco M) saem daqui -- a ordem precisa ser
+    canônica, não a ordem em que o usuário digitou, senão a checagem de progressão entre tamanhos
+    vizinhos compararia pares errados."""
+
+    def test_grade_vazia_nao_tem_tamanho(self):
+        self.assertEqual(fm.tamanhos_da_grade(_grade()), [])
+        self.assertEqual(fm.tamanhos_da_grade({}), [])
+
+    def test_ordena_numericos_crescentes_independente_da_ordem_digitada(self):
+        self.assertEqual(fm.tamanhos_da_grade(_grade(numericos=["42", "36", "40"])), ["36", "40", "42"])
+
+    def test_ordena_comerciais_do_menor_para_o_maior(self):
+        self.assertEqual(fm.tamanhos_da_grade(_grade(comerciais=["GG", "P", "M"])), ["P", "M", "GG"])
+
+    def test_numericos_vem_antes_dos_comerciais(self):
+        grade = _grade(numericos=["38"], comerciais=["M"])
+        self.assertEqual(fm.tamanhos_da_grade(grade), ["38", "M"])
+
+    def test_ignora_tamanho_fora_das_constantes(self):
+        self.assertEqual(fm.tamanhos_da_grade(_grade(numericos=["38", "99"])), ["38"])
+
+
+class TestLinhaMedidaVazia(unittest.TestCase):
+
+    def test_cria_uma_celula_por_tamanho(self):
+        linha = fm.linha_medida_vazia(["38", "40"])
+        self.assertEqual(set(linha["valores"].keys()), {"38", "40"})
+        self.assertIsNone(linha["valores"]["38"]["valor"])
+        self.assertEqual(linha["valores"]["38"]["origem"], fm.ORIGEM_DESCONHECIDO)
+
+    def test_sem_tamanhos_nasce_sem_celula(self):
+        self.assertEqual(fm.linha_medida_vazia()["valores"], {})
+
+    def test_ponto_nasce_vazio(self):
+        self.assertEqual(fm.linha_medida_vazia(["38"])["ponto"]["valor"], "")
+
+
+class TestGarantirChavesNaoExtraidas(unittest.TestCase):
+    """A extração substitui `dados` inteiro pelo resultado da API (schema-shaped) -- sem isto, uma
+    ficha criada por texto livre nasceria sem "medidas" e a tela quebraria nela."""
+
+    def test_reintroduz_chave_ausente(self):
+        dados = {"ficha": {}}
+        fm.garantir_chaves_nao_extraidas(dados)
+        self.assertEqual(dados["medidas"], [])
+
+    def test_nao_sobrescreve_chave_ja_presente(self):
+        dados = {"medidas": [{"ponto": fm.campo_texto_vazio(), "valores": {}}]}
+        fm.garantir_chaves_nao_extraidas(dados)
+        self.assertEqual(len(dados["medidas"]), 1)
 
 
 if __name__ == "__main__":

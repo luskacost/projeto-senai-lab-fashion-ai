@@ -17,7 +17,7 @@ fica na camada que decide o que fazer com o resultado, não na camada que só ex
 from typing import Any, Dict, List, Tuple
 
 from fichas_extracao import extrair_dados
-from fichas_modelo import STATUS_EM_REVISAO
+from fichas_modelo import STATUS_EM_REVISAO, garantir_chaves_nao_extraidas
 from fichas_repo import criar_ficha, salvar_ficha
 from fichas_verificacao import verificar_proveniencia
 from usage_tracker import incrementar_uso
@@ -35,6 +35,10 @@ def criar_ficha_a_partir_de_texto(
     """
     dados_extraidos = extrair_dados(client, texto_origem, tenant_id)
     dados_corrigidos, alertas = verificar_proveniencia(dados_extraidos, texto_origem)
+    # A extração devolve exatamente as chaves de SCHEMA_EXTRACAO, e este dict substitui "dados"
+    # inteiro logo abaixo -- sem isto, uma ficha criada por texto nasceria sem "medidas" (Fase 14,
+    # Bloco M), enquanto uma ficha em branco teria a chave.
+    garantir_chaves_nao_extraidas(dados_corrigidos)
 
     ficha = criar_ficha(tenant_id, texto_origem=texto_origem, precificacao_padrao=precificacao_padrao)
     ficha["dados"] = dados_corrigidos

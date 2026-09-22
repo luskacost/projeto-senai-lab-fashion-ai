@@ -13,7 +13,7 @@ alertas informativos -- quem decide o que fazer com eles é a tela de revisão (
 """
 
 import re
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import fichas_modelo as fm
 
@@ -142,6 +142,102 @@ def validar_grade(dados: dict) -> List[dict]:
     return alertas
 
 
+def _valor_numerico(campo: Any) -> Optional[float]:
+    valor = fm.valor_de(campo)
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    return float(valor)
+
+
+def validar_medidas(dados: dict) -> List[dict]:
+    """Alerta sobre a tabela de medidas por tamanho (Fase 14, Bloco M, Task 21).
+
+    Medida nunca vem da extração (fm.CHAVES_NAO_EXTRAIDAS) -- tudo aqui foi digitado a mão, então
+    os erros que importam são de digitação e de dessincronia com a grade, não de invenção da IA:
+
+    - coluna que não corresponde a nenhum tamanho da grade (sobra de quando a grade foi alterada);
+    - valor ≤ 0 (não existe medida negativa nem de zero centímetro);
+    - progressão não monotônica entre tamanhos vizinhos -- o clássico "42" digitado onde era "24";
+    - grade maior que as colunas que o documento comporta (fm.MAX_COLUNAS_MEDIDAS).
+
+    Célula em branco NÃO gera alerta por célula (uma tabela pela metade num rascunho viraria uma
+    enxurrada que esconde os alertas que importam): gera um alerta por linha, listando os tamanhos
+    que faltam naquele ponto de medida.
+
+    A progressão é checada dentro de cada família (numéricos entre si, comerciais entre si): a
+    fronteira entre "56" e "PP" numa grade mista não é uma progressão real, e compará-los
+    acusaria erro onde não há.
+    """
+    medidas = dados.get("medidas") if isinstance(dados, dict) else None
+    if not isinstance(medidas, list) or not medidas:
+        return []
+
+    tamanhos = fm.tamanhos_da_grade(dados)
+    alertas = []
+
+    if len(tamanhos) > fm.MAX_COLUNAS_MEDIDAS:
+        excedentes = tamanhos[fm.MAX_COLUNAS_MEDIDAS:]
+        alertas.append(_alerta(
+            "grade_excede_colunas_do_documento", "medidas",
+            f"A grade tem {len(tamanhos)} tamanhos, mas a tabela de medidas do documento comporta "
+            f"{fm.MAX_COLUNAS_MEDIDAS} colunas -- {', '.join(excedentes)} ficam de fora do arquivo "
+            "gerado (continuam salvos na ficha).",
+        ))
+
+    for i, linha in enumerate(medidas):
+        if not isinstance(linha, dict):
+            continue
+        caminho = f"medidas[{i}]"
+        ponto = fm.valor_de(linha.get("ponto")) or ""
+        rotulo = ponto or f"linha {i + 1}"
+        valores = linha.get("valores")
+        valores = valores if isinstance(valores, dict) else {}
+
+        preenchidos = {t: v for t, v in ((t, _valor_numerico(c)) for t, c in valores.items()) if v is not None}
+
+        if not ponto and preenchidos:
+            alertas.append(_alerta(
+                "medida_sem_ponto", f"{caminho}.ponto",
+                f"A {rotulo} da tabela de medidas tem valores, mas não diz qual ponto de medida "
+                "eles descrevem.",
+            ))
+
+        fora_da_grade = [t for t in valores if t not in tamanhos]
+        if fora_da_grade:
+            alertas.append(_alerta(
+                "medida_fora_da_grade", caminho,
+                f"Em '{rotulo}' há medida para {', '.join(sorted(fora_da_grade))}, que não "
+                "está(ão) na grade de tamanhos desta ficha.",
+            ))
+
+        nao_positivos = sorted(t for t, v in preenchidos.items() if v <= 0)
+        if nao_positivos:
+            alertas.append(_alerta(
+                "medida_nao_positiva", caminho,
+                f"Em '{rotulo}', a medida de {', '.join(nao_positivos)} é zero ou negativa.",
+            ))
+
+        faltando = [t for t in tamanhos if t not in preenchidos]
+        if preenchidos and faltando:
+            alertas.append(_alerta(
+                "medida_incompleta", caminho,
+                f"'{rotulo}' não tem medida para: {', '.join(faltando)}.",
+            ))
+
+        for familia in (fm.TAMANHOS_NUMERICOS, fm.TAMANHOS_COMERCIAIS):
+            da_familia = [t for t in tamanhos if t in familia and t in preenchidos]
+            for anterior, seguinte in zip(da_familia, da_familia[1:]):
+                if preenchidos[seguinte] < preenchidos[anterior]:
+                    alertas.append(_alerta(
+                        "medida_nao_progressiva", caminho,
+                        f"Em '{rotulo}', o tamanho {seguinte} ({preenchidos[seguinte]:g}) mede menos "
+                        f"que o {anterior} ({preenchidos[anterior]:g}) -- confira se não houve erro "
+                        "de digitação.",
+                    ))
+
+    return alertas
+
+
 def validar_campos_essenciais(dados: dict) -> List[dict]:
     """Alerta sobre campo essencial (ref/nome/descrição) sem informação -- não bloqueia: o
     usuário pode legitimamente ainda não ter definido a referência, por exemplo."""
@@ -166,4 +262,5 @@ def validar_ficha(dados: dict) -> List[dict]:
     alertas.extend(validar_composicao(dados))
     alertas.extend(validar_custos(dados))
     alertas.extend(validar_grade(dados))
+    alertas.extend(validar_medidas(dados))
     return alertas
