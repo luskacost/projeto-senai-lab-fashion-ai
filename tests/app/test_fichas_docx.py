@@ -295,6 +295,59 @@ class TestMedidasNoContexto(unittest.TestCase):
                 fd.montar_contexto(ficha)  # não deve levantar
 
 
+class TestPrecoSugeridoEAprovacaoNoContexto(unittest.TestCase):
+    """Fase 14, Bloco T, Task 27 -- os três saem vazios quando não há o que mostrar, nunca "0,00"
+    nem "None": no documento impresso um zero na linha de preço seria lido como "custa zero"."""
+
+    def test_ficha_sem_custos_nao_imprime_preco(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        self.assertEqual(contexto["preco_sugerido"], "")
+
+    def test_preco_sugerido_usa_markup_divisor_e_padrao_brasileiro(self):
+        ficha = fm.ficha_vazia()
+        ficha["dados"]["custos"]["aviamentos"]["custo"] = _campo(100.0)
+        ficha["precificacao"] = {
+            "imposto_percentual": 10, "comissao_percentual": 15, "margem_lucro_percentual": 20,
+        }
+        # 100 / (1 - 0,45) = 181,818... -> "181,82"
+        self.assertEqual(fd.montar_contexto(ficha)["preco_sugerido"], "181,82")
+
+    def test_percentuais_impossiveis_nao_imprimem_preco(self):
+        ficha = fm.ficha_vazia()
+        ficha["dados"]["custos"]["aviamentos"]["custo"] = _campo(100.0)
+        ficha["precificacao"] = {
+            "imposto_percentual": 0, "comissao_percentual": 0, "margem_lucro_percentual": 100,
+        }
+        self.assertEqual(fd.montar_contexto(ficha)["preco_sugerido"], "")
+
+    def test_ficha_nao_aprovada_tem_carimbo_vazio(self):
+        contexto = fd.montar_contexto(fm.ficha_vazia())
+        self.assertEqual(contexto["aprovada_por"], "")
+        self.assertEqual(contexto["aprovada_em"], "")
+
+    def test_aprovacao_sai_com_data_legivel(self):
+        ficha = fm.ficha_vazia()
+        ficha["aprovacao"] = {
+            "aprovada_por": "Ana Paula", "aprovada_em": "2026-09-22T14:30:00",
+            "observacao": "", "historico": [],
+        }
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(contexto["aprovada_por"], "Ana Paula")
+        self.assertEqual(contexto["aprovada_em"], "22/09/2026 14:30")
+
+    def test_data_ilegivel_nao_vaza_para_o_documento(self):
+        ficha = fm.ficha_vazia()
+        ficha["aprovacao"] = {"aprovada_por": "X", "aprovada_em": "nao e uma data",
+                              "observacao": "", "historico": []}
+        self.assertEqual(fd.montar_contexto(ficha)["aprovada_em"], "")
+
+    def test_ficha_antiga_sem_chave_aprovacao_nao_quebra(self):
+        ficha = fm.ficha_vazia()
+        del ficha["aprovacao"]
+        contexto = fd.montar_contexto(ficha)
+        self.assertEqual(contexto["aprovada_por"], "")
+
+
 class TestRenderCompleto(unittest.TestCase):
     """Render de verdade contra o template de produção."""
 

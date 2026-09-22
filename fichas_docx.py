@@ -18,6 +18,7 @@ documento fiel ao modelo original (a Prioridade 1 declarada pelo usuário):
 """
 
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from docxtpl import DocxTemplate
@@ -26,6 +27,7 @@ from jinja2 import Environment, StrictUndefined
 import fichas_desenho
 import fichas_logo
 import fichas_modelo as fm
+import fichas_precificacao
 import fichas_repo
 from fichas_template import (
     CAMINHO_TEMPLATE,
@@ -137,6 +139,38 @@ def _tecidos(dados: Dict[str, Any]) -> List[Dict[str, str]]:
         }
         for linha in (dados.get("tecidos") or [])
     ]
+
+
+def _texto_simples(valor: Any) -> str:
+    """Como `_texto`, mas para valor cru (não um campo de proveniência). O registro de aprovação
+    guarda strings simples: não é dado da peça extraível de texto, é o nome de quem apertou o
+    botão."""
+    return str(valor) if valor not in (None, "") else ""
+
+
+def _formatar_data_hora_iso(iso: Optional[str]) -> str:
+    """ISO -> "DD/MM/AAAA HH:MM" para impressão. Vazio/ilegível vira string vazia, nunca a string
+    ISO crua nem "None" -- o documento impresso não é lugar de mostrar formato de máquina."""
+    if not iso:
+        return ""
+    try:
+        return datetime.fromisoformat(iso).strftime("%d/%m/%Y %H:%M")
+    except (TypeError, ValueError):
+        return ""
+
+
+def _preco_sugerido(ficha: Dict[str, Any]) -> str:
+    """Preço sugerido já formatado (Fase 14, Bloco T, Task 27), ou vazio quando não dá para
+    calcular -- sem custo informado, ou percentuais somando 100% ou mais.
+
+    Recalculado aqui, na hora de imprimir, pelo mesmo motivo que a API o recalcula a cada leitura:
+    ele nunca é persistido (ver fichas_precificacao.py). Vazio em vez de "0,00" porque um zero
+    impresso na linha de preço seria lido como "esta peça custa zero", não como "não calculado".
+    """
+    resultado = fichas_precificacao.calcular(ficha.get("dados") or {}, ficha.get("precificacao"))
+    if not resultado.get("calculavel"):
+        return ""
+    return _formatar_dinheiro(resultado.get("preco_sugerido"))
 
 
 def _medidas_tamanhos(dados: Dict[str, Any]) -> List[str]:
@@ -253,6 +287,13 @@ def montar_contexto(ficha: Dict[str, Any]) -> Dict[str, Any]:
         # usa e o contexto não tem, nunca do contrário -- então sobra inerte até lá, sem risco.
         "medidas_tamanhos": _medidas_tamanhos(dados),
         "medidas": _medidas(dados),
+
+        # Preço sugerido e carimbo de aprovação (Fase 14, Bloco T, Task 27). Os três saem vazios
+        # numa ficha sem preço calculável / não aprovada -- e vazio é o estado correto: é assim
+        # que o campo aparece no formulário em branco esperando ser preenchido.
+        "preco_sugerido": _preco_sugerido(ficha),
+        "aprovada_por": _texto_simples((ficha.get("aprovacao") or {}).get("aprovada_por")),
+        "aprovada_em": _formatar_data_hora_iso((ficha.get("aprovacao") or {}).get("aprovada_em")),
 
         "custo_aviamentos": custo("aviamentos"),
         "custo_tecidos": custo("tecidos"),

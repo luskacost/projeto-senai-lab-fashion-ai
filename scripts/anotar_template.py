@@ -262,7 +262,30 @@ def _remover_linhas(tabela, indices) -> None:
         elemento.getparent().remove(elemento)
 
 
-def _adicionar_secao_desenho(doc: Document) -> None:
+def _remover_colunas_do_fim(tabela, quantidade: int) -> None:
+    """Remove as `quantidade` últimas colunas da tabela.
+
+    Precisa mexer em DOIS lugares: as células (`w:tc`) de cada linha e as larguras declaradas no
+    `w:tblGrid`. Remover só as células deixa a tabela internamente inconsistente -- `len(columns)`
+    continua contando as colunas antigas, e o Word tenta reconciliar a diferença por conta
+    própria, o que é justamente o tipo de estrago silencioso que este script existe para evitar.
+    """
+    if quantidade <= 0:
+        return
+
+    for linha in tabela.rows:
+        for celula in list(linha.cells)[-quantidade:]:
+            celula._tc.getparent().remove(celula._tc)
+
+    grade = tabela._tbl.find(
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tblGrid"
+    )
+    if grade is not None:
+        for coluna in list(grade)[-quantidade:]:
+            grade.remove(coluna)
+
+
+def _adicionar_secao_desenho(doc: Document, modelo_tbl, ancora_tbl) -> None:
     """Cria a seção "DESENHO TÉCNICO" na primeira página, logo abaixo da identificação do produto.
 
     O formulário oficial não reservou espaço para o desenho -- só o PDF de referência que o
@@ -277,14 +300,13 @@ def _adicionar_secao_desenho(doc: Document) -> None:
     titulo_modelo = next(p for p in doc.paragraphs if p.text.strip() == "CORES / BENEFICIAMENTOS")
     novo_titulo = copy.deepcopy(titulo_modelo._p)
 
-    caixa_modelo = doc.tables[8]  # AMOSTRA DE TECIDOS: mesma largura e bordas do resto da ficha
-    nova_caixa = copy.deepcopy(caixa_modelo._tbl)
+    # AMOSTRA DE TECIDOS como modelo: mesma largura e bordas do resto da ficha.
+    nova_caixa = copy.deepcopy(modelo_tbl)
 
     # Inserir a caixa primeiro e o título depois faz os dois caírem na ordem certa, já que
     # addnext() sempre insere imediatamente após o elemento de referência.
-    ancora = doc.tables[1]._tbl  # IDENTIFICAÇÃO DO PRODUTO
-    ancora.addnext(nova_caixa)
-    ancora.addnext(novo_titulo)
+    ancora_tbl.addnext(nova_caixa)
+    ancora_tbl.addnext(novo_titulo)
 
     Paragraph(novo_titulo, doc).runs[0].text = "DESENHO TÉCNICO"
 
@@ -302,6 +324,108 @@ def _adicionar_secao_desenho(doc: Document) -> None:
     # reservada de verdade. AT_LEAST deixa a caixa crescer se a imagem inserida for maior.
     tabela.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
     tabela.rows[0].height = Cm(ALTURA_AREA_DESENHO_CM)
+
+
+def _adicionar_linha_preco_sugerido(tabela) -> None:
+    """Acrescenta a linha "PREÇO SUGERIDO" ao final da tabela CUSTOS (Fase 14, Bloco T, Task 27).
+
+    Os 4 primeiros campos viram uma célula só com o rótulo, e o valor cai embaixo de PREÇO TOTAL
+    -- é com esse número que o preço sugerido se compara, então alinhá-los na mesma coluna é o que
+    torna a comparação legível sem precisar de explicação.
+
+    O rótulo diz "(CALCULADO)" pelo mesmo motivo que a tela diz: é uma conta feita sobre os custos
+    informados, não um preço que a IA sugeriu nem um valor que alguém digitou. Impresso sem essa
+    palavra, viraria em pouco tempo "o preço que o sistema mandou cobrar".
+
+    A linha nasce como cópia da linha de valores para herdar bordas e larguras de coluna -- mesma
+    técnica de `_adicionar_linha_de_marcas`/`_adicionar_linha_de_rotulos`.
+    """
+    nova_linha = copy.deepcopy(tabela.rows[1]._tr)  # linha dos valores (R$ ...)
+    tabela.rows[-1]._tr.addnext(nova_linha)
+
+    linha = tabela.rows[-1]
+    rotulo = linha.cells[0].merge(linha.cells[3])
+    for paragrafo in rotulo.paragraphs[1:]:
+        paragrafo._p.getparent().remove(paragrafo._p)
+    _definir_texto_celula(rotulo, "PREÇO SUGERIDO (CALCULADO)")
+    for run in rotulo.paragraphs[0].runs:
+        run.bold = True
+
+    _definir_texto_celula(linha.cells[-1], "R$ {{ preco_sugerido }}")
+
+
+def _adicionar_secao_medidas(doc: Document, modelo_tbl, ancora_tbl) -> None:
+    """Cria a seção "MEDIDAS POR TAMANHO" (Fase 14, Bloco T, Task 27).
+
+    É a única tabela do documento que cresce nas duas direções: linhas por ponto de medida
+    (`{%tr%}`) e colunas por tamanho da grade (`{%tc%}`). Por isso a tabela-base tem 4 colunas --
+    rótulo, abertura do laço de colunas, célula-modelo e fechamento -- e o docxtpl expande a do
+    meio uma vez por tamanho.
+
+    O alinhamento entre cabeçalho e valores é garantido no contexto (`fichas_docx._medidas`), que
+    monta `valores` na mesma ordem de `medidas_tamanhos`: aqui os dois laços são independentes, e
+    um valor fora de ordem sairia impresso embaixo do tamanho errado.
+
+    Entra logo depois de TECIDOS, onde a ficha já fala de material e construção -- e antes de
+    CUSTOS, que fecha a página. Título e caixa são cópias de elementos existentes, para herdarem
+    fonte e bordas (mesma técnica de `_adicionar_secao_desenho`).
+    """
+    titulo_modelo = next(p for p in doc.paragraphs if p.text.strip() == "CORES / BENEFICIAMENTOS")
+    novo_titulo = copy.deepcopy(titulo_modelo._p)
+
+    # AVIAMENTOS: tabela com cabeçalho + linhas de dados, a forma mais próxima da que queremos.
+    nova_tabela = copy.deepcopy(modelo_tbl)
+
+    ancora_tbl.addnext(nova_tabela)
+    ancora_tbl.addnext(novo_titulo)
+
+    Paragraph(novo_titulo, doc).runs[0].text = "MEDIDAS POR TAMANHO"
+
+    tabela = Table(nova_tabela, doc)
+    # A cópia de AVIAMENTOS veio com 6 colunas e já tem as 4 linhas que precisamos (cabeçalho +
+    # for/modelo/endfor); sobram 2 colunas para o padrão rótulo/for/modelo/endfor.
+    _remover_colunas_do_fim(tabela, len(tabela.columns) - 4)
+
+    conteudo = [
+        ["PONTO DE MEDIDA", "{%tc for t in medidas_tamanhos %}", "{{ t }}", "{%tc endfor %}"],
+        ["{%tr for m in medidas %}", "", "", ""],
+        ["{{ m.ponto }}", "{%tc for v in m.valores %}", "{{ v }}", "{%tc endfor %}"],
+        ["{%tr endfor %}", "", "", ""],
+    ]
+    for indice_linha, textos in enumerate(conteudo):
+        for indice_coluna, texto in enumerate(textos):
+            _definir_texto_celula(tabela.rows[indice_linha].cells[indice_coluna], texto)
+
+    for run in tabela.rows[0].cells[0].paragraphs[0].runs:
+        run.bold = True
+
+
+def _adicionar_carimbo_aprovacao(doc: Document, modelo_tbl, ancora_tbl) -> None:
+    """Cria o carimbo de aprovação no fim da ficha (Fase 14, Bloco T, Task 27).
+
+    Sai vazio numa ficha não aprovada -- e vazio é o estado certo: fica igual ao campo em branco
+    do formulário impresso, esperando ser preenchido. O rótulo é "REGISTRO DE APROVAÇÃO", nunca
+    "assinatura": o documento impresso é justamente onde a diferença mais importa, porque é ele
+    que circula fora do sistema, longe de qualquer aviso da tela.
+    """
+    titulo_modelo = next(p for p in doc.paragraphs if p.text.strip() == "CORES / BENEFICIAMENTOS")
+    novo_titulo = copy.deepcopy(titulo_modelo._p)
+
+    nova_tabela = copy.deepcopy(modelo_tbl)  # IDENTIFICAÇÃO: grade de rótulo/valor
+
+    ancora_tbl.addnext(nova_tabela)
+    ancora_tbl.addnext(novo_titulo)
+
+    Paragraph(novo_titulo, doc).runs[0].text = "REGISTRO DE APROVAÇÃO"
+
+    tabela = Table(nova_tabela, doc)
+    _remover_linhas(tabela, list(range(1, len(tabela.rows))))  # fica só a primeira linha
+
+    for texto, celula in zip(
+        ["APROVADA POR:", "{{ aprovada_por }}", "EM:", "{{ aprovada_em }}"],
+        tabela.rows[0].cells,
+    ):
+        _definir_texto_celula(celula, texto)
 
 
 def _adicionar_linha_de_marcas(tabela, tamanhos) -> None:
@@ -366,10 +490,24 @@ def anotar(caminho: str) -> None:
     # Depois das remoções por índice acima, senão a linha de rótulos deslocaria tudo.
     _adicionar_linha_de_rotulos(doc.tables[3], ROTULOS_GRADE_TABELA_3)
     _adicionar_linha_de_rotulos(doc.tables[4], ROTULOS_GRADE_TABELA_4)
+    _adicionar_linha_preco_sugerido(doc.tables[9])  # CUSTOS -- ainda por índice, antes das tabelas novas
 
     # Por último: inserir uma tabela nova desloca os índices de todas as tabelas seguintes, então
     # isso só pode acontecer depois de todas as operações endereçadas por índice acima.
-    _adicionar_secao_desenho(doc)
+    #
+    # As referências são resolvidas AGORA, antes da primeira inserção, e passadas adiante como
+    # elementos: a partir da primeira `addnext`, `doc.tables[8]` já aponta para outra tabela, e
+    # uma seção acabaria clonando o modelo errado ou se ancorando no lugar errado -- em silêncio,
+    # porque o documento continuaria válido, só diferente do pretendido.
+    modelo_amostra = doc.tables[8]._tbl        # AMOSTRA DE TECIDOS
+    ancora_identificacao = doc.tables[1]._tbl  # IDENTIFICAÇÃO DO PRODUTO
+    modelo_aviamentos = doc.tables[5]._tbl     # AVIAMENTOS
+    ancora_tecidos = doc.tables[6]._tbl        # TECIDOS
+    ancora_modelagem = doc.tables[11]._tbl     # MODELAGEM, última seção da ficha
+
+    _adicionar_secao_medidas(doc, modelo_aviamentos, ancora_tecidos)
+    _adicionar_carimbo_aprovacao(doc, ancora_identificacao, ancora_modelagem)
+    _adicionar_secao_desenho(doc, modelo_amostra, ancora_identificacao)
 
     doc.save(caminho)
     print(f"Template anotado: {caminho}")

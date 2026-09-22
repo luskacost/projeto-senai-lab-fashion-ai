@@ -64,6 +64,11 @@ PLACEHOLDERS_ESCALARES = (
     "obs_total",
     "modelista",
     "numero_moldes",
+    # Fase 14, Bloco T, Task 27. Os três saem vazios quando não há preço calculável / a ficha não
+    # está aprovada -- vazio é o estado correto, igual ao campo em branco do formulário impresso.
+    "preco_sugerido",
+    "aprovada_por",
+    "aprovada_em",
 )
 
 # Tabelas que crescem conforme os dados, via `{%tr for ... %}` (a linha vira uma por item).
@@ -73,6 +78,9 @@ PLACEHOLDERS_LISTA = (
     "tecidos",
     "sequencia_operacional",
     "partes",
+    # Medidas por tamanho (Fase 14, Bloco M/T): a única tabela que cresce nas DUAS direções --
+    # linhas por ponto de medida (`{%tr%}`) e colunas por tamanho da grade (`{%tc%}`).
+    "medidas",
 )
 
 # A grade de tamanhos não é lista nem escalar: é um dicionário tamanho -> marca ("☑"/"□"), lido
