@@ -17,11 +17,14 @@ import {
   PrecificacaoFicha,
   Tecido,
   aprovarDesenho,
+  LinhaMedida,
   aviamentoVazio,
   atualizarFicha,
   baixarFichaDocumento,
   campoEditado,
+  campoNumeroVazio,
   corBeneficiamentoVazia,
+  linhaMedidaVazia,
   gerarDesenho,
   importarCroquiComoDesenho,
   obterFicha,
@@ -52,6 +55,23 @@ const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 
 const TAMANHOS_NUMERICOS = ["34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54", "56"];
 const TAMANHOS_COMERCIAIS = ["PP", "P", "M", "G", "GG", "XG"];
+
+// Teto de colunas que a tabela de medidas do .docx comporta (espelha fm.MAX_COLUNAS_MEDIDAS). Na
+// tela todas as colunas aparecem -- o aviso de que o excedente não cabe no documento vem do
+// backend, junto dos outros alertas.
+const MAX_COLUNAS_MEDIDAS = 8;
+
+// Espelha fichas_modelo.tamanhos_da_grade: ordem canônica (numéricos crescentes, depois
+// comerciais), não a ordem em que a pessoa marcou os checkboxes. É a mesma ordem que o documento
+// usa, então a tabela na tela sai igual à impressa.
+function tamanhosDaGrade(dados: DadosFicha): string[] {
+  const numericos = dados.grade.numericos.valor ?? [];
+  const comerciais = dados.grade.comerciais.valor ?? [];
+  return [
+    ...TAMANHOS_NUMERICOS.filter((t) => numericos.includes(t)),
+    ...TAMANHOS_COMERCIAIS.filter((t) => comerciais.includes(t)),
+  ];
+}
 
 // ─── Campos escalares reutilizados nas 3 abas ──────────────────────────────────────────────────
 
@@ -409,6 +429,7 @@ export default function FichaDetalhePage() {
   }
 
   const dados = ficha.dados;
+  const tamanhosMedidas = tamanhosDaGrade(dados);
 
   return (
     <>
@@ -744,6 +765,97 @@ export default function FichaDetalhePage() {
                   ))}
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Medidas por tamanho</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {tamanhosMedidas.length === 0 ? (
+                <p className="py-4 text-sm text-muted-foreground">
+                  Marque os tamanhos na grade acima para montar a tabela de medidas -- as colunas
+                  saem de lá.
+                </p>
+              ) : (
+                <>
+                  {tamanhosMedidas.length > MAX_COLUNAS_MEDIDAS && (
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      A grade tem {tamanhosMedidas.length} tamanhos. O documento comporta{" "}
+                      {MAX_COLUNAS_MEDIDAS} colunas de medida -- os demais ficam salvos na ficha,
+                      mas não saem no arquivo gerado.
+                    </p>
+                  )}
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Ponto de medida</TableHead>
+                          {tamanhosMedidas.map((tamanho) => (
+                            <TableHead key={tamanho}>{tamanho}</TableHead>
+                          ))}
+                          <TableHead className="w-8" />
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(dados.medidas ?? []).map((linha, i) => (
+                          <TableRow key={i}>
+                            <TableCell>
+                              <CelulaTexto
+                                campo={linha.ponto}
+                                onChange={(v) =>
+                                  atualizarDados((d) =>
+                                    atualizarLinhaMedida(d, i, (l) => ({ ...l, ponto: campoEditado(v) }))
+                                  )
+                                }
+                              />
+                            </TableCell>
+                            {tamanhosMedidas.map((tamanho) => (
+                              <TableCell key={tamanho}>
+                                <CelulaNumero
+                                  campo={linha.valores[tamanho] ?? campoNumeroVazio()}
+                                  onChange={(v) => atualizarDados((d) => atualizarCelulaMedida(d, i, tamanho, v))}
+                                />
+                              </TableCell>
+                            ))}
+                            <TableCell>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-muted-foreground hover:text-destructive"
+                                aria-label="Remover linha"
+                                onClick={() =>
+                                  atualizarDados((d) => ({
+                                    ...d,
+                                    medidas: (d.medidas ?? []).filter((_, indice) => indice !== i),
+                                  }))
+                                }
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() =>
+                      atualizarDados((d) => ({
+                        ...d,
+                        medidas: [...(d.medidas ?? []), linhaMedidaVazia(tamanhosDaGrade(d))],
+                      }))
+                    }
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Adicionar ponto de medida
+                  </Button>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -1241,4 +1353,29 @@ function atualizarItem<K extends keyof ListasEditaveis>(
 function removerItem<K extends keyof ListasEditaveis>(dados: DadosFicha, chave: K, indice: number): DadosFicha {
   const lista = dados[chave] as ListasEditaveis[K][];
   return { ...dados, [chave]: lista.filter((_, i) => i !== indice) };
+}
+
+// Medidas ficam fora de ListasEditaveis (acima) porque a forma da atualização é outra: cada linha
+// tem um dict de células indexado por tamanho, não um conjunto fixo de colunas.
+function atualizarLinhaMedida(
+  dados: DadosFicha,
+  indice: number,
+  atualizar: (linha: LinhaMedida) => LinhaMedida
+): DadosFicha {
+  const medidas = dados.medidas ?? [];
+  return { ...dados, medidas: medidas.map((linha, i) => (i === indice ? atualizar(linha) : linha)) };
+}
+
+function atualizarCelulaMedida(
+  dados: DadosFicha,
+  indice: number,
+  tamanho: string,
+  valor: number | null
+): DadosFicha {
+  // Grava por tamanho, criando a chave se ela não existir: uma linha criada antes de o tamanho
+  // entrar na grade não tem célula para ele, e digitar ali precisa funcionar mesmo assim.
+  return atualizarLinhaMedida(dados, indice, (linha) => ({
+    ...linha,
+    valores: { ...linha.valores, [tamanho]: campoEditado(valor) },
+  }));
 }

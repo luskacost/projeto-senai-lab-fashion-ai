@@ -182,6 +182,30 @@ data de criação; excluir um croqui é ação administrativa (mesma senha de ad
 Conversas antigas, persistidas antes desta fase, continuam funcionando normalmente -- a mensagem
 guarda a data URI base64 de sempre, já que nunca tiveram um `croqui_id`.
 
+## Medidas por tamanho (Fase 14, Bloco M)
+
+A tabela de medidas (pontos de medida × tamanhos) fica na aba "2. Tamanhos e Custos", logo abaixo
+da grade -- **as colunas saem da grade**, não são criadas à mão, que é o que impede medida e
+tamanho de sairem dessincronizados.
+
+- **Fora do `SCHEMA_EXTRACAO`, de propósito.** É a única chave de `dados` que a IA nunca preenche
+  (`fichas_modelo.CHAVES_NAO_EXTRAIDAS`): tabela de medidas é onde um LLM mais "completa a lacuna
+  com o plausível", e medida inventada vira peça cortada errada. Toda medida entra a mão, na
+  revisão. Como a extração substitui `dados` inteiro, `fichas_service` reintroduz a chave depois
+  dela -- senão ficha criada por texto nasceria sem a tabela e ficha em branco teria.
+- **Validadores determinísticos** (`fichas_validacao.validar_medidas`): tamanho fora da grade,
+  valor ≤ 0, progressão invertida entre tamanhos vizinhos (pega o "24" digitado no lugar de "42")
+  e grade acima das 8 colunas que o documento comporta. A progressão é checada dentro de cada
+  família -- a fronteira `56 → PP` numa grade mista não é progressão real. Célula em branco gera
+  um alerta por linha, não por célula, para uma tabela pela metade num rascunho não virar uma
+  enxurrada que esconde os alertas que importam.
+- **Alinhamento posicional no documento.** No Word, cabeçalho e corpo da tabela são dois laços
+  Jinja independentes, então `fichas_docx` monta os valores percorrendo os tamanhos (não as chaves
+  do dado): tamanho sem medida vira célula vazia *na posição certa*, e o número nunca sai impresso
+  debaixo do tamanho errado.
+- **Excedente nunca some calado.** A grade permite 18 tamanhos e o documento comporta 8; os
+  demais continuam salvos na ficha, e tanto a tela quanto os alertas dizem quais ficaram de fora.
+
 ## Preço sugerido (Fase 14, Bloco P)
 
 Na aba "2. Tamanhos e Custos" do editor de ficha, além dos 4 campos de custo já existentes

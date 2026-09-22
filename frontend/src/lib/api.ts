@@ -453,6 +453,15 @@ export interface ParteModelagem {
   observacoes: CampoFicha<string>;
 }
 
+// Uma linha da tabela de medidas (Fase 14, Bloco M): o ponto medido e uma célula por tamanho da
+// grade. `valores` é indexado por tamanho ("38", "M") -- as colunas saem da grade, não desta
+// chave, então um tamanho sem célula aqui aparece em branco, e uma célula de tamanho que saiu da
+// grade não é exibida (o backend alerta sobre ela na revisão).
+export interface LinhaMedida {
+  ponto: CampoFicha<string>;
+  valores: Record<string, CampoFicha<number | null>>;
+}
+
 export interface DadosFicha {
   ficha: CamposIdentificacao;
   cores_beneficiamentos: CorBeneficiamento[];
@@ -460,6 +469,9 @@ export interface DadosFicha {
     numericos: CampoFicha<string[]>;
     comerciais: CampoFicha<string[]>;
   };
+  // Única chave de "dados" que não vem da extração (fichas_modelo.CHAVES_NAO_EXTRAIDAS) -- pode
+  // faltar em ficha salva antes da Fase 14, por isso opcional aqui.
+  medidas?: LinhaMedida[];
   aviamentos: Aviamento[];
   tecidos: Tecido[];
   custos: {
@@ -525,7 +537,10 @@ function campoTextoVazio(): CampoFicha<string> {
   return { valor: "", origem: "DESCONHECIDO", trecho: "" };
 }
 
-function campoNumeroVazio(): CampoFicha<number | null> {
+// Exportado (ao contrário de campoTextoVazio) porque a tabela de medidas precisa de um campo
+// vazio de fallback: uma linha criada antes de um tamanho entrar na grade não tem célula para
+// ele, e a coluna precisa renderizar em branco em vez de quebrar.
+export function campoNumeroVazio(): CampoFicha<number | null> {
   return { valor: null, origem: "DESCONHECIDO", trecho: "" };
 }
 
@@ -568,6 +583,15 @@ export function operacaoVazia(): Operacao {
 
 export function parteModelagemVazia(): ParteModelagem {
   return { descricao: campoTextoVazio(), observacoes: campoTextoVazio() };
+}
+
+// Espelha fichas_modelo.linha_medida_vazia: uma célula por tamanho da grade atual. Recebe os
+// tamanhos prontos (não os deriva) para não precisar duplicar aqui a lista de tamanhos válidos.
+export function linhaMedidaVazia(tamanhos: string[]): LinhaMedida {
+  return {
+    ponto: campoTextoVazio(),
+    valores: Object.fromEntries(tamanhos.map((t) => [t, campoNumeroVazio()])),
+  };
 }
 
 // Constrói um CampoFicha marcado como editado manualmente pelo usuário -- FORNECIDO porque a
