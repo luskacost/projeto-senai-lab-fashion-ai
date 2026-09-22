@@ -175,6 +175,8 @@ export default function FichasPage() {
                     <p className="truncate text-xs text-muted-foreground">
                       {f.ref ? `Ref. ${f.ref} · ` : ""}
                       Atualizado em {formatarData(f.atualizado_em)}
+                      {/* Fase 14, Bloco AP: saber a quem perguntar sobre a peça sem abrir a ficha. */}
+                      {f.aprovada_por ? ` · Aprovada por ${f.aprovada_por}` : ""}
                     </p>
                   </Link>
                   <div className="flex shrink-0 items-center gap-1">

@@ -18,8 +18,10 @@ import {
   Tecido,
   aprovarDesenho,
   LinhaMedida,
+  aprovarFicha,
   aviamentoVazio,
   atualizarFicha,
+  reabrirFicha,
   baixarFichaDocumento,
   campoEditado,
   campoNumeroVazio,
@@ -37,6 +39,7 @@ import {
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { mensagemAmigavel } from "@/lib/erros";
 import ImportarCroquiDialog from "@/components/ImportarCroquiDialog";
+import RegistroAprovacaoDialog from "@/components/RegistroAprovacaoDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -48,7 +51,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import OrigemIndicador from "@/components/fichas/OrigemIndicador";
-import { AlertTriangle, ArrowLeft, FileDown, ImagePlus, Images, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BadgeCheck, FileDown, ImagePlus, Images, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
@@ -60,6 +63,14 @@ const TAMANHOS_COMERCIAIS = ["PP", "P", "M", "G", "GG", "XG"];
 // tela todas as colunas aparecem -- o aviso de que o excedente não cabe no documento vem do
 // backend, junto dos outros alertas.
 const MAX_COLUNAS_MEDIDAS = 8;
+
+function formatarDataHora(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return iso;
+  }
+}
 
 // Espelha fichas_modelo.tamanhos_da_grade: ordem canônica (numéricos crescentes, depois
 // comerciais), não a ordem em que a pessoa marcou os checkboxes. É a mesma ordem que o documento
@@ -187,6 +198,9 @@ export default function FichaDetalhePage() {
   const [instrucaoAdicional, setInstrucaoAdicional] = useState("");
   const [dialogoImportarCroquiAberto, setDialogoImportarCroquiAberto] = useState(false);
   const [importandoCroqui, setImportandoCroqui] = useState(false);
+  // Aprovação (Fase 14, Bloco AP, Task 25) -- null = diálogo fechado.
+  const [dialogoRegistro, setDialogoRegistro] = useState<"aprovar" | "reabrir" | null>(null);
+  const [registrando, setRegistrando] = useState(false);
 
   useEffect(() => {
     if (!fichaId) return;
@@ -249,19 +263,30 @@ export default function FichaDetalhePage() {
     toast.success("Preço total preenchido com o valor sugerido -- lembre-se de salvar a ficha.");
   }
 
+  // Salva a ficha antes de gerar documento/desenho/prévia: o backend renderiza a partir do que
+  // está em disco, então uma edição não salva ficaria de fora sem o usuário perceber.
+  //
+  // Exceto quando a ficha está aprovada (Fase 14, Bloco AP): aí o PUT devolve 409 por
+  // congelamento, e não há edição pendente para salvar justamente porque a edição está
+  // bloqueada. Sem esta saída, aprovar uma ficha quebraria os botões de Word/PDF -- que é o que
+  // mais se faz logo depois de aprovar.
+  async function salvarSeEditavel(fichaAtual: Ficha): Promise<Ficha> {
+    if (fichaAtual.status === "APROVADA") return fichaAtual;
+
+    const salva = await atualizarFicha(TENANT_ID, fichaAtual, fichaAtual.atualizado_em);
+    setFicha(salva.ficha);
+    setAlertas(salva.alertas);
+    setPrecificacaoCalculada(salva.precificacao_calculada);
+    return salva.ficha;
+  }
+
   async function gerarOuRegenerarDesenho() {
     if (!ficha) return;
     setGerandoDesenho(true);
     try {
-      // Salva antes de gerar, mesmo motivo do Word/PDF/prévia: o backend monta o prompt a partir
-      // dos dados que estão em disco, então uma edição não salva (ex: descrição da peça) ficaria
-      // de fora do desenho sem o usuário perceber.
-      const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
-      setFicha(salva.ficha);
-      setAlertas(salva.alertas);
-      setPrecificacaoCalculada(salva.precificacao_calculada);
+      const salva = await salvarSeEditavel(ficha);
 
-      const resultado = await gerarDesenho(TENANT_ID, salva.ficha.id, instrucaoAdicional || undefined);
+      const resultado = await gerarDesenho(TENANT_ID, salva.id, instrucaoAdicional || undefined);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
       setPrecificacaoCalculada(resultado.precificacao_calculada);
@@ -312,6 +337,37 @@ export default function FichaDetalhePage() {
     }
   }
 
+  async function registrarAprovacaoOuReabertura(nome: string, observacao: string) {
+    if (!ficha || !dialogoRegistro) return;
+    setRegistrando(true);
+    try {
+      const resultado =
+        dialogoRegistro === "aprovar"
+          ? await aprovarFicha(TENANT_ID, ficha.id, nome, ficha.atualizado_em, observacao)
+          : await reabrirFicha(TENANT_ID, ficha.id, nome, observacao);
+
+      setFicha(resultado.ficha);
+      setAlertas(resultado.alertas);
+      setPrecificacaoCalculada(resultado.precificacao_calculada);
+      setDialogoRegistro(null);
+      toast.success(dialogoRegistro === "aprovar" ? "Aprovação registrada." : "Ficha reaberta para edição.");
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 412) {
+        // O motivo de atualizado_em_esperado ser obrigatório ao aprovar: a ficha mudou desde que
+        // esta tela carregou, então aprovar aqui registraria o nome embaixo de outro conteúdo.
+        toast.error(
+          "Esta ficha mudou desde que você a abriu. Recarregue a página e confira o conteúdo atual antes de aprovar."
+        );
+      } else if (e instanceof ApiError && e.status === 409) {
+        toast.error(e.message);
+      } else {
+        toast.error(mensagemAmigavel(e, "Não foi possível registrar."));
+      }
+    } finally {
+      setRegistrando(false);
+    }
+  }
+
   async function salvar() {
     if (!ficha) return;
     setSalvando(true);
@@ -336,12 +392,7 @@ export default function FichaDetalhePage() {
     if (!ficha) return;
     setGerando(formato);
     try {
-      // Salva antes de gerar: o backend renderiza a partir do que está em disco, então edições
-      // não salvas sairiam de fora do documento sem o usuário perceber.
-      const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
-      setFicha(salva.ficha);
-      setAlertas(salva.alertas);
-      setPrecificacaoCalculada(salva.precificacao_calculada);
+      await salvarSeEditavel(ficha);
 
       await baixarFichaDocumento(TENANT_ID, ficha.id, formato);
       toast.success(formato === "pdf" ? "PDF gerado." : "Documento Word gerado.");
@@ -371,12 +422,7 @@ export default function FichaDetalhePage() {
     setGerandoPreview(true);
     setErroPreview(null);
     try {
-      // Salva antes de gerar, pelo mesmo motivo do Word/PDF: a prévia vem do que está em disco,
-      // então uma edição não salva ficaria de fora dela sem o usuário perceber.
-      const salva = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
-      setFicha(salva.ficha);
-      setAlertas(salva.alertas);
-      setPrecificacaoCalculada(salva.precificacao_calculada);
+      await salvarSeEditavel(ficha);
 
       // Cache-buster: sem isso, o navegador poderia reaproveitar o PDF antigo da mesma URL em
       // vez de buscar a versão recém-atualizada.
@@ -430,6 +476,8 @@ export default function FichaDetalhePage() {
 
   const dados = ficha.dados;
   const tamanhosMedidas = tamanhosDaGrade(dados);
+  const aprovada = ficha.status === "APROVADA";
+  const aprovacao = ficha.aprovacao;
 
   return (
     <>
@@ -441,7 +489,15 @@ export default function FichaDetalhePage() {
         </Link>
         <div className="flex items-center gap-2">
           <Badge variant={VARIANTE_STATUS_FICHA[ficha.status]}>{ROTULO_STATUS_FICHA[ficha.status]}</Badge>
-          <Button onClick={salvar} disabled={salvando || gerando !== null} variant="outline">
+          {!aprovada && (
+            <Button onClick={() => setDialogoRegistro("aprovar")} disabled={salvando || gerando !== null} variant="outline">
+              <BadgeCheck />
+              Aprovar
+            </Button>
+          )}
+          {/* Desabilitado (não escondido) quando aprovada: o botão continua onde a pessoa espera,
+              e o banner logo abaixo explica por que não dá para salvar e como reabrir. */}
+          <Button onClick={salvar} disabled={salvando || gerando !== null || aprovada} variant="outline">
             {salvando ? <Loader2 className="animate-spin" /> : <Save />}
             {salvando ? "Salvando..." : "Salvar"}
           </Button>
@@ -455,6 +511,33 @@ export default function FichaDetalhePage() {
           </Button>
         </div>
       </div>
+
+      {aprovada && (
+        <Card className="border-primary/40 bg-primary/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-1">
+            <div className="space-y-1">
+              <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <BadgeCheck className="h-4 w-4 text-primary" />
+                Ficha aprovada
+                {aprovacao?.aprovada_por ? ` por ${aprovacao.aprovada_por}` : ""}
+                {aprovacao?.aprovada_em ? ` em ${formatarDataHora(aprovacao.aprovada_em)}` : ""}
+              </p>
+              {aprovacao?.observacao && (
+                <p className="text-xs text-muted-foreground">{aprovacao.observacao}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Enquanto estiver aprovada, a ficha não pode ser editada -- você ainda pode gerar o
+                Word e o PDF normalmente. Este é um registro de quem aprovou, não uma assinatura
+                digital.
+              </p>
+            </div>
+            <Button onClick={() => setDialogoRegistro("reabrir")} variant="outline" size="sm" className="shrink-0">
+              <RefreshCw className="h-3.5 w-3.5" />
+              Reabrir para editar
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {alertas.length > 0 && (
         <Card className="border-primary/30 bg-primary/5">
@@ -1311,6 +1394,13 @@ export default function FichaDetalhePage() {
       tenantId={TENANT_ID}
       importando={importandoCroqui}
       onImportar={importarCroqui}
+    />
+    <RegistroAprovacaoDialog
+      open={dialogoRegistro !== null}
+      onOpenChange={(aberto) => { if (!aberto) setDialogoRegistro(null); }}
+      modo={dialogoRegistro ?? "aprovar"}
+      processando={registrando}
+      onConfirmar={registrarAprovacaoOuReabertura}
     />
     </>
   );

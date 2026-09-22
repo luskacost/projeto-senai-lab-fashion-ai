@@ -182,6 +182,26 @@ data de criação; excluir um croqui é ação administrativa (mesma senha de ad
 Conversas antigas, persistidas antes desta fase, continuam funcionando normalmente -- a mensagem
 guarda a data URI base64 de sempre, já que nunca tiveram um `croqui_id`.
 
+## Aprovação da ficha (Fase 14, Bloco AP)
+
+Fechado o ciclo de revisão, a ficha pode ser **aprovada**: o editor registra quem aprovou, quando
+e uma observação opcional, e passa a exibir um banner com a opção de reabrir para editar.
+
+- **Registro nominal, não assinatura digital.** Não há autenticação por trás: quem digita o nome é
+  quem estiver no computador. A UI diz isso explicitamente, porque chamar de "assinatura"
+  prometeria uma garantia criptográfica que o campo não tem -- e é em cima dessa promessa falsa
+  que alguém confiaria no documento sem conferir.
+- **Congelamento leve.** `PUT` numa ficha aprovada devolve `409` e o botão "Salvar" fica
+  desabilitado; gerar Word/PDF continua liberado (é o que mais se faz depois de aprovar). Para
+  voltar a editar, "Reabrir para editar", que também deixa registro de quem reabriu.
+- **Trilha de auditoria.** Reabrir zera a aprovação vigente mas **não apaga** o histórico, que só
+  cresce. O `PUT` ignora o bloco `aprovacao` vindo do cliente pelo mesmo motivo -- senão a trilha
+  poderia ser apagada num salvamento comum.
+- **Bug corrigido junto.** Três rotas (gerar `.docx`, gerar desenho, importar croqui) atribuíam
+  status incondicionalmente: baixar o Word de uma ficha aprovada a rebaixava para
+  `DOCUMENTO_GERADO` e desfazia a aprovação **em silêncio** -- justamente a ação mais natural
+  depois de aprovar. Agora todas passam por um helper que preserva o status de ficha aprovada.
+
 ## Medidas por tamanho (Fase 14, Bloco M)
 
 A tabela de medidas (pontos de medida × tamanhos) fica na aba "2. Tamanhos e Custos", logo abaixo

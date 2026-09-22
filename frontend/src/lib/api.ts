@@ -385,6 +385,9 @@ export interface FichaResumo {
   status: StatusFicha;
   criado_em: string;
   atualizado_em: string;
+  // Vazio quando a ficha não está aprovada (Fase 14, Bloco AP). Vem no índice para a lista
+  // mostrar quem aprovou sem precisar abrir o JSON completo de cada ficha.
+  aprovada_por?: string;
 }
 
 export type OrigemCampo = "FORNECIDO" | "OBSERVADO" | "INFERIDO" | "DESCONHECIDO";
@@ -517,6 +520,24 @@ export interface PrecificacaoFicha {
   margem_lucro_percentual: number;
 }
 
+// Registro de aprovação (Fase 14, Bloco AP). REGISTRO NOMINAL, não assinatura digital: guarda o
+// nome que a pessoa digitou, sem autenticação por trás -- a UI precisa chamá-lo assim, porque
+// prometer "assinatura" seria prometer uma garantia criptográfica que este campo não tem.
+// Os campos do topo são a aprovação vigente (zerados ao reabrir); `historico` só cresce.
+export interface EventoAprovacao {
+  acao: "aprovada" | "reaberta";
+  por: string;
+  em: string;
+  observacao: string;
+}
+
+export interface AprovacaoFicha {
+  aprovada_por: string;
+  aprovada_em: string;
+  observacao: string;
+  historico: EventoAprovacao[];
+}
+
 export interface Ficha {
   id: string;
   status: StatusFicha;
@@ -526,6 +547,8 @@ export interface Ficha {
   dados: DadosFicha;
   desenho: DesenhoFicha;
   precificacao: PrecificacaoFicha;
+  // Pode faltar em ficha salva antes da Fase 14, por isso opcional.
+  aprovacao?: AprovacaoFicha;
   documentos: { docx: string; pdf: string; gerado_em: string };
 }
 
@@ -814,6 +837,43 @@ export async function aprovarDesenho(tenantId: string, fichaId: string, versao: 
   return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/desenho/${versao}/aprovar`, {
     method: "POST",
     body: JSON.stringify({ tenant_id: tenantId }),
+  });
+}
+
+// Aprovação (Fase 14, Bloco AP). `atualizadoEmEsperado` é obrigatório de propósito: aprovar é
+// declarar "conferi esta versão", então uma ficha que mudou desde que a tela carregou devolve 412
+// em vez de registrar o nome da pessoa embaixo de um conteúdo que ela não leu.
+export async function aprovarFicha(
+  tenantId: string,
+  fichaId: string,
+  aprovadaPor: string,
+  atualizadoEmEsperado: string,
+  observacao?: string
+): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/aprovar`, {
+    method: "POST",
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      aprovada_por: aprovadaPor,
+      atualizado_em_esperado: atualizadoEmEsperado,
+      observacao: observacao || null,
+    }),
+  });
+}
+
+export async function reabrirFicha(
+  tenantId: string,
+  fichaId: string,
+  reabertaPor: string,
+  observacao?: string
+): Promise<FichaComAlertas> {
+  return request<FichaComAlertas>(`/fichas/${encodeURIComponent(fichaId)}/reabrir`, {
+    method: "POST",
+    body: JSON.stringify({
+      tenant_id: tenantId,
+      reaberta_por: reabertaPor,
+      observacao: observacao || null,
+    }),
   });
 }
 
