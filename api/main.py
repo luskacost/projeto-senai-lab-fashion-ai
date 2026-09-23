@@ -208,7 +208,22 @@ def _rota_isenta_do_gate_de_acesso(metodo: str, caminho: str) -> bool:
     )
 
 
+def _purgar_tokens_expirados(tokens: Dict[str, Dict[str, Any]]) -> None:
+    """Remove entradas expiradas de um dicionário de tokens em memória (Fase 15, V6).
+
+    Sem isto, `_ACCESS_TOKENS`/`_ADMIN_TOKENS` só cresciam -- um token expirado nunca era
+    removido, só deixava de validar (`expira_em < time.time()` no gate). Chamado a cada emissão
+    de token novo (login é o único ponto de escrita destes dicionários), o que basta para manter o
+    tamanho limitado ao número de sessões realmente ativas, sem precisar de uma thread de limpeza
+    separada."""
+    agora = time.time()
+    expirados = [token for token, dados in tokens.items() if dados["expira_em"] < agora]
+    for token in expirados:
+        tokens.pop(token, None)
+
+
 def _gerar_token_acesso() -> str:
+    _purgar_tokens_expirados(_ACCESS_TOKENS)
     token = secrets.token_urlsafe(32)
     _ACCESS_TOKENS[token] = {"expira_em": time.time() + DURACAO_TOKEN_ACESSO_SEGUNDOS}
     return token
@@ -267,6 +282,16 @@ def acesso_login(payload: AccessLoginRequest, request: Request) -> Dict[str, Any
 
     _ACCESS_LOGIN_TENTATIVAS.pop(ip_cliente, None)
     return {"autorizado": True, "token": _gerar_token_acesso()}
+
+
+@app.post("/acesso/logout")
+def acesso_logout(x_access_token: str = Header(..., alias="X-Access-Token")) -> Dict[str, str]:
+    """Invalida o token de acesso explicitamente (Fase 15, V6). Sem isto, a única forma de um
+    token deixar de valer era esperar os 30 dias de `DURACAO_TOKEN_ACESSO_SEGUNDOS` expirarem --
+    não havia como um usuário encerrar a própria sessão de propósito (ex.: saindo de um
+    computador compartilhado)."""
+    _ACCESS_TOKENS.pop(x_access_token, None)
+    return {"status": "encerrado"}
 
 
 app.router.dependencies.append(Depends(verificar_acesso))
@@ -356,6 +381,7 @@ DURACAO_BLOQUEIO_LOGIN_SEGUNDOS = 15 * 60  # 15 minutos
 
 
 def _gerar_token_admin(tenant_id: str) -> str:
+    _purgar_tokens_expirados(_ADMIN_TOKENS)
     token = secrets.token_urlsafe(32)
     _ADMIN_TOKENS[token] = {"tenant_id": tenant_id, "expira_em": time.time() + DURACAO_TOKEN_ADMIN_SEGUNDOS}
     return token
@@ -407,6 +433,15 @@ def admin_login(payload: AdminLoginRequest, request: Request) -> Dict[str, Any]:
 
     _ADMIN_LOGIN_TENTATIVAS.pop(ip_cliente, None)
     return {"autorizado": True, "token": _gerar_token_admin(payload.tenant_id)}
+
+
+@app.post("/admin/logout")
+def admin_logout(x_admin_token: str = Header(..., alias="X-Admin-Token")) -> Dict[str, str]:
+    """Invalida o token de admin explicitamente (Fase 15, V6). Mesmo raciocínio de
+    `/acesso/logout`: antes, só as 4 horas de `DURACAO_TOKEN_ADMIN_SEGUNDOS` faziam a sessão
+    expirar -- não havia como encerrá-la de propósito."""
+    _ADMIN_TOKENS.pop(x_admin_token, None)
+    return {"status": "encerrado"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

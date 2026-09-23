@@ -41,6 +41,20 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
   mudam o status da ficha via `_gerar_docx_e_marcar`), e `/export` devolvia o histórico completo
   de uma conversa sem credencial nenhuma.
 
+### `POST /acesso/logout` (Fase 15, V6)
+- **Headers:** `X-Access-Token`
+- **Lógica:** remove o token do dicionário `_ACCESS_TOKENS` em memória. Idempotente — chamar com
+  um token que já não existe (expirado, ou já deslogado) não é erro, só não faz nada.
+- **Resposta:** `{ status: "encerrado" }`. Antes desta rota, a única forma de uma sessão de acesso
+  deixar de valer era esperar os 30 dias de expiração ou reiniciar o processo Uvicorn — não havia
+  como um usuário encerrar a própria sessão de propósito (ex.: saindo de um computador
+  compartilhado). Sem interface no frontend ainda — endpoint de backend, fundação para o login por
+  pessoa da próxima fase.
+
+Os dicionários `_ACCESS_TOKENS`/`_ADMIN_TOKENS` também passaram a ser purgados de entradas
+expiradas (Fase 15, V6) a cada novo login — antes só cresciam, nunca encolhiam, num servidor de
+longa duração.
+
 ## Autenticação/Admin
 
 ### `POST /admin/login`
@@ -51,6 +65,12 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
   qualquer um negava o acesso do admin legítimo só errando a senha 5 vezes de propósito).
 - **Resposta:** `{ autorizado: bool, token: string | null }` — `token` é opaco, válido por 4h,
   exigido no header `X-Admin-Token` nas rotas administrativas abaixo.
+
+### `POST /admin/logout` (Fase 15, V6)
+- **Headers:** `X-Admin-Token`
+- **Lógica:** remove o token do dicionário `_ADMIN_TOKENS` em memória. Idempotente, mesma lógica
+  de `/acesso/logout`.
+- **Resposta:** `{ status: "encerrado" }`.
 
 ## Configuração do Tenant
 
