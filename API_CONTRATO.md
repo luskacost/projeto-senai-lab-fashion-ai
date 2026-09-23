@@ -19,15 +19,19 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
   tenant — ver nota da Task 2). Sem a variável de ambiente definida, o gate fica inteiramente
   desligado e a rota sempre autoriza (comportamento de desenvolvimento local).
 - **Resposta:** `{ autorizado: bool, token: string | null }` — `token` é opaco, válido por 30
-  dias, exigido no header `X-Access-Token` em toda rota do backend, **exceto**:
+  dias, exigido no header `X-Access-Token` em toda rota do backend, **exceto**, e só nestes
+  métodos (Fase 15, V1 — a isenção é por `(método, caminho)`, nunca só por caminho):
   - `GET /health`, `POST /acesso/login`, `GET /branding/logo`;
   - `GET /fichas/{id}/preview`, `GET /fichas/{id}/docx`, `GET /fichas/{id}/pdf`,
-    `GET /fichas/{id}/desenho/{versao}`, `GET /conversas/{id}/export`.
+    `GET /fichas/{id}/desenho/{versao}` (versão precisa ser numérica), `GET /conversas/{id}/export`,
+    `GET /croquis/{id}/imagem`.
 
   Essas rotas servem um arquivo para consumo direto do navegador (`<img src>`, `<a href>`,
   `<iframe src>`), que não anexa headers customizados — ficam de fora do gate por necessidade
   técnica, não por descuido. São sempre leitura de um recurso cujo identificador (UUID de ficha)
-  já não é adivinhável.
+  já não é adivinhável. **`POST /fichas/{id}/desenho/importar-croqui` não está nesta lista** —
+  antes da Fase 15 estava, por acidente: a isenção testava só o caminho, e essa rota (que escreve)
+  casava com o mesmo padrão da leitura da imagem.
 
 ## Autenticação/Admin
 

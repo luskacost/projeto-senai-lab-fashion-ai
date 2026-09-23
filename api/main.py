@@ -161,21 +161,37 @@ DURACAO_TOKEN_ACESSO_SEGUNDOS = 30 * 24 * 60 * 60  # 30 dias -- uso diário, nã
 MAX_TENTATIVAS_LOGIN_ACESSO = 5
 DURACAO_BLOQUEIO_LOGIN_ACESSO_SEGUNDOS = 15 * 60  # 15 minutos
 
-_PADROES_SEM_GATE_DE_ACESSO = [
-    re.compile(r"^/health$"),
-    re.compile(r"^/acesso/login$"),
-    re.compile(r"^/branding/logo$"),  # logo pública, exibida inclusive na própria tela de login
-    re.compile(r"^/fichas/[^/]+/preview$"),
-    re.compile(r"^/fichas/[^/]+/docx$"),
-    re.compile(r"^/fichas/[^/]+/pdf$"),
-    re.compile(r"^/fichas/[^/]+/desenho/[^/]+$"),
-    re.compile(r"^/conversas/[^/]+/export$"),
-    re.compile(r"^/croquis/[^/]+/imagem$"),
+# Cada isenção declara o MÉTODO que alcança, não só o caminho (Fase 15, V1).
+#
+# Antes, a lista era só de padrões e `verificar_acesso` testava exclusivamente o caminho -- então
+# uma isenção escrita para um GET de leitura passava a cobrir qualquer verbo que caísse no mesmo
+# padrão. Foi o que aconteceu de verdade: `^/fichas/[^/]+/desenho/[^/]+$`, criada para a imagem do
+# desenho, também casava com `POST /fichas/{id}/desenho/importar-croqui` (rota nascida depois, na
+# Fase 14, Task 17), que ANEXA uma versão de desenho e muda o status da ficha. Escrita sem
+# autenticação nenhuma, em silêncio, porque o caminho "parecia" com o de uma leitura.
+#
+# Declarar o método é a defesa estrutural: uma rota de escrita nova só entra numa isenção se
+# alguém escrever `POST` aqui de propósito, nunca por semelhança de caminho.
+_ISENCOES_DO_GATE_DE_ACESSO = [
+    ({"GET"}, re.compile(r"^/health$")),
+    ({"POST"}, re.compile(r"^/acesso/login$")),
+    ({"GET"}, re.compile(r"^/branding/logo$")),  # logo pública, exibida na própria tela de login
+    ({"GET"}, re.compile(r"^/fichas/[^/]+/preview$")),
+    ({"GET"}, re.compile(r"^/fichas/[^/]+/docx$")),
+    ({"GET"}, re.compile(r"^/fichas/[^/]+/pdf$")),
+    # `\d+` em vez de `[^/]+`: a versão do desenho é sempre um número. Com o curinga, qualquer
+    # sub-rota futura de /desenho/ cairia aqui dentro sozinha.
+    ({"GET"}, re.compile(r"^/fichas/[^/]+/desenho/\d+$")),
+    ({"GET"}, re.compile(r"^/conversas/[^/]+/export$")),
+    ({"GET"}, re.compile(r"^/croquis/[^/]+/imagem$")),
 ]
 
 
-def _rota_isenta_do_gate_de_acesso(caminho: str) -> bool:
-    return any(padrao.match(caminho) for padrao in _PADROES_SEM_GATE_DE_ACESSO)
+def _rota_isenta_do_gate_de_acesso(metodo: str, caminho: str) -> bool:
+    return any(
+        metodo in metodos and padrao.match(caminho)
+        for metodos, padrao in _ISENCOES_DO_GATE_DE_ACESSO
+    )
 
 
 def _gerar_token_acesso() -> str:
@@ -191,7 +207,7 @@ def verificar_acesso(request: Request, x_access_token: Optional[str] = Header(No
     senha_de_acesso = os.environ.get("SENAI_LABFASHION_ACCESS_PASSWORD", "")
     if not senha_de_acesso:
         return
-    if request.method == "OPTIONS" or _rota_isenta_do_gate_de_acesso(request.url.path):
+    if request.method == "OPTIONS" or _rota_isenta_do_gate_de_acesso(request.method, request.url.path):
         return
     dados = _ACCESS_TOKENS.get(x_access_token or "")
     if not dados or dados["expira_em"] < time.time():

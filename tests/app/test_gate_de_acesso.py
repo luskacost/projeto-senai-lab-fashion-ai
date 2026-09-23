@@ -138,6 +138,31 @@ class TestGateDeAcessoLigado(unittest.TestCase):
         )
         self.assertNotEqual(resposta.status_code, 401)
 
+    def test_importar_croqui_como_desenho_exige_token_mesmo_no_caminho_de_desenho(self):
+        # Fase 15, V1: a isenção `^/fichas/[^/]+/desenho/[^/]+$` (criada para o GET da imagem, Fase
+        # 14 Task 9) também casava com POST /fichas/{id}/desenho/importar-croqui (rota que ESCREVE,
+        # nascida depois na Fase 14 Task 17) -- o gate testava só o caminho, nunca o método. Sem
+        # token, essa rota anexava uma versão de desenho e mudava o status da ficha em silêncio.
+        # Prova o fechamento: sem token, cai em 401 antes de a rota rodar (nunca 404 de ficha
+        # inexistente, que seria o corpo da rota respondendo).
+        resposta = self.client.post(
+            "/fichas/11111111-1111-1111-1111-111111111111/desenho/importar-croqui",
+            json={
+                "tenant_id": "senai_labfashion",
+                "croqui_id": "22222222-2222-2222-2222-222222222222",
+            },
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_get_da_imagem_do_desenho_continua_isento_so_com_numero_de_versao(self):
+        # A regex apertou de [^/]+ para \d+ -- confirma que o caso legítimo (GET .../desenho/1)
+        # continua isento. O 404 vem da rota (ficha inexistente), não do gate.
+        resposta = self.client.get(
+            "/fichas/11111111-1111-1111-1111-111111111111/desenho/1",
+            params={"tenant_id": "senai_labfashion"},
+        )
+        self.assertNotEqual(resposta.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()
