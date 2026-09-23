@@ -149,8 +149,13 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
 ### `DELETE /conversas/{conversa_id}?tenant_id=&usuario_id=`
 ### `GET /conversas/{conversa_id}/export?tenant_id=&usuario_id=&formato=txt|pdf`
 
-Sem mudanças nesta fase — persistência em `tenant_data/conversas/{tenant_id}_{usuario_id}.json`,
-protegida por `FileLock` desde a Fase 9.
+Persistência em `tenant_data/conversas/{tenant_id}_{usuario_id}.json`, protegida por `FileLock`
+desde a Fase 9. **Todas as 5 rotas validam `tenant_id` (404 se desconhecido) e `usuario_id`
+(400 se não for um UUID) antes de tocar em disco** (Fase 15, V2) — antes só `GET .../export`
+validava `tenant_id`, e `usuario_id` (que vem do `localStorage` do navegador, controle total do
+cliente) nunca era validado em rota nenhuma, indo cru para o nome do arquivo. `tenant_id` não
+precisa ser UUID (é um slug de configuração) e é sanitizado por allowlist de caracteres, não
+rejeitado.
 
 ## Documentos (Base de Conhecimento)
 
@@ -165,6 +170,9 @@ protegida por `FileLock` desde a Fase 9.
 ### `POST /planilha/upload?tenant_id=&conversation_id=` — multipart, limite 20MB
 - Gera e persiste o resumo estatístico por `conversation_id`, reaproveitado pelas próximas
   mensagens de chat no modo "Análise de Dados" na mesma conversa.
+- `conversation_id` precisa ser um UUID (400 caso contrário) — validado antes do parsing da
+  planilha, não depois (Fase 15, V2: o valor virava parte de um nome de arquivo sem checagem
+  nenhuma). O modo "Análise de Dados" do chat aplica a mesma validação ao ler o resumo.
 - Mesmo motivo do upload de documentos acima: parsing e resumo estatístico rodam fora do event
   loop (Fase 13, Task 15).
 

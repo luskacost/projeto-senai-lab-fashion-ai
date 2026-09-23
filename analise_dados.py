@@ -17,6 +17,7 @@ import numpy as np
 from rag_config import OPENAI_TEXT_MODEL
 import pandas as pd
 
+from fichas_repo import validar_id_uuid
 from logger_config import obter_logger
 
 
@@ -390,6 +391,24 @@ def responder_pergunta_sobre_dados(
 DIRETORIO_ANALISE_DADOS = os.path.join("tenant_data", "analise_dados")
 
 
+def _caminho_resumo(tenant_id: str, conversation_id: str) -> str:
+    """Ponto único de validação antes de `conversation_id` virar parte de um nome de arquivo
+    (Fase 15, V2 -- path traversal: o valor chegava cru em `f"{tenant_id}_{conversation_id}.json"`,
+    sem nenhuma validação nas duas rotas que o usam).
+
+    `conversation_id` é sempre um UUID gerado por `conversas_manager.criar_nova_conversa()`; um
+    valor fora desse formato é sinal de bug ou path traversal, nunca "conversa legítima sem
+    resumo ainda" -- por isso levanta `ValueError` (a rota HTTP traduz para 400) em vez de deixar
+    o valor passar. Chamada FORA do `try/except` tolerante de salvar/carregar abaixo, de propósito:
+    lá dentro o erro seria engolido e viraria silenciosamente "nenhum resumo encontrado".
+
+    `tenant_id` não é validado aqui -- os dois chamadores (POST /planilha/upload e o modo "Análise
+    de Dados" do chat) já conferem `tenant_id in TENANT_CONFIG` antes de chegar aqui.
+    """
+    validar_id_uuid(conversation_id, rotulo="conversation_id")
+    return os.path.join(DIRETORIO_ANALISE_DADOS, f"{tenant_id}_{conversation_id}.json")
+
+
 def salvar_resumo_estatistico(tenant_id: str, conversation_id: str, resumo: dict) -> None:
     """Persiste o resumo estatístico de uma planilha carregada, associado a uma conversa.
 
@@ -397,9 +416,9 @@ def salvar_resumo_estatistico(tenant_id: str, conversation_id: str, resumo: dict
     st.session_state: o resumo gerado no upload fica disponível para perguntas
     subsequentes na mesma conversa (mesmo tenant_id + conversation_id).
     """
+    caminho = _caminho_resumo(tenant_id, conversation_id)  # propaga ValueError
     try:
         os.makedirs(DIRETORIO_ANALISE_DADOS, exist_ok=True)
-        caminho = os.path.join(DIRETORIO_ANALISE_DADOS, f"{tenant_id}_{conversation_id}.json")
         with open(caminho, "w", encoding="utf-8") as f:
             json.dump(resumo, f, ensure_ascii=False, indent=2)
     except Exception:
@@ -408,8 +427,8 @@ def salvar_resumo_estatistico(tenant_id: str, conversation_id: str, resumo: dict
 
 def carregar_resumo_estatistico(tenant_id: str, conversation_id: str) -> Optional[dict]:
     """Carrega o resumo estatístico previamente persistido para uma conversa, se existir."""
+    caminho = _caminho_resumo(tenant_id, conversation_id)  # propaga ValueError
     try:
-        caminho = os.path.join(DIRETORIO_ANALISE_DADOS, f"{tenant_id}_{conversation_id}.json")
         if os.path.exists(caminho):
             with open(caminho, "r", encoding="utf-8") as f:
                 return json.load(f)

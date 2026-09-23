@@ -89,6 +89,7 @@ from fichas_repo import (
     salvar_ficha,
     duplicar_ficha,
     deletar_ficha,
+    validar_id_uuid,
 )
 from croquis_repo import (
     caminho_croqui,
@@ -464,7 +465,10 @@ def _chat_analise_dados(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[
     if not payload.conversation_id:
         raise HTTPException(status_code=400, detail="conversation_id é obrigatório para o modo 'Análise de Dados'.")
 
-    resumo_estatistico = carregar_resumo_estatistico(payload.tenant_id, payload.conversation_id)
+    try:
+        resumo_estatistico = carregar_resumo_estatistico(payload.tenant_id, payload.conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"conversation_id inválido: '{payload.conversation_id}'.")
     if not resumo_estatistico:
         return {
             "resposta": "Nenhum resumo de dados foi encontrado para esta conversa. Faça o upload de uma planilha primeiro via POST /planilha/upload.",
@@ -804,8 +808,26 @@ def confirmar_croqui(payload: ConfirmarCroquiRequest) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 # CONVERSAS
 # ─────────────────────────────────────────────────────────────────────────────
+def _validar_tenant_e_usuario(tenant_id: str, usuario_id: str) -> None:
+    """Checagem na borda antes de qualquer rota de /conversas tocar em disco (Fase 15, V2).
+
+    Antes, só `GET .../export` validava `tenant_id`, e `usuario_id` nunca era validado em rota
+    nenhuma -- ele vem do `localStorage` do navegador (controle total do cliente) e ia cru para
+    `conversas_manager`, que agora rejeita valor fora do formato UUID levantando `ValueError`.
+    Esta função traduz isso para 404/400 antes da lógica da rota rodar, em vez de cada rota
+    precisar lembrar de capturar a exceção por conta própria.
+    """
+    if tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    try:
+        validar_id_uuid(usuario_id, rotulo="usuario_id")
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"usuario_id inválido: '{usuario_id}'.")
+
+
 @app.get("/conversas")
 def listar_conversas(tenant_id: str, usuario_id: str) -> List[Dict[str, Any]]:
+    _validar_tenant_e_usuario(tenant_id, usuario_id)
     return carregar_conversas(tenant_id, usuario_id)
 
 
@@ -816,6 +838,7 @@ class NovaConversaRequest(BaseModel):
 
 @app.post("/conversas")
 def criar_conversa(payload: NovaConversaRequest) -> Dict[str, Any]:
+    _validar_tenant_e_usuario(payload.tenant_id, payload.usuario_id)
     conversas = carregar_conversas(payload.tenant_id, payload.usuario_id)
     nova_conv = criar_nova_conversa()
     conversas.append(nova_conv)
@@ -838,6 +861,7 @@ def atualizar_conversa_endpoint(conversa_id: str, payload: AtualizarConversaRequ
     precisa de uma forma de persistir o histórico de mensagens à medida que a
     conversa avança, equivalente a persistir_mensagem_atualizada() em app.py.
     """
+    _validar_tenant_e_usuario(payload.tenant_id, payload.usuario_id)
     if payload.novo_titulo is None and payload.mensagens is None:
         raise HTTPException(status_code=400, detail="Informe ao menos 'novo_titulo' ou 'mensagens' para atualizar.")
 
@@ -865,6 +889,7 @@ def atualizar_conversa_endpoint(conversa_id: str, payload: AtualizarConversaRequ
 
 @app.delete("/conversas/{conversa_id}")
 def deletar_conversa(conversa_id: str, tenant_id: str, usuario_id: str) -> Dict[str, str]:
+    _validar_tenant_e_usuario(tenant_id, usuario_id)
     conversas = carregar_conversas(tenant_id, usuario_id)
     conversas_restantes = [c for c in conversas if c.get("id") != conversa_id]
     if len(conversas_restantes) == len(conversas):
@@ -875,8 +900,7 @@ def deletar_conversa(conversa_id: str, tenant_id: str, usuario_id: str) -> Dict[
 
 @app.get("/conversas/{conversa_id}/export")
 def exportar_conversa(conversa_id: str, tenant_id: str, usuario_id: str, formato: str = "txt") -> Response:
-    if tenant_id not in TENANT_CONFIG:
-        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    _validar_tenant_e_usuario(tenant_id, usuario_id)
     if formato not in ("txt", "pdf"):
         raise HTTPException(status_code=400, detail=f"Formato '{formato}' inválido — use 'txt' ou 'pdf'.")
 
@@ -968,6 +992,10 @@ def deletar_documento(nome_arquivo: str, tenant_id: str, x_admin_token: str = He
 async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadFile = File(...)) -> Dict[str, Any]:
     if tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")
+    try:
+        validar_id_uuid(conversation_id, rotulo="conversation_id")
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"conversation_id inválido: '{conversation_id}'.")
 
     conteudo = await arquivo.read()
     if len(conteudo) > LIMITE_UPLOAD_BYTES:

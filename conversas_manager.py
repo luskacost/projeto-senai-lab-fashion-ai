@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from filelock import FileLock, Timeout
+from fichas_repo import validar_id_uuid
 from logger_config import obter_logger
 from utils_visual import hex_to_rgb
 
@@ -33,8 +34,29 @@ DIRETORIO_CONVERSAS = os.path.join("tenant_data", "conversas")
 TIMEOUT_LOCK_SEGUNDOS = 5
 
 
+def _caminho_conversas(tenant_id: str, usuario_id: str) -> str:
+    """Ponto único de validação antes de tenant_id/usuario_id virarem parte de um nome de arquivo
+    (Fase 15, V2 -- path traversal: `usuario_id` chegava cru em `f"{tenant_id}_{usuario_id}.json"`
+    em toda rota de /conversas, e `usuario_id` vem do `localStorage` do navegador -- controle
+    total do cliente).
+
+    `usuario_id` é sempre um UUID gerado por `crypto.randomUUID()` no frontend (`usuario.ts`); um
+    valor fora desse formato é sinal de bug ou path traversal, nunca "usuário legítimo sem
+    conversas ainda" -- por isso levanta `ValueError` (a rota HTTP traduz para 400) em vez de
+    tolerar. `tenant_id` não é UUID (é um slug de configuração), então é sanitizado por allowlist
+    de caracteres em vez de validado como UUID -- mesmo padrão de
+    `rag_manager._obter_caminho_chroma`.
+
+    Chamada FORA do `try/except` tolerante de carregar/salvar abaixo, de propósito: lá dentro o
+    `ValueError` seria engolido pelo `except Exception` e viraria silenciosamente "lista vazia".
+    """
+    validar_id_uuid(usuario_id, rotulo="usuario_id")
+    tenant_seguro = "".join(c for c in tenant_id if c.isalnum() or c in ("_", "-")).strip() or "default"
+    return os.path.join(DIRETORIO_CONVERSAS, f"{tenant_seguro}_{usuario_id}.json")
+
+
 def _caminho_lock_conversas(tenant_id: str, usuario_id: str) -> str:
-    return os.path.join(DIRETORIO_CONVERSAS, f"{tenant_id}_{usuario_id}.json.lock")
+    return _caminho_conversas(tenant_id, usuario_id) + ".lock"
 
 
 def carregar_conversas(tenant_id: str, usuario_id: str) -> list:
@@ -44,10 +66,11 @@ def carregar_conversas(tenant_id: str, usuario_id: str) -> list:
     Retorna a lista de conversas salvas, cada uma no formato:
     {"id": str, "titulo": str, "mensagens": list, "criado_em": str, "atualizado_em": str}.
     Se o arquivo não existir ou estiver corrompido, retorna lista vazia (nunca quebra o app).
+    Levanta ValueError se usuario_id não for um UUID válido (ver _caminho_conversas).
     """
+    caminho_arquivo = _caminho_conversas(tenant_id, usuario_id)
     try:
         os.makedirs(DIRETORIO_CONVERSAS, exist_ok=True)
-        caminho_arquivo = os.path.join(DIRETORIO_CONVERSAS, f"{tenant_id}_{usuario_id}.json")
         if os.path.exists(caminho_arquivo):
             with open(caminho_arquivo, "r", encoding="utf-8") as f:
                 dados = json.load(f)
@@ -65,10 +88,11 @@ def salvar_conversas(tenant_id: str, usuario_id: str, conversas: list):
     A escrita roda dentro de um FileLock por usuário/tenant, para que duas requisições
     concorrentes não leiam a mesma lista e uma escrita apague a conversa que a outra acabou
     de adicionar (ver nota no topo do módulo).
+    Levanta ValueError se usuario_id não for um UUID válido (ver _caminho_conversas).
     """
+    caminho_arquivo = _caminho_conversas(tenant_id, usuario_id)
     try:
         os.makedirs(DIRETORIO_CONVERSAS, exist_ok=True)
-        caminho_arquivo = os.path.join(DIRETORIO_CONVERSAS, f"{tenant_id}_{usuario_id}.json")
         with FileLock(_caminho_lock_conversas(tenant_id, usuario_id), timeout=TIMEOUT_LOCK_SEGUNDOS):
             with open(caminho_arquivo, "w", encoding="utf-8") as f:
                 json.dump(conversas, f, ensure_ascii=False, indent=2)

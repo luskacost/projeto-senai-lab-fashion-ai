@@ -1,13 +1,23 @@
 # -*- coding: utf-8 -*-
 """Testes automatizados para o módulo de Análise de Dados e configurações do Senai LabFashion IA."""
 
+import glob
 import io
+import os
 import unittest
+import uuid
 from unittest.mock import MagicMock
 import pandas as pd
 import numpy as np
 
-from analise_dados import carregar_planilha, gerar_resumo_estatistico, responder_pergunta_sobre_dados
+from analise_dados import (
+    DIRETORIO_ANALISE_DADOS,
+    carregar_planilha,
+    carregar_resumo_estatistico,
+    gerar_resumo_estatistico,
+    responder_pergunta_sobre_dados,
+    salvar_resumo_estatistico,
+)
 from tenant_config import TENANT_CONFIG, PERFIS_USUARIO
 
 
@@ -196,6 +206,46 @@ class TestAnaliseDados(unittest.TestCase):
         self.assertIn("agregacoes", system_msg)
         self.assertIn("NUNCA invente", system_msg)
         self.assertIn("5940", system_msg)
+
+
+TENANT_TESTE = "teste_fase15_analise_dados"
+CONVERSA_VALIDA = str(uuid.uuid4())
+
+
+def _limpar_tenant_teste():
+    for caminho in glob.glob(os.path.join(DIRETORIO_ANALISE_DADOS, f"{TENANT_TESTE}_*")):
+        os.remove(caminho)
+
+
+class TestPathTraversalEmConversationId(unittest.TestCase):
+    """Fase 15, Bloco V, V2 -- `conversation_id` chegava cru em
+    `f"{tenant_id}_{conversation_id}.json"`, sem validação em salvar_resumo_estatistico nem em
+    carregar_resumo_estatistico (as duas únicas rotas que o usam, POST /planilha/upload e o modo
+    "Análise de Dados" do chat, também não validavam)."""
+
+    def setUp(self):
+        _limpar_tenant_teste()
+
+    def tearDown(self):
+        _limpar_tenant_teste()
+
+    def test_salvar_com_conversation_id_malicioso_levanta_value_error(self):
+        with self.assertRaises(ValueError):
+            salvar_resumo_estatistico(TENANT_TESTE, "../../../escrita_maliciosa", {"x": 1})
+        self.assertFalse(os.path.exists(os.path.join("tenant_data", "escrita_maliciosa.json")))
+
+    def test_carregar_com_conversation_id_malicioso_levanta_value_error(self):
+        with self.assertRaises(ValueError):
+            carregar_resumo_estatistico(TENANT_TESTE, "../../../etc/passwd")
+
+    def test_fluxo_normal_continua_funcionando(self):
+        salvar_resumo_estatistico(TENANT_TESTE, CONVERSA_VALIDA, {"total": 42})
+        self.assertEqual(carregar_resumo_estatistico(TENANT_TESTE, CONVERSA_VALIDA), {"total": 42})
+
+    def test_conversa_inexistente_devolve_none_nao_erro(self):
+        # Diferente de conversation_id malformado (ValueError): UUID válido mas sem resumo salvo
+        # ainda é o estado normal ("faça upload primeiro"), não um erro.
+        self.assertIsNone(carregar_resumo_estatistico(TENANT_TESTE, str(uuid.uuid4())))
 
 
 if __name__ == "__main__":
