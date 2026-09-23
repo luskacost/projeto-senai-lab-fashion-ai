@@ -416,5 +416,99 @@ class TestFidelidadeVisualNoPdf(TestCenariosBase):
                 self.assertIn(esperado, texto)
 
 
+# --- 15: paginação da ficha cheia, depois do Bloco T --------------------------------------------
+
+MAX_PAGINAS_ACEITO = 4  # teto acordado com o usuário quando as medidas entraram na ficha
+
+
+@unittest.skipUnless(TEM_LIBREOFFICE, MOTIVO_PULO)
+class TestPaginacaoComAsSecoesNovas(TestCenariosBase):
+    """Fase 14, Bloco T, Task 28 -- o pior caso de paginação depois de acrescentar medidas, preço
+    sugerido e carimbo de aprovação ao template.
+
+    A ficha cheia é o cenário que decide: grade no teto de 8 tamanhos (o máximo que a tabela de
+    medidas comporta) e 8 pontos de medida. Foi aceito que a ficha pudesse crescer para 4 páginas
+    -- este teste trava esse limite, não o número exato, porque a contagem depende de fonte e
+    versão do LibreOffice e travá-la em "3" quebraria em outra máquina sem nada estar errado.
+    """
+
+    def _ficha_cheia(self) -> dict:
+        ficha = _ficha_base()
+        dados = ficha["dados"]
+        dados["grade"]["numericos"] = _campo(["36", "38", "40", "42", "44", "46"])
+        dados["grade"]["comerciais"] = _campo(["M", "G"])
+
+        tamanhos = fm.tamanhos_da_grade(dados)
+        self.assertEqual(len(tamanhos), 8, "o cenário só vale se a grade estiver no teto")
+        dados["medidas"] = [
+            {"ponto": _campo(nome), "valores": {t: _campo(base + i * 2.5) for i, t in enumerate(tamanhos)}}
+            for nome, base in [
+                ("Busto", 92), ("Cintura", 76), ("Quadril", 98), ("Ombro", 40),
+                ("Comprimento", 68), ("Manga", 60), ("Punho", 22), ("Gola", 38),
+            ]
+        ]
+
+        for chave, valor in [("aviamentos", 20.0), ("tecidos", 84.0),
+                             ("costura_beneficiamento", 35.0), ("outros", 11.0),
+                             ("preco_total", 150.0)]:
+            dados["custos"][chave]["custo"] = _campo(valor)
+
+        ficha["precificacao"] = {
+            "imposto_percentual": 10, "comissao_percentual": 15, "margem_lucro_percentual": 20,
+        }
+        ficha["aprovacao"] = {
+            "aprovada_por": "Ana Paula Ribeiro", "aprovada_em": "2026-09-23T10:15:00",
+            "observacao": "", "historico": [],
+        }
+        return ficha
+
+    def test_15_ficha_cheia_cabe_no_limite_de_paginas_acordado(self):
+        docx = self._renderizar(self._ficha_cheia(), "cheia.docx", tenant_id=TENANT_TESTE)
+        pdf = os.path.join(self.diretorio, "cheia.pdf")
+        fp.converter_para_pdf(docx, pdf)
+
+        paginas = fp.contar_paginas(pdf)
+        self.assertLessEqual(
+            paginas, MAX_PAGINAS_ACEITO,
+            f"A ficha cheia foi para {paginas} páginas, acima do teto acordado de "
+            f"{MAX_PAGINAS_ACEITO} -- alguma das seções novas está estourando.",
+        )
+
+    def test_15_secoes_novas_saem_no_pdf_com_os_valores_certos(self):
+        from pypdf import PdfReader
+
+        docx = self._renderizar(self._ficha_cheia(), "cheia.docx", tenant_id=TENANT_TESTE)
+        pdf = os.path.join(self.diretorio, "cheia.pdf")
+        fp.converter_para_pdf(docx, pdf)
+        texto = "\n".join(pagina.extract_text() or "" for pagina in PdfReader(pdf).pages)
+
+        esperados = [
+            "MEDIDAS POR TAMANHO",
+            "PREÇO SUGERIDO (CALCULADO)",
+            "REGISTRO DE APROVAÇÃO",
+            "Ana Paula Ribeiro",
+            "23/09/2026 10:15",
+            # 150 / (1 - 0,45): o markup divisor, conferido no documento impresso e não só na API.
+            "272,73",
+        ]
+        for esperado in esperados:
+            with self.subTest(valor=esperado):
+                self.assertIn(esperado, texto)
+
+    def test_15_medidas_saem_alinhadas_com_os_tamanhos_no_pdf(self):
+        from pypdf import PdfReader
+
+        docx = self._renderizar(self._ficha_cheia(), "cheia.docx", tenant_id=TENANT_TESTE)
+        pdf = os.path.join(self.diretorio, "cheia.pdf")
+        fp.converter_para_pdf(docx, pdf)
+        texto = "\n".join(pagina.extract_text() or "" for pagina in PdfReader(pdf).pages)
+
+        # O cabeçalho sai na ordem canônica da grade (numéricos, depois comerciais) e a linha de
+        # Busto na mesma ordem -- é a prova, no documento impresso, de que valor e coluna não
+        # saíram trocados.
+        self.assertIn("36 38 40 42 44 46 M G", texto)
+        self.assertIn("Busto 92 94,5 97 99,5 102 104,5 107 109,5", texto)
+
+
 if __name__ == "__main__":
     unittest.main()

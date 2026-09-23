@@ -326,6 +326,45 @@ def _adicionar_secao_desenho(doc: Document, modelo_tbl, ancora_tbl) -> None:
     tabela.rows[0].height = Cm(ALTURA_AREA_DESENHO_CM)
 
 
+_NS_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+
+def _definir_largura_total(tabela) -> None:
+    """Faz a tabela ocupar 100% da largura útil da página, com layout automático.
+
+    Usado só na tabela de medidas, a única cujo número de colunas impressas varia por ficha
+    (uma por tamanho da grade). As outras têm colunas fixas e larguras vindas do formulário
+    original -- mexer nelas seria alterar o layout que o template já resolve.
+    """
+    propriedades = tabela._tbl.tblPr
+
+    for marca in propriedades.findall(_NS_W + "tblW") + propriedades.findall(_NS_W + "tblLayout"):
+        propriedades.remove(marca)
+
+    largura = propriedades.makeelement(_NS_W + "tblW", {})
+    largura.set(_NS_W + "type", "pct")
+    largura.set(_NS_W + "w", "5000")  # 5000 = 100,00%, na escala de centésimos do OOXML
+    propriedades.append(largura)
+
+    layout = propriedades.makeelement(_NS_W + "tblLayout", {})
+    layout.set(_NS_W + "type", "autofit")
+    propriedades.append(layout)
+
+
+def _definir_largura_coluna(tabela, indice: int, largura) -> None:
+    """Fixa a largura de uma coluna na grade e em todas as células dela.
+
+    Os dois lugares importam: o Word usa o `tblGrid` para diagramar e o `tcW` de cada célula para
+    reconciliar: declarar só um deixa o outro contradizendo e o resultado vira imprevisível.
+    """
+    grade = tabela._tbl.find(_NS_W + "tblGrid")
+    if grade is not None and indice < len(grade):
+        grade[indice].set(_NS_W + "w", str(largura.twips))
+
+    for linha in tabela.rows:
+        linha.cells[indice].width = largura
+
+
 def _adicionar_linha_preco_sugerido(tabela) -> None:
     """Acrescenta a linha "PREÇO SUGERIDO" ao final da tabela CUSTOS (Fase 14, Bloco T, Task 27).
 
@@ -385,6 +424,16 @@ def _adicionar_secao_medidas(doc: Document, modelo_tbl, ancora_tbl) -> None:
     # A cópia de AVIAMENTOS veio com 6 colunas e já tem as 4 linhas que precisamos (cabeçalho +
     # for/modelo/endfor); sobram 2 colunas para o padrão rótulo/for/modelo/endfor.
     _remover_colunas_do_fim(tabela, len(tabela.columns) - 4)
+
+    # Largura: esta é a única tabela cujo número de colunas impressas só se conhece no render (uma
+    # por tamanho da grade, de 1 a 8). Largura fixa por coluna deixaria a tabela mais estreita ou
+    # mais larga que as vizinhas conforme a grade da ficha -- então ela é declarada como 100% da
+    # largura útil e deixa o Word distribuir as colunas depois de expandidas. Sem isto, uma ficha
+    # com poucos tamanhos imprimia uma tabela visivelmente mais curta que as de cima e de baixo.
+    _definir_largura_total(tabela)
+    # Sem isso, "PONTO DE MEDIDA" quebrava no meio da palavra ("MEDID"/"A") na coluna estreita
+    # herdada de AVIAMENTOS.
+    _definir_largura_coluna(tabela, 0, Cm(3.2))
 
     conteudo = [
         ["PONTO DE MEDIDA", "{%tc for t in medidas_tamanhos %}", "{{ t }}", "{%tc endfor %}"],
