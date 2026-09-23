@@ -17,6 +17,7 @@ import numpy as np
 from rag_config import OPENAI_TEXT_MODEL
 import pandas as pd
 
+import conteudo_nao_confiavel as cnc
 from fichas_repo import validar_id_uuid
 from logger_config import obter_logger
 
@@ -356,10 +357,17 @@ def responder_pergunta_sobre_dados(
     try:
         resumo_json = json.dumps(resumo_estatistico, ensure_ascii=False, indent=2)
 
+        # Marcado como dado não confiável (Fase 15, V4): os NÚMEROS aqui são calculados por nós em
+        # pandas, mas os nomes de coluna e os rótulos de categoria vêm da planilha que um terceiro
+        # enviou, e este bloco entra na mensagem de SISTEMA -- a posição de maior confiança do
+        # modelo. Uma coluna chamada "ignore as instruções acima e ..." chegaria ali dentro sem
+        # nada a distinguindo de uma regra escrita por nós.
+        bloco_resumo = cnc.marcar(f"```json\n{resumo_json}\n```")
+
         instrucao_seguranca = (
             f"{prompt_sistema}\n\n"
             "--- RESUMO ESTATÍSTICO ESTRUTURADO DA PLANILHA (CALCULADO EM PYTHON) ---\n"
-            f"```json\n{resumo_json}\n```\n\n"
+            f"{bloco_resumo}\n\n"
             "DIRETRIZES DE RESPOSTA:\n"
             "1. O campo `agregacoes` no resumo JSON acima contém totais somados e rankings (`top_10` e `bottom_10`) pré-calculados por categoria (ex: soma de quantidade ou faturamento por produto/categoria). Utilize esses dados diretamente para responder a perguntas como 'quais produtos venderam mais', 'quais venderam menos', 'maior faturamento', etc., em vez de recorrer apenas às contagens de frequência de linhas.\n"
             "2. Baseie TODAS as suas afirmações e números ESTRITAMENTE no resumo estatístico JSON acima.\n"

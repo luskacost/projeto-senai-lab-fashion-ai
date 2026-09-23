@@ -69,6 +69,7 @@ __all__ = [
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURAÇÕES CENTRAIS DO PIPELINE RAG
 # ─────────────────────────────────────────────────────────────────────────────
+import conteudo_nao_confiavel as cnc
 from rag_config import RAG_CONFIG, obter_rag_config, atualizar_rag_config
 from document_extractors import (
     extrair_documento,
@@ -1545,12 +1546,19 @@ def montar_prompt_final(chunks_relevantes: List[Dict[str, Any]], pergunta: str) 
             meta_info.append(f"ABA: {chk['aba']}")
         meta_header = " | ".join(meta_info) if meta_info else "Especificação Técnica"
 
+        # O CONTEÚDO vai marcado como dado não confiável (Fase 15, V4). Antes, o texto do chunk
+        # entrava cru e os delimitadores "--- TRECHO N ---" eram puramente cosméticos: um
+        # documento podia escrever "--- FIM DOS TRECHOS ---" seguido de "PERGUNTA DO USUÁRIO:" e
+        # o modelo não tinha como distinguir a instrução forjada da estrutura real do prompt.
+        # `cnc.marcar` cerca o conteúdo E neutraliza esses tokens dentro dele -- os metadados
+        # (documento, localização) continuam fora da cerca porque são escritos por nós, não pelo
+        # documento.
         trechos_formatados.append(
             f"--- TRECHO {i} ---\n"
             f"DOCUMENTO: {fonte}\n"
             f"LOCALIZAÇÃO: {rotulo}\n"
             f"CONTEXTO: {meta_header}\n"
-            f"CONTEÚDO:\n{chk.get('texto', '')}\n"
+            f"CONTEÚDO:\n{cnc.marcar(chk.get('texto', ''))}\n"
         )
 
     contexto_rag = "\n".join(trechos_formatados)
