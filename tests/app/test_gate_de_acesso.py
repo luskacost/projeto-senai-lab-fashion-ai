@@ -163,6 +163,40 @@ class TestGateDeAcessoLigado(unittest.TestCase):
         )
         self.assertNotEqual(resposta.status_code, 401)
 
+    def test_baixar_docx_exige_token(self):
+        # Fase 15, V3: /docx saiu da lista de isenções -- a justificativa (<a href> sem header)
+        # nunca foi verdadeira aqui, o frontend já busca via fetch(). Sem token, 401 -- não chega
+        # a gerar o documento nem a tocar no status da ficha.
+        resposta = self.client.get(
+            "/fichas/11111111-1111-1111-1111-111111111111/docx",
+            params={"tenant_id": "senai_labfashion"},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_baixar_pdf_exige_token(self):
+        resposta = self.client.get(
+            "/fichas/11111111-1111-1111-1111-111111111111/pdf",
+            params={"tenant_id": "senai_labfashion"},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_exportar_conversa_exige_token(self):
+        # Antes, esta rota devolvia o histórico completo da conversa sem credencial nenhuma.
+        resposta = self.client.get(
+            "/conversas/qualquer-id/export",
+            params={"tenant_id": "senai_labfashion", "usuario_id": "qualquer-usuario"},
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_preview_continua_isenta_por_ser_consumida_por_iframe(self):
+        # Diferente de /docx e /pdf: /preview é de fato consumida por <iframe src>
+        # (urlPreviewFicha), que não manda header customizado -- isenção legítima, não mexida.
+        resposta = self.client.get(
+            "/fichas/11111111-1111-1111-1111-111111111111/preview",
+            params={"tenant_id": "senai_labfashion"},
+        )
+        self.assertNotEqual(resposta.status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

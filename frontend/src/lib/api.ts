@@ -765,7 +765,10 @@ export async function baixarFichaDocumento(
 ): Promise<void> {
   const url = `${API_URL}/fichas/${encodeURIComponent(fichaId)}/${formato}?tenant_id=${encodeURIComponent(tenantId)}`;
 
-  const res = await fetch(url);
+  // Fase 15, V3: esta rota deixou de ser isenta do gate de acesso (nunca precisou ser -- o
+  // fetch() já suporta header customizado, diferente de um <a href> apontando direto pra URL da
+  // API). Sem o header aqui, um gate ligado devolveria 401 pra todo mundo.
+  const res = await fetch(url, { headers: headerDeAcesso() });
   if (!res.ok) {
     throw await erroDaResposta(res);
   }
@@ -906,7 +909,9 @@ export async function baixarExportacaoConversa(
     `${API_URL}/conversas/${encodeURIComponent(conversaId)}/export` +
     `?tenant_id=${encodeURIComponent(tenantId)}&usuario_id=${encodeURIComponent(usuarioId)}&formato=${formato}`;
 
-  const res = await fetch(url);
+  // Fase 15, V3: mesma correção de baixarFichaDocumento -- esta rota deixou de ser isenta do
+  // gate (devolvia o histórico completo da conversa sem credencial nenhuma).
+  const res = await fetch(url, { headers: headerDeAcesso() });
   if (!res.ok) {
     throw await erroDaResposta(res);
   }

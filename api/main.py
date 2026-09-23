@@ -173,17 +173,30 @@ DURACAO_BLOQUEIO_LOGIN_ACESSO_SEGUNDOS = 15 * 60  # 15 minutos
 #
 # Declarar o método é a defesa estrutural: uma rota de escrita nova só entra numa isenção se
 # alguém escrever `POST` aqui de propósito, nunca por semelhança de caminho.
+#
+# Fase 15, V3: `/fichas/{id}/docx`, `/fichas/{id}/pdf` e `/conversas/{id}/export` SAÍRAM desta
+# lista. A justificativa original ("consumida por <a href>, que não manda header customizado")
+# nunca foi verdadeira para essas três -- o frontend já as busca via `fetch()`
+# (`baixarFichaDocumento`/`baixarExportacaoConversa`, `frontend/src/lib/api.ts`), monta um blob em
+# memória e só USA `<a>`/`download` para disparar o salvamento local, depois do fetch já ter
+# acontecido com todos os headers que a função quiser mandar. Isenção por engano, não por
+# necessidade -- e o custo era real: `/docx` e `/pdf` não são leitura pura, escrevem em disco e
+# mudam o status da ficha (`_gerar_docx_e_marcar`), então qualquer um sem token podia gerar
+# documento (custo de CPU real via LibreOffice) e mexer no status de qualquer ficha; `/export`
+# devolvia o histórico completo de uma conversa sem credencial nenhuma.
+#
+# Continuam isentas (essas sim por necessidade técnica): `/preview` (consumida por `<iframe src>`,
+# `urlPreviewFicha`), `/desenho/{versao}` e `/croquis/{id}/imagem` (consumidas por `<img src>`,
+# `urlDesenho`/`urlCroqui`), e `/branding/logo` (`<img src>`, inclusive na própria tela de login,
+# antes de haver token nenhum).
 _ISENCOES_DO_GATE_DE_ACESSO = [
     ({"GET"}, re.compile(r"^/health$")),
     ({"POST"}, re.compile(r"^/acesso/login$")),
     ({"GET"}, re.compile(r"^/branding/logo$")),  # logo pública, exibida na própria tela de login
     ({"GET"}, re.compile(r"^/fichas/[^/]+/preview$")),
-    ({"GET"}, re.compile(r"^/fichas/[^/]+/docx$")),
-    ({"GET"}, re.compile(r"^/fichas/[^/]+/pdf$")),
     # `\d+` em vez de `[^/]+`: a versão do desenho é sempre um número. Com o curinga, qualquer
     # sub-rota futura de /desenho/ cairia aqui dentro sozinha.
     ({"GET"}, re.compile(r"^/fichas/[^/]+/desenho/\d+$")),
-    ({"GET"}, re.compile(r"^/conversas/[^/]+/export$")),
     ({"GET"}, re.compile(r"^/croquis/[^/]+/imagem$")),
 ]
 

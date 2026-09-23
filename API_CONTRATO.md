@@ -22,16 +22,24 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
   dias, exigido no header `X-Access-Token` em toda rota do backend, **exceto**, e só nestes
   métodos (Fase 15, V1 — a isenção é por `(método, caminho)`, nunca só por caminho):
   - `GET /health`, `POST /acesso/login`, `GET /branding/logo`;
-  - `GET /fichas/{id}/preview`, `GET /fichas/{id}/docx`, `GET /fichas/{id}/pdf`,
-    `GET /fichas/{id}/desenho/{versao}` (versão precisa ser numérica), `GET /conversas/{id}/export`,
+  - `GET /fichas/{id}/preview`, `GET /fichas/{id}/desenho/{versao}` (versão precisa ser numérica),
     `GET /croquis/{id}/imagem`.
 
-  Essas rotas servem um arquivo para consumo direto do navegador (`<img src>`, `<a href>`,
-  `<iframe src>`), que não anexa headers customizados — ficam de fora do gate por necessidade
-  técnica, não por descuido. São sempre leitura de um recurso cujo identificador (UUID de ficha)
-  já não é adivinhável. **`POST /fichas/{id}/desenho/importar-croqui` não está nesta lista** —
-  antes da Fase 15 estava, por acidente: a isenção testava só o caminho, e essa rota (que escreve)
-  casava com o mesmo padrão da leitura da imagem.
+  Essas rotas servem um arquivo para consumo direto do navegador via `<img src>`/`<iframe src>`,
+  que não anexam headers customizados — ficam de fora do gate por necessidade técnica, não por
+  descuido. São sempre leitura de um recurso cujo identificador (UUID de ficha) já não é
+  adivinhável. **`POST /fichas/{id}/desenho/importar-croqui` não está nesta lista** — antes da
+  Fase 15 estava, por acidente: a isenção testava só o caminho, e essa rota (que escreve) casava
+  com o mesmo padrão da leitura da imagem.
+
+  **`GET /fichas/{id}/docx`, `GET /fichas/{id}/pdf` e `GET /conversas/{id}/export` SAÍRAM da lista
+  na Fase 15, V3.** A justificativa "consumida por `<a href>`" nunca foi verdadeira para essas
+  três: o frontend já as busca via `fetch()` (`baixarFichaDocumento`/`baixarExportacaoConversa`,
+  `frontend/src/lib/api.ts`), que monta um blob em memória e só usa `<a>`/`download` para disparar
+  o salvamento local, depois do `fetch` já ter enviado o header. Isenção por engano, não por
+  necessidade — e o custo era real: `/docx` e `/pdf` não são leitura pura (escrevem em disco e
+  mudam o status da ficha via `_gerar_docx_e_marcar`), e `/export` devolvia o histórico completo
+  de uma conversa sem credencial nenhuma.
 
 ## Autenticação/Admin
 
