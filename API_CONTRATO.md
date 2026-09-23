@@ -171,6 +171,9 @@ rejeitado.
 ### `POST /documentos/upload` — multipart, headers `X-Admin-Token`, limite 20MB
 - Extração e indexação (embeddings) rodam em thread separada (`asyncio.to_thread`, Fase 13, Task
   15) -- um upload grande não trava outras requisições da API enquanto indexa.
+- `400` em caso de falha de parsing: `detail` é uma mensagem genérica (nome do arquivo + "verifique
+  se não está corrompido"), nunca a exceção crua da biblioteca de parsing (Fase 15, V5) -- o
+  detalhe completo, com stack trace, vai só para o log do servidor.
 ### `DELETE /documentos/{nome_arquivo}?tenant_id=` — headers `X-Admin-Token`
 
 ## Análise de Dados

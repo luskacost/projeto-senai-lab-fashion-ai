@@ -775,8 +775,14 @@ def extrair_documento_com_dados_tabulares(
     except ValueError:
         raise
     except Exception as e:
+        # Fase 15, V5: o detalhe completo (`{e}`, que pode vir de qualquer biblioteca de parsing
+        # e carregar caminho de arquivo, traço de pilha ou mensagem interna do parser) fica só no
+        # log, com stack trace -- antes ele era embutido na mensagem da ValueError, que
+        # `POST /documentos/upload` (api/main.py) repassa direto como `detail` da resposta HTTP.
+        # A pessoa que fez o upload não tem uso nenhum pra esse detalhe técnico; quem precisa
+        # dele é quem vai olhar o log do servidor.
         logger.error(f"Falha ao extrair conteúdo do arquivo '{nome}' ({extensao}): {e}", exc_info=True)
-        raise ValueError(f"Falha ao processar o arquivo '{nome}': {e}")
+        raise ValueError(f"Falha ao processar o arquivo '{nome}'. Verifique se ele não está corrompido ou protegido por senha.")
 
 
 def extrair_documento(
