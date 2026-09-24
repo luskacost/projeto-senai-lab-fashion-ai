@@ -185,6 +185,27 @@ cliente) nunca era validado em rota nenhuma, indo cru para o nome do arquivo. `t
 precisa ser UUID (é um slug de configuração) e é sanitizado por allowlist de caracteres, não
 rejeitado.
 
+## Uploads: limite de tamanho e zip bomb (Fase 15, V7)
+
+Antes desta fase, o limite de 20MB (`LIMITE_UPLOAD_BYTES`) só era checado depois de
+`await arquivo.read()` já ter recebido o arquivo inteiro -- mas o parser multipart do Starlette
+grava cada arquivo enviado num `SpooledTemporaryFile` sem limite próprio, ANTES da rota rodar, então
+essa checagem não protegia o consumo real de memória/disco de receber o upload, só evitava
+processar (parsear/indexar) um arquivo grande demais.
+
+`LimiteTamanhoDoCorpoMiddleware` (`limite_corpo_middleware.py`, registrado em `api/main.py` antes
+de qualquer rota) resolve isso no nível ASGI: conta os bytes do corpo conforme chegam pela conexão
+e aborta com `413` assim que o total ultrapassa `LIMITE_UPLOAD_BYTES`, antes do parser de
+formulário consumir o restante. Vale para qualquer rota, não só as de upload.
+
+Separado disso: `.docx`, `.xlsx` e `.pptx` são arquivos ZIP por baixo, e `docx.Document`/
+`openpyxl.load_workbook`/`pptx.Presentation` descompactam o conteúdo sem limite próprio -- um
+arquivo de poucos KB com uma taxa de compressão alta pode descompactar para centenas de MB
+("zip bomb"). `protecao_uploads.verificar_zip_bomb` soma o tamanho descompactado (`file_size`) de
+todas as entradas do ZIP e recusa (`ValueError`) acima de 300MB, chamado antes de qualquer parser
+específico tentar abrir o arquivo -- usado tanto por `document_extractors.py` (RAG) quanto por
+`analise_dados.py` (planilha).
+
 ## Documentos (Base de Conhecimento)
 
 ### `GET /documentos?tenant_id=`
@@ -193,7 +214,8 @@ rejeitado.
   15) -- um upload grande não trava outras requisições da API enquanto indexa.
 - `400` em caso de falha de parsing: `detail` é uma mensagem genérica (nome do arquivo + "verifique
   se não está corrompido"), nunca a exceção crua da biblioteca de parsing (Fase 15, V5) -- o
-  detalhe completo, com stack trace, vai só para o log do servidor.
+  detalhe completo, com stack trace, vai só para o log do servidor. Mesma resposta para um zip
+  bomb detectado (Fase 15, V7).
 ### `DELETE /documentos/{nome_arquivo}?tenant_id=` — headers `X-Admin-Token`
 
 ## Análise de Dados
@@ -206,6 +228,10 @@ rejeitado.
   nenhuma). O modo "Análise de Dados" do chat aplica a mesma validação ao ler o resumo.
 - Mesmo motivo do upload de documentos acima: parsing e resumo estatístico rodam fora do event
   loop (Fase 13, Task 15).
+- `carregar_planilha` só tenta inferir o formato pelo conteúdo (Excel, depois CSV) quando o
+  arquivo não tem extensão nenhuma; uma extensão reconhecida mas não suportada (`.pdf`, `.docx`,
+  ...) é recusada direto, sem tentar os dois parsers (Fase 15, V7 -- antes, qualquer extensão
+  fora de `.csv`/`.xlsx`/`.xls` caía nesse fallback).
 
 ## Fichas técnicas (`/fichas`, Fase 11)
 

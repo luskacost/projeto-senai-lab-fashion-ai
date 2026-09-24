@@ -27,6 +27,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from openai import OpenAI
 
+from limite_corpo_middleware import LimiteTamanhoDoCorpoMiddleware
+
 from tenant_config import (
     TENANT_CONFIG,
     PERFIS_USUARIO,
@@ -110,6 +112,14 @@ app = FastAPI(
     description="API do assistente de IA com RAG do SENAI LabFashion.",
     version="0.1.0"
 )
+
+# Fase 15, V7: limite de tamanho de upload movido para cá (era definido só perto das rotas de
+# documento/planilha) porque precisa existir antes do middleware abaixo, que aplica o limite ao
+# corpo de QUALQUER requisição -- ver limite_corpo_middleware.py para o motivo de o limite
+# precisar ser aplicado no nível ASGI, não dentro da rota.
+LIMITE_UPLOAD_BYTES = 20 * 1024 * 1024
+
+app.add_middleware(LimiteTamanhoDoCorpoMiddleware, limite_bytes=LIMITE_UPLOAD_BYTES)
 
 # CORS configurável por variável de ambiente (Fase 9/Bloco C) -- antes era hardcoded pra
 # http://localhost:3000, exigindo mudar código+redeploy pra apontar pra um domínio real de
@@ -982,10 +992,10 @@ def exportar_conversa(conversa_id: str, tenant_id: str, usuario_id: str, formato
 # ─────────────────────────────────────────────────────────────────────────────
 # DOCUMENTOS (Base de Conhecimento)
 # ─────────────────────────────────────────────────────────────────────────────
-# Antes, /documentos/upload e /planilha/upload aceitavam arquivo de qualquer tamanho -- um
-# upload muito grande (acidental ou não) podia gastar memória/disco/tempo de indexação
-# desproporcionais. 20MB cobre com folga documentos técnicos e planilhas reais de uso normal.
-LIMITE_UPLOAD_BYTES = 20 * 1024 * 1024
+# `LIMITE_UPLOAD_BYTES` -- definido no topo do arquivo, junto do middleware que já garante que
+# nenhum corpo de requisição chega às rotas abaixo maior que o limite (Fase 15, V7). A checagem
+# aqui embaixo (`len(conteudo) > LIMITE_UPLOAD_BYTES`) fica como defesa em profundidade -- redundante
+# no caminho feliz, mas barata, e continua útil se um dia o middleware for removido/contornado.
 
 
 @app.get("/documentos")

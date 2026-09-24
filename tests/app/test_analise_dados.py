@@ -91,6 +91,30 @@ class TestAnaliseDados(unittest.TestCase):
         # Arquivo None
         self.assertIsNone(carregar_planilha(None))
 
+    def test_carregar_planilha_rejeita_extensao_nao_suportada_sem_tentar_parsear(self):
+        """Fase 15, V7: antes, QUALQUER extensão que não fosse .csv/.xlsx/.xls caía no fallback de
+        "tenta Excel, depois tenta CSV" -- inclusive um .pdf ou .docx disfarçado. Agora uma
+        extensão reconhecida mas não suportada é recusada direto, sem tentar os dois parsers."""
+        buffer = io.BytesIO(b"conteudo qualquer, nem importa")
+        buffer.name = "relatorio.pdf"
+
+        self.assertIsNone(carregar_planilha(buffer))
+
+    def test_carregar_planilha_xlsx_com_zip_bomb_e_recusado(self):
+        """Fase 15, V7: .xlsx é um ZIP por baixo -- `pd.read_excel`/openpyxl descompactam sem
+        limite próprio. Uma entrada ZIP repetitiva comprime para poucos KB e ainda assim
+        descompactaria para centenas de MB."""
+        import zipfile
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+            zf.writestr("xl/worksheets/sheet1.xml", b"A" * (310 * 1024 * 1024))
+        buffer.seek(0)
+        buffer.name = "planilha_bomba.xlsx"
+
+        self.assertLess(len(buffer.getvalue()), 1 * 1024 * 1024)
+        self.assertIsNone(carregar_planilha(buffer))
+
     def test_gerar_resumo_estatistico_com_agregacoes(self):
         """Testa se o resumo estatístico contém todas as chaves e agregações numéricas por grupo."""
         resumo = gerar_resumo_estatistico(self.df_teste)

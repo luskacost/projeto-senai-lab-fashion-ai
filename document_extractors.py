@@ -31,6 +31,7 @@ import re
 from typing import List, Dict, Any, Optional, Tuple, Union
 
 from logger_config import obter_logger
+from protecao_uploads import verificar_zip_bomb
 from rag_config import RAG_CONFIG
 from semantic_enrichment import enriquecer_registro_estruturado
 from tabular_storage import TabularRow, TabularSheet
@@ -746,6 +747,13 @@ def extrair_documento_com_dados_tabulares(
         )
 
     try:
+        # Fase 15, V7: .docx/.xlsx/.pptx são arquivos ZIP por baixo -- descompactação sem limite
+        # (docx.Document/openpyxl/python-pptx não têm proteção própria) é um vetor de zip bomb:
+        # um arquivo pequeno o bastante para passar no limite de upload pode descompactar para
+        # muitos GB e derrubar o processo por exaustão de memória.
+        if extensao in ("docx", "xlsx", "pptx"):
+            verificar_zip_bomb(stream.getvalue())
+
         sheets_tabulares: Optional[Dict[str, TabularSheet]] = None
         if extensao == "pdf":
             unidades = extrair_documento_pdf(stream, nome)

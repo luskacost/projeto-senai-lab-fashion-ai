@@ -20,6 +20,7 @@ import pandas as pd
 import conteudo_nao_confiavel as cnc
 from fichas_repo import validar_id_uuid
 from logger_config import obter_logger
+from protecao_uploads import verificar_zip_bomb
 
 
 PALAVRAS_CHAVE_AGRUPAMENTO = [
@@ -42,6 +43,20 @@ def _normalizar_texto(texto: str) -> str:
         return ""
     nfkd = unicodedata.normalize("NFKD", str(texto))
     return "".join([c for c in nfkd if not unicodedata.combining(c)]).lower().strip()
+
+
+def _verificar_zip_bomb_se_possivel(arquivo: Any) -> None:
+    """Roda `verificar_zip_bomb` sobre os bytes de `arquivo`, se for um objeto com `read`/`seek`
+    (levanta `ValueError` se descompactaria demais). Sem `read`/`seek` (ex.: um caminho de string),
+    não há como inspecionar sem reabrir o arquivo -- deixa passar, o próprio `pd.read_excel` vai
+    rejeitar um arquivo corrompido do jeito dele."""
+    if not (hasattr(arquivo, "read") and hasattr(arquivo, "seek")):
+        return
+    arquivo.seek(0)
+    dados = arquivo.read()
+    arquivo.seek(0)
+    if isinstance(dados, bytes):
+        verificar_zip_bomb(dados)
 
 
 def carregar_planilha(arquivo: Any, tenant_id: str = "senai_labfashion") -> Optional[pd.DataFrame]:
@@ -72,12 +87,17 @@ def carregar_planilha(arquivo: Any, tenant_id: str = "senai_labfashion") -> Opti
                 df = pd.read_csv(arquivo, sep=None, engine="python", encoding="latin1")
 
         elif extensao in [".xlsx", ".xls"]:
+            if extensao == ".xlsx":
+                _verificar_zip_bomb_se_possivel(arquivo)
             if hasattr(arquivo, "seek"):
                 arquivo.seek(0)
             df = pd.read_excel(arquivo)
-        else:
-            # Tenta inferir pelo conteúdo se a extensão não for explícita
+        elif extensao == "":
+            # Sem extensão nenhuma -- só aqui faz sentido inferir pelo conteúdo (Excel primeiro,
+            # CSV depois). Um .xlsx é sempre um ZIP por baixo, então a checagem de zip bomb vale
+            # aqui também.
             try:
+                _verificar_zip_bomb_se_possivel(arquivo)
                 if hasattr(arquivo, "seek"):
                     arquivo.seek(0)
                 df = pd.read_excel(arquivo)
@@ -85,6 +105,14 @@ def carregar_planilha(arquivo: Any, tenant_id: str = "senai_labfashion") -> Opti
                 if hasattr(arquivo, "seek"):
                     arquivo.seek(0)
                 df = pd.read_csv(arquivo, sep=None, engine="python", encoding="utf-8")
+        else:
+            # Fase 15, V7: extensão reconhecida mas não suportada (.pdf, .docx, .txt, ...) --
+            # antes, QUALQUER extensão que não fosse .csv/.xlsx/.xls caía aqui e era testada como
+            # Excel e depois como CSV. Isso amplificava o vetor de zip bomb (um .pdf disfarçado de
+            # extensão poderia ser testado como Excel) e mascarava o erro real ("isto não é uma
+            # planilha") atrás de dois parsers que nunca iriam funcionar.
+            logger.warning(f"Extensão '{extensao}' não suportada para planilha: {nome_arquivo}")
+            return None
 
         if df is None or df.empty:
             logger.warning(f"Planilha carregada está vazia: {nome_arquivo}")
