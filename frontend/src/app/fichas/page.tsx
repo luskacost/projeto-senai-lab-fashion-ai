@@ -15,6 +15,7 @@ import {
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
 import { APP_NOME } from "@/lib/branding";
 import { limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
+import { obterTenantIdAtivo } from "@/lib/acesso";
 import { mensagemAmigavel } from "@/lib/erros";
 import SenhaAdminDialog from "@/components/SenhaAdminDialog";
 import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
@@ -26,7 +27,11 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Copy, FileStack, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+// Fase 16, Bloco L: tenant deixou de ser fixo em tempo de build -- ver page.tsx (home) para a
+// explicação completa. NEXT_PUBLIC_tenantIdAtivo() vira só o fallback de modo legado.
+function tenantIdAtivo(): string {
+  return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+}
 
 function formatarData(iso: string): string {
   if (!iso) return "—";
@@ -55,7 +60,7 @@ export default function FichasPage() {
   async function recarregar() {
     setCarregando(true);
     try {
-      const lista = await listarFichas(TENANT_ID);
+      const lista = await listarFichas(tenantIdAtivo());
       setFichas(lista);
     } catch {
       toast.error("Não foi possível carregar a lista de fichas técnicas.");
@@ -67,7 +72,7 @@ export default function FichasPage() {
   async function novaFicha(textoOrigem?: string) {
     setCriando(true);
     try {
-      const { ficha } = await criarFicha(TENANT_ID, textoOrigem);
+      const { ficha } = await criarFicha(tenantIdAtivo(), textoOrigem);
       router.push(`/fichas/${ficha.id}`);
     } catch (e) {
       toast.error(mensagemAmigavel(e, "Não foi possível criar a ficha."));
@@ -78,7 +83,7 @@ export default function FichasPage() {
   async function duplicar(fichaId: string) {
     setDuplicandoId(fichaId);
     try {
-      const { ficha } = await duplicarFicha(TENANT_ID, fichaId);
+      const { ficha } = await duplicarFicha(tenantIdAtivo(), fichaId);
       toast.success("Ficha duplicada.");
       router.push(`/fichas/${ficha.id}`);
     } catch (e) {
@@ -101,7 +106,7 @@ export default function FichasPage() {
   async function executarExclusao(fichaId: string, tokenAdmin: string) {
     setExcluindoId(fichaId);
     try {
-      await deletarFicha(TENANT_ID, fichaId, tokenAdmin);
+      await deletarFicha(tenantIdAtivo(), fichaId, tokenAdmin);
       setFichas((atual) => atual.filter((f) => f.id !== fichaId));
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -230,7 +235,7 @@ export default function FichasPage() {
       <SenhaAdminDialog
         open={fichaPendenteDeSenha !== null}
         onOpenChange={(aberto) => { if (!aberto) setFichaPendenteDeSenha(null); }}
-        tenantId={TENANT_ID}
+        tenantId={tenantIdAtivo()}
         titulo="Confirmar exclusão"
         descricao="Excluir uma ficha técnica exige a senha de administrador."
         onAutorizado={(tokenAdmin) => {

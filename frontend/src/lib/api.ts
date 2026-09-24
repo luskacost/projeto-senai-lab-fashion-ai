@@ -249,12 +249,32 @@ export async function deletarConversa(tenantId: string, usuarioId: string, conve
 // token (não mais um simples "1") e precisa enviá-lo de volta no header X-Admin-Token em toda
 // rota administrativa de verdade (upload/remoção de documentos, config do tenant), que agora
 // checa esse token no backend em vez de confiar só na tela de login escondendo o botão.
-export async function acessoLogin(senha: string): Promise<string | null> {
-  const resultado = await request<{ autorizado: boolean; token: string | null }>("/acesso/login", {
-    method: "POST",
-    body: JSON.stringify({ senha }),
-  });
-  return resultado.autorizado ? resultado.token : null;
+export interface ResultadoAcessoLogin {
+  autorizado: boolean;
+  token: string | null;
+  tenantId: string | null;
+}
+
+// tenantId é opcional -- no modo legado (dev local, nenhum tenant com LOGIN_SENHA configurada no
+// backend), o login não pede tenant nenhum, só a senha única (Fase 14/15). No modo por
+// tenant/pessoa (Fase 16, Bloco L), o backend exige tenant_id e devolve de volta qual tenant o
+// token emitido pertence.
+export async function acessoLogin(senha: string, tenantId?: string): Promise<ResultadoAcessoLogin> {
+  const resultado = await request<{ autorizado: boolean; token: string | null; tenant_id?: string | null }>(
+    "/acesso/login",
+    { method: "POST", body: JSON.stringify({ senha, tenant_id: tenantId }) },
+  );
+  return {
+    autorizado: resultado.autorizado,
+    token: resultado.autorizado ? resultado.token : null,
+    tenantId: resultado.autorizado ? (resultado.tenant_id ?? null) : null,
+  };
+}
+
+// Fase 15, V6: rota já existia no backend, sem uso nenhum no frontend ainda -- este é o primeiro
+// lugar que a chama de verdade (Fase 16, Bloco L).
+export async function acessoLogout(): Promise<void> {
+  await request<{ status: string }>("/acesso/logout", { method: "POST" });
 }
 
 export async function adminLogin(tenantId: string, senha: string): Promise<string | null> {

@@ -232,19 +232,29 @@ def _purgar_tokens_expirados(tokens: Dict[str, Dict[str, Any]]) -> None:
         tokens.pop(token, None)
 
 
-def _gerar_token_acesso() -> str:
+def _gerar_token_acesso(tenant_id: Optional[str] = None) -> str:
     _purgar_tokens_expirados(_ACCESS_TOKENS)
     token = secrets.token_urlsafe(32)
-    _ACCESS_TOKENS[token] = {"expira_em": time.time() + DURACAO_TOKEN_ACESSO_SEGUNDOS}
+    _ACCESS_TOKENS[token] = {"expira_em": time.time() + DURACAO_TOKEN_ACESSO_SEGUNDOS, "tenant_id": tenant_id}
     return token
 
 
-def verificar_acesso(request: Request, x_access_token: Optional[str] = Header(None, alias="X-Access-Token")) -> None:
+def _tenants_com_login_configurado() -> List[str]:
+    """Tenants com `LOGIN_SENHA` configurada (Fase 16, Bloco L) -- login por pessoa é, na
+    prática, login por tenant: cada colega/consultoria é o seu próprio tenant, então "usuário" no
+    login É o `tenant_id`. Se a lista vier vazia, `acesso_login`/`verificar_acesso` caem no modo
+    legado de senha única (Fase 14/15), preservando o comportamento de desenvolvimento local sem
+    exigir que ninguém configure um tenant só para rodar o projeto na própria máquina."""
+    return [tid for tid in TENANT_CONFIG if obter_secret_tenant(tid, "LOGIN_SENHA")]
+
+
+async def verificar_acesso(request: Request, x_access_token: Optional[str] = Header(None, alias="X-Access-Token")) -> None:
     """Dependência global -- aplicada a toda rota via app.router.dependencies. Sem
-    SENAI_LABFASHION_ACCESS_PASSWORD configurada, o gate fica desligado (ambiente de
-    desenvolvimento local, comportamento de sempre)."""
+    SENAI_LABFASHION_ACCESS_PASSWORD e sem nenhum tenant com LOGIN_SENHA configurada, o gate fica
+    desligado (ambiente de desenvolvimento local, comportamento de sempre)."""
+    tenants_com_login = _tenants_com_login_configurado()
     senha_de_acesso = os.environ.get("SENAI_LABFASHION_ACCESS_PASSWORD", "")
-    if not senha_de_acesso:
+    if not tenants_com_login and not senha_de_acesso:
         return
     if request.method == "OPTIONS" or _rota_isenta_do_gate_de_acesso(request.method, request.url.path):
         return
@@ -259,20 +269,68 @@ def verificar_acesso(request: Request, x_access_token: Optional[str] = Header(No
             headers={"X-Auth-Gate": "acesso"},
         )
 
+    # Fase 16, L2: um token emitido para um tenant específico (login por pessoa/consultoria) só
+    # pode ser usado com esse tenant -- fecha o item que a Fase 15 deixou registrado como
+    # deliberadamente não resolvido ("token de acesso não carrega tenant_id"). Token do modo
+    # legado (`tenant_id: None`, senha única de app inteiro) não tem essa restrição.
+    tenant_do_token = dados.get("tenant_id")
+    if tenant_do_token is not None:
+        tenant_da_rota = request.query_params.get("tenant_id")
+        if tenant_da_rota is None and request.headers.get("content-type", "").startswith("application/json"):
+            try:
+                corpo = await request.json()
+            except Exception:
+                corpo = None
+            if isinstance(corpo, dict):
+                tenant_da_rota = corpo.get("tenant_id")
+        if tenant_da_rota is not None and tenant_da_rota != tenant_do_token:
+            raise HTTPException(status_code=403, detail="Este token não tem acesso a este tenant.")
+
 
 class AccessLoginRequest(BaseModel):
     senha: str
+    tenant_id: Optional[str] = None
 
 
 @app.post("/acesso/login")
 def acesso_login(payload: AccessLoginRequest, request: Request) -> Dict[str, Any]:
-    senha_de_acesso = os.environ.get("SENAI_LABFASHION_ACCESS_PASSWORD", "")
-    if not senha_de_acesso:
-        # Gate desligado: não há o que comparar -- só ocorre em ambiente sem a variável definida.
-        return {"autorizado": True, "token": _gerar_token_acesso()}
-
+    tenants_com_login = _tenants_com_login_configurado()
     ip_cliente = request.client.host if request.client else "desconhecido"
     agora = time.time()
+
+    if not tenants_com_login:
+        # Modo legado (Fase 14/15): senha única pro app inteiro, sem tenant nenhum envolvido.
+        senha_de_acesso = os.environ.get("SENAI_LABFASHION_ACCESS_PASSWORD", "")
+        if not senha_de_acesso:
+            # Gate desligado: não há o que comparar -- só em ambiente sem a variável definida.
+            return {"autorizado": True, "token": _gerar_token_acesso()}
+
+        estado = _ACCESS_LOGIN_TENTATIVAS.get(ip_cliente, {"falhas": 0, "bloqueado_ate": 0.0})
+        if estado["bloqueado_ate"] > agora:
+            minutos_restantes = int((estado["bloqueado_ate"] - agora) / 60) + 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"Muitas tentativas incorretas. Tente novamente em {minutos_restantes} minuto(s)."
+            )
+
+        autorizado = hmac.compare_digest(payload.senha, senha_de_acesso)
+        if not autorizado:
+            estado["falhas"] += 1
+            if estado["falhas"] >= MAX_TENTATIVAS_LOGIN_ACESSO:
+                estado["bloqueado_ate"] = agora + DURACAO_BLOQUEIO_LOGIN_ACESSO_SEGUNDOS
+                estado["falhas"] = 0
+            _ACCESS_LOGIN_TENTATIVAS[ip_cliente] = estado
+            return {"autorizado": False, "token": None}
+
+        _ACCESS_LOGIN_TENTATIVAS.pop(ip_cliente, None)
+        return {"autorizado": True, "token": _gerar_token_acesso()}
+
+    # Modo login por pessoa/tenant (Fase 16, Bloco L): existe pelo menos um tenant com
+    # LOGIN_SENHA configurada, então o modo legado de senha única deixa de valer -- qualquer
+    # tentativa precisa informar um tenant_id válido.
+    if not payload.tenant_id or payload.tenant_id not in TENANT_CONFIG:
+        return {"autorizado": False, "token": None}
+
     estado = _ACCESS_LOGIN_TENTATIVAS.get(ip_cliente, {"falhas": 0, "bloqueado_ate": 0.0})
     if estado["bloqueado_ate"] > agora:
         minutos_restantes = int((estado["bloqueado_ate"] - agora) / 60) + 1
@@ -281,7 +339,8 @@ def acesso_login(payload: AccessLoginRequest, request: Request) -> Dict[str, Any
             detail=f"Muitas tentativas incorretas. Tente novamente em {minutos_restantes} minuto(s)."
         )
 
-    autorizado = hmac.compare_digest(payload.senha, senha_de_acesso)
+    senha_esperada = obter_secret_tenant(payload.tenant_id, "LOGIN_SENHA")
+    autorizado = bool(senha_esperada) and hmac.compare_digest(payload.senha, senha_esperada)
     if not autorizado:
         estado["falhas"] += 1
         if estado["falhas"] >= MAX_TENTATIVAS_LOGIN_ACESSO:
@@ -291,7 +350,11 @@ def acesso_login(payload: AccessLoginRequest, request: Request) -> Dict[str, Any
         return {"autorizado": False, "token": None}
 
     _ACCESS_LOGIN_TENTATIVAS.pop(ip_cliente, None)
-    return {"autorizado": True, "token": _gerar_token_acesso()}
+    return {
+        "autorizado": True,
+        "token": _gerar_token_acesso(tenant_id=payload.tenant_id),
+        "tenant_id": payload.tenant_id,
+    }
 
 
 @app.post("/acesso/logout")

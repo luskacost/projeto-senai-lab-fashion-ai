@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { APP_NOME } from "@/lib/branding";
 import { definirTokenAdmin, limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
+import { obterTenantIdAtivo } from "@/lib/acesso";
 import { mensagemAmigavel } from "@/lib/erros";
 import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -26,7 +27,11 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+// Fase 16, Bloco L: tenant deixou de ser fixo em tempo de build -- ver page.tsx (home) para a
+// explicação completa. NEXT_PUBLIC_tenantIdAtivo() vira só o fallback de modo legado.
+function tenantIdAtivo(): string {
+  return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+}
 // Guarda o token de sessão de verdade (emitido por POST /admin/login e validado no backend em
 // cada rota administrativa, Fase 9/Bloco B) -- não é mais um "1" opaco que só escondia o botão
 // no front-end sem nenhuma checagem real do lado do servidor.
@@ -77,7 +82,7 @@ export default function AdminPage() {
   async function recarregarDocumentos() {
     setCarregandoDocs(true);
     try {
-      const lista = await listarDocumentos(TENANT_ID);
+      const lista = await listarDocumentos(tenantIdAtivo());
       setDocumentos(lista);
     } catch {
       toast.error("Não foi possível carregar a lista de documentos.");
@@ -91,7 +96,7 @@ export default function AdminPage() {
     setValidandoLogin(true);
     setErroLogin(null);
     try {
-      const token = await adminLogin(TENANT_ID, senha);
+      const token = await adminLogin(tenantIdAtivo(), senha);
       if (token) {
         setTokenAdmin(token);
         definirTokenAdmin(token);
@@ -111,7 +116,7 @@ export default function AdminPage() {
 
     setEnviando(true);
     try {
-      const resultado = await uploadDocumento(TENANT_ID, arquivo, tokenAdmin);
+      const resultado = await uploadDocumento(tenantIdAtivo(), arquivo, tokenAdmin);
       toast.success(`"${resultado.nome_arquivo}" adicionado com sucesso.`);
       if (inputArquivoRef.current) inputArquivoRef.current.value = "";
       await recarregarDocumentos();
@@ -124,7 +129,7 @@ export default function AdminPage() {
 
   async function recarregarLogo() {
     try {
-      setInfoLogo(await obterInfoLogo(TENANT_ID));
+      setInfoLogo(await obterInfoLogo(tenantIdAtivo()));
     } catch {
       toast.error("Não foi possível verificar o logo cadastrado.");
     }
@@ -136,7 +141,7 @@ export default function AdminPage() {
 
     setEnviandoLogo(true);
     try {
-      await uploadLogo(TENANT_ID, arquivo, tokenAdmin);
+      await uploadLogo(tenantIdAtivo(), arquivo, tokenAdmin);
       toast.success("Logo atualizado. Ele será usado nas próximas fichas geradas.");
       if (inputLogoRef.current) inputLogoRef.current.value = "";
       setVersaoLogo(Date.now());
@@ -151,7 +156,7 @@ export default function AdminPage() {
   async function removerLogo() {
     if (!tokenAdmin) return;
     try {
-      await deletarLogo(TENANT_ID, tokenAdmin);
+      await deletarLogo(tenantIdAtivo(), tokenAdmin);
       setVersaoLogo(Date.now());
       await recarregarLogo();
     } catch (e) {
@@ -162,7 +167,7 @@ export default function AdminPage() {
   async function excluirDocumento(nome: string) {
     if (!tokenAdmin) return;
     try {
-      await deletarDocumento(TENANT_ID, nome, tokenAdmin);
+      await deletarDocumento(tenantIdAtivo(), nome, tokenAdmin);
       await recarregarDocumentos();
     } catch (e) {
       tratarErroAdmin(e, "Falha ao remover o documento.");
@@ -231,7 +236,7 @@ export default function AdminPage() {
                   otimizador do Next, que exigiria configurar o domínio remoto. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={urlLogo(TENANT_ID, versaoLogo)}
+                src={urlLogo(tenantIdAtivo(), versaoLogo)}
                 alt="Logo cadastrado"
                 className="h-12 w-auto max-w-40 object-contain"
               />

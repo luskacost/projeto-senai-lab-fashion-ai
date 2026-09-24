@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { APP_NOME } from "@/lib/branding";
 import { limparTokenAdmin, obterTokenAdmin } from "@/lib/admin-sessao";
+import { obterTenantIdAtivo } from "@/lib/acesso";
 import { mensagemAmigavel } from "@/lib/erros";
 import SenhaAdminDialog from "@/components/SenhaAdminDialog";
 import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
@@ -23,7 +24,11 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Images, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+// Fase 16, Bloco L: tenant deixou de ser fixo em tempo de build -- ver page.tsx (home) para a
+// explicação completa. NEXT_PUBLIC_tenantIdAtivo() vira só o fallback de modo legado.
+function tenantIdAtivo(): string {
+  return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+}
 
 function formatarData(iso: string): string {
   if (!iso) return "—";
@@ -47,7 +52,7 @@ export default function CroquisPage() {
   async function recarregar() {
     setCroquis(null);
     try {
-      const lista = await listarCroquis(TENANT_ID);
+      const lista = await listarCroquis(tenantIdAtivo());
       setCroquis(lista);
     } catch {
       toast.error("Não foi possível carregar a galeria de croquis.");
@@ -69,7 +74,7 @@ export default function CroquisPage() {
   async function executarExclusao(croquiId: string, tokenAdmin: string) {
     setExcluindoId(croquiId);
     try {
-      await deletarCroqui(TENANT_ID, croquiId, tokenAdmin);
+      await deletarCroqui(tenantIdAtivo(), croquiId, tokenAdmin);
       setCroquis((atual) => (atual ?? []).filter((c) => c.id !== croquiId));
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
@@ -124,7 +129,7 @@ export default function CroquisPage() {
               {croquis.map((c) => (
                 <div key={c.id} className="space-y-1.5">
                   <div className="relative">
-                    <ImagemGerada src={urlCroqui(TENANT_ID, c.id)} alt={c.resumo || "Croqui gerado pela IA"} />
+                    <ImagemGerada src={urlCroqui(tenantIdAtivo(), c.id)} alt={c.resumo || "Croqui gerado pela IA"} />
                     <Button
                       onClick={() => setCroquiPendenteDeConfirmacao({ id: c.id, resumo: c.resumo })}
                       disabled={excluindoId === c.id}
@@ -164,7 +169,7 @@ export default function CroquisPage() {
       <SenhaAdminDialog
         open={croquiPendenteDeSenha !== null}
         onOpenChange={(aberto) => { if (!aberto) setCroquiPendenteDeSenha(null); }}
-        tenantId={TENANT_ID}
+        tenantId={tenantIdAtivo()}
         titulo="Confirmar exclusão"
         descricao="Excluir um croqui exige a senha de administrador."
         onAutorizado={(tokenAdmin) => {

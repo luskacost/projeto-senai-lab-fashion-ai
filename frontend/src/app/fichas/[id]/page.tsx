@@ -37,6 +37,7 @@ import {
   urlPreviewFicha,
 } from "@/lib/api";
 import { ROTULO_STATUS_FICHA, VARIANTE_STATUS_FICHA } from "@/lib/fichas-status";
+import { obterTenantIdAtivo } from "@/lib/acesso";
 import { mensagemAmigavel } from "@/lib/erros";
 import ImportarCroquiDialog from "@/components/ImportarCroquiDialog";
 import RegistroAprovacaoDialog from "@/components/RegistroAprovacaoDialog";
@@ -54,7 +55,11 @@ import OrigemIndicador from "@/components/fichas/OrigemIndicador";
 import { AlertTriangle, ArrowLeft, BadgeCheck, FileDown, ImagePlus, Images, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+// Fase 16, Bloco L: tenant deixou de ser fixo em tempo de build -- ver page.tsx (home) para a
+// explicação completa. NEXT_PUBLIC_tenantIdAtivo() vira só o fallback de modo legado.
+function tenantIdAtivo(): string {
+  return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+}
 
 const TAMANHOS_NUMERICOS = ["34", "36", "38", "40", "42", "44", "46", "48", "50", "52", "54", "56"];
 const TAMANHOS_COMERCIAIS = ["PP", "P", "M", "G", "GG", "XG"];
@@ -210,7 +215,7 @@ export default function FichaDetalhePage() {
       setCarregando(true);
       setErro(null);
       try {
-        const resultado = await obterFicha(TENANT_ID, fichaId);
+        const resultado = await obterFicha(tenantIdAtivo(), fichaId);
         if (cancelado) return;
         setFicha(resultado.ficha);
         setAlertas(resultado.alertas);
@@ -273,7 +278,7 @@ export default function FichaDetalhePage() {
   async function salvarSeEditavel(fichaAtual: Ficha): Promise<Ficha> {
     if (fichaAtual.status === "APROVADA") return fichaAtual;
 
-    const salva = await atualizarFicha(TENANT_ID, fichaAtual, fichaAtual.atualizado_em);
+    const salva = await atualizarFicha(tenantIdAtivo(), fichaAtual, fichaAtual.atualizado_em);
     setFicha(salva.ficha);
     setAlertas(salva.alertas);
     setPrecificacaoCalculada(salva.precificacao_calculada);
@@ -286,7 +291,7 @@ export default function FichaDetalhePage() {
     try {
       const salva = await salvarSeEditavel(ficha);
 
-      const resultado = await gerarDesenho(TENANT_ID, salva.id, instrucaoAdicional || undefined);
+      const resultado = await gerarDesenho(tenantIdAtivo(), salva.id, instrucaoAdicional || undefined);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
       setPrecificacaoCalculada(resultado.precificacao_calculada);
@@ -310,7 +315,7 @@ export default function FichaDetalhePage() {
   async function aprovarVersaoDesenho(versao: number) {
     if (!ficha) return;
     try {
-      const resultado = await aprovarDesenho(TENANT_ID, ficha.id, versao);
+      const resultado = await aprovarDesenho(tenantIdAtivo(), ficha.id, versao);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
       setPrecificacaoCalculada(resultado.precificacao_calculada);
@@ -324,7 +329,7 @@ export default function FichaDetalhePage() {
     if (!ficha) return;
     setImportandoCroqui(true);
     try {
-      const resultado = await importarCroquiComoDesenho(TENANT_ID, ficha.id, croquiId);
+      const resultado = await importarCroquiComoDesenho(tenantIdAtivo(), ficha.id, croquiId);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
       setPrecificacaoCalculada(resultado.precificacao_calculada);
@@ -343,8 +348,8 @@ export default function FichaDetalhePage() {
     try {
       const resultado =
         dialogoRegistro === "aprovar"
-          ? await aprovarFicha(TENANT_ID, ficha.id, nome, ficha.atualizado_em, observacao)
-          : await reabrirFicha(TENANT_ID, ficha.id, nome, observacao);
+          ? await aprovarFicha(tenantIdAtivo(), ficha.id, nome, ficha.atualizado_em, observacao)
+          : await reabrirFicha(tenantIdAtivo(), ficha.id, nome, observacao);
 
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
@@ -372,7 +377,7 @@ export default function FichaDetalhePage() {
     if (!ficha) return;
     setSalvando(true);
     try {
-      const resultado = await atualizarFicha(TENANT_ID, ficha, ficha.atualizado_em);
+      const resultado = await atualizarFicha(tenantIdAtivo(), ficha, ficha.atualizado_em);
       setFicha(resultado.ficha);
       setAlertas(resultado.alertas);
       setPrecificacaoCalculada(resultado.precificacao_calculada);
@@ -394,12 +399,12 @@ export default function FichaDetalhePage() {
     try {
       await salvarSeEditavel(ficha);
 
-      await baixarFichaDocumento(TENANT_ID, ficha.id, formato);
+      await baixarFichaDocumento(tenantIdAtivo(), ficha.id, formato);
       toast.success(formato === "pdf" ? "PDF gerado." : "Documento Word gerado.");
 
       // O backend muda o status para "Documento gerado" ao renderizar -- recarrega para a tela
       // refletir isso sem precisar de F5.
-      const atualizada = await obterFicha(TENANT_ID, ficha.id);
+      const atualizada = await obterFicha(tenantIdAtivo(), ficha.id);
       setFicha(atualizada.ficha);
       setAlertas(atualizada.alertas);
       setPrecificacaoCalculada(atualizada.precificacao_calculada);
@@ -426,7 +431,7 @@ export default function FichaDetalhePage() {
 
       // Cache-buster: sem isso, o navegador poderia reaproveitar o PDF antigo da mesma URL em
       // vez de buscar a versão recém-atualizada.
-      setPreviewUrl(`${urlPreviewFicha(TENANT_ID, ficha.id)}&_=${Date.now()}`);
+      setPreviewUrl(`${urlPreviewFicha(tenantIdAtivo(), ficha.id)}&_=${Date.now()}`);
     } catch (e) {
       const msg =
         e instanceof ApiError && e.status === 412
@@ -676,7 +681,7 @@ export default function FichaDetalhePage() {
                             </div>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img
-                              src={urlDesenho(TENANT_ID, ficha.id, v.versao)}
+                              src={urlDesenho(tenantIdAtivo(), ficha.id, v.versao)}
                               alt={`Desenho técnico, versão ${v.versao}`}
                               className="w-full rounded border border-border"
                             />
@@ -1391,7 +1396,7 @@ export default function FichaDetalhePage() {
     <ImportarCroquiDialog
       open={dialogoImportarCroquiAberto}
       onOpenChange={setDialogoImportarCroquiAberto}
-      tenantId={TENANT_ID}
+      tenantId={tenantIdAtivo()}
       importando={importandoCroqui}
       onImportar={importarCroqui}
     />

@@ -311,8 +311,9 @@ Copie `.env.example` para `.env` e preencha (convenção: `{TENANT_ID_MAIUSCULO}
 | Variável | Uso |
 |---|---|
 | `SENAI_LABFASHION_OPENAI_API_KEY` | Chat (GPT-4o), moderação, geração de imagem (gpt-image-1), busca web (web_search nativo). |
-| `SENAI_LABFASHION_ACCESS_PASSWORD` | Senha única de acesso ao app inteiro (Fase 14) -- opcional; sem ela, o app fica aberto como sempre (uso em desenvolvimento local). |
+| `SENAI_LABFASHION_ACCESS_PASSWORD` | Senha única de acesso ao app inteiro, modo legado (Fase 14/15) -- opcional; sem ela e sem nenhum tenant com `LOGIN_SENHA`, o app fica aberto como sempre (uso em desenvolvimento local). |
 | `SENAI_LABFASHION_ADMIN_PASSWORD` | Senha do painel administrativo (`/admin`). |
+| `{TENANT_ID}_LOGIN_SENHA` | Senha de login **por tenant/pessoa** (Fase 16, Bloco L) -- ex.: `CONSULTORIA_EMPRESA_X_LOGIN_SENHA`. Assim que **qualquer** tenant tiver essa secret configurada, o modo legado acima deixa de valer: o login passa a exigir `{tenant_id, senha}`, e cada colega/consultoria vira o seu próprio tenant. |
 
 Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 
@@ -320,7 +321,7 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 |---|---|---|
 | `CORS_ALLOWED_ORIGINS` | Ambiente do backend | Lista separada por vírgula de origens permitidas. Default: só `http://localhost:3000`. |
 | `NEXT_PUBLIC_API_URL` | Build arg do frontend (`frontend/Dockerfile`) | URL pública da API, alcançável pelo navegador do usuário final. Embutida em tempo de build, não de execução. |
-| `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend. Default: `senai_labfashion`. |
+| `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend **só no modo legado** (Fase 14/15) -- assim que o login por tenant/pessoa está ativo (Fase 16), o tenant de verdade vem do login (`obterTenantIdAtivo()`, `frontend/src/lib/acesso.ts`), e esta variável vira só o fallback pré-login. Default: `senai_labfashion`. |
 | `LOG_LEVEL` | Ambiente do backend | Nível de log (default `INFO`). |
 | `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- sem ele, o backend procura no `PATH`/locais padrão; se não encontrar, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
 
@@ -335,15 +336,24 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 4. Configurar um reverse proxy (Nginx) na frente dos dois serviços -- ver `nginx.conf.example`
    (roteia `/` pro frontend, `/api/` pro backend) e configurar TLS (ex: Certbot/Let's Encrypt).
 
-## Senha única de acesso (Fase 14)
+## Acesso ao app / login por pessoa (Fase 14, Bloco S; Fase 16, Bloco L)
 
-O app inteiro (não só `/admin`) pode ser protegido por uma senha compartilhada, configurada em
-`SENAI_LABFASHION_ACCESS_PASSWORD`. Sem cadastro de usuário final por design (ver decisão da Fase
-9), esta é a porta de entrada: uma senha, não um login por pessoa -- fecha o acesso a quem está
-fora da organização, mas não isola um colega do outro dentro dela. Sem a variável definida, o app
-fica aberto como sempre (comportamento de desenvolvimento local). O login (`PortaoDeAcesso.tsx`,
-que envolve todas as páginas em `layout.tsx`) emite um token válido por 30 dias, guardado no
-navegador -- bloqueio automático de 15 minutos por IP após 5 tentativas incorretas.
+O app inteiro (não só `/admin`) é protegido por login, em um de dois modos:
+
+- **Login por tenant/pessoa** (Fase 16): assim que pelo menos um tenant tem `{TENANT_ID}_LOGIN_SENHA`
+  configurada (ver seção de variáveis de ambiente acima), o login exige `{tenant_id, senha}` --
+  cada colega/consultoria é o seu próprio tenant, com base de documentos (RAG) e limites diários
+  isolados dos de outro tenant. O token emitido só funciona para o tenant dele: uma tentativa de
+  usá-lo para ler/escrever dado de outro tenant devolve `403` (`api/main.py:verificar_acesso`).
+- **Senha única, modo legado** (Fase 14/15): sem nenhum tenant com `LOGIN_SENHA` configurada, o app
+  cai no comportamento anterior -- uma senha compartilhada (`SENAI_LABFASHION_ACCESS_PASSWORD`),
+  sem tenant nenhum atrelado ao token. Sem essa variável definida também, o app fica aberto como
+  sempre (comportamento de desenvolvimento local).
+
+Os dois modos usam a mesma mecânica de sessão: o login (`PortaoDeAcesso.tsx`, que envolve todas as
+páginas em `layout.tsx`) emite um token válido por 30 dias, guardado no navegador -- bloqueio
+automático de 15 minutos por IP após 5 tentativas incorretas. O botão "Sair" (home) encerra a
+sessão de propósito (`POST /acesso/logout`), sem precisar esperar os 30 dias expirarem.
 
 ## Admin (`/admin`)
 

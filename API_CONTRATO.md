@@ -7,19 +7,40 @@ arquitetura de IA por trás de `/chat`, ver a seção "Arquitetura do agente" no
 Convenção: `tenant_id` é sempre obrigatório. Multi-tenant na estrutura, uso single-tenant
 (`senai_labfashion`) na prática hoje.
 
-## Senha única de acesso (Fase 14, Bloco S)
+## Acesso/login (Fase 14, Bloco S; login por pessoa desde a Fase 16, Bloco L)
 
-Camada de acesso ao app **inteiro**, separada da autenticação de admin abaixo — não é login por
-pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organização.
+Camada de acesso ao app **inteiro**, separada da autenticação de admin abaixo. Dois modos,
+mutuamente exclusivos, decididos automaticamente por `_tenants_com_login_configurado()`:
+
+- **Modo por tenant/pessoa** (Fase 16): ativo assim que **pelo menos um** tenant em
+  `TENANT_CONFIG` tem a secret `LOGIN_SENHA` configurada (`obter_secret_tenant(tenant_id,
+  "LOGIN_SENHA")`, mesma convenção `{TENANT_ID}_LOGIN_SENHA` das demais secrets por tenant). Cada
+  colega/consultoria é o seu próprio tenant, então "usuário" no login **é o `tenant_id`** — não
+  existe um cadastro de pessoa separado do tenant.
+- **Modo legado/senha única** (Fase 14/15): usado quando **nenhum** tenant tem `LOGIN_SENHA`
+  configurada — é o comportamento de desenvolvimento local de sempre, sem tenant nenhum atrelado
+  ao token.
 
 ### `POST /acesso/login`
-- **Body:** `{ senha }`
-- **Lógica:** compara com `SENAI_LABFASHION_ACCESS_PASSWORD` via `hmac.compare_digest`; bloqueio
-  de 15min após 5 tentativas incorretas **por IP** (diferente do admin, que hoje bloqueia por
-  tenant — ver nota da Task 2). Sem a variável de ambiente definida, o gate fica inteiramente
-  desligado e a rota sempre autoriza (comportamento de desenvolvimento local).
-- **Resposta:** `{ autorizado: bool, token: string | null }` — `token` é opaco, válido por 30
-  dias, exigido no header `X-Access-Token` em toda rota do backend, **exceto**, e só nestes
+- **Body:** `{ senha, tenant_id? }` — `tenant_id` só é exigido no modo por tenant/pessoa; ignorado
+  no modo legado.
+- **Lógica (modo por tenant/pessoa):** exige `tenant_id in TENANT_CONFIG`; compara `senha` com
+  `obter_secret_tenant(tenant_id, "LOGIN_SENHA")` via `hmac.compare_digest`; bloqueio de 15min após
+  5 tentativas incorretas **por IP**.
+- **Lógica (modo legado):** compara com `SENAI_LABFASHION_ACCESS_PASSWORD` via
+  `hmac.compare_digest`; mesmo bloqueio por IP. Sem a variável de ambiente definida (e sem nenhum
+  tenant com `LOGIN_SENHA`), o gate fica inteiramente desligado e a rota sempre autoriza
+  (comportamento de desenvolvimento local).
+- **Resposta:** `{ autorizado: bool, token: string | null, tenant_id?: string | null }` — `token`
+  é opaco, válido por 30 dias, exigido no header `X-Access-Token` em toda rota do backend. No modo
+  por tenant/pessoa, o token emitido **carrega o `tenant_id`** internamente
+  (`_ACCESS_TOKENS[token]["tenant_id"]`) e `verificar_acesso` passa a exigir que esse tenant bata
+  com o `tenant_id` que a rota chamada está pedindo (query param ou corpo JSON) — 403 se não bater
+  (Fase 16, L2; fecha o item que a Fase 15 deixou registrado como deliberadamente não resolvido:
+  "token de acesso não carrega tenant_id"). Um token do modo legado (`tenant_id: null`) não tem
+  essa restrição.
+
+  Exceções ao gate, e só nestes
   métodos (Fase 15, V1 — a isenção é por `(método, caminho)`, nunca só por caminho):
   - `GET /health`, `POST /acesso/login`, `GET /branding/logo`;
   - `GET /fichas/{id}/preview`, `GET /fichas/{id}/desenho/{versao}` (versão precisa ser numérica),
@@ -48,8 +69,9 @@ pessoa, é uma porta fechada para quem não sabe a senha compartilhada da organi
 - **Resposta:** `{ status: "encerrado" }`. Antes desta rota, a única forma de uma sessão de acesso
   deixar de valer era esperar os 30 dias de expiração ou reiniciar o processo Uvicorn — não havia
   como um usuário encerrar a própria sessão de propósito (ex.: saindo de um computador
-  compartilhado). Sem interface no frontend ainda — endpoint de backend, fundação para o login por
-  pessoa da próxima fase.
+  compartilhado). Sem uso no frontend até a Fase 15 (fundação); o botão "Sair" na home
+  (`frontend/src/app/page.tsx`, Fase 16) é o primeiro lugar que a chama de verdade -- limpa a
+  sessão local mesmo se a chamada ao backend falhar (token já expirado, por exemplo).
 
 Os dicionários `_ACCESS_TOKENS`/`_ADMIN_TOKENS` também passaram a ser purgados de entradas
 expiradas (Fase 15, V6) a cada novo login — antes só cresciam, nunca encolhiam, num servidor de

@@ -10,6 +10,7 @@ import {
   MensagemConversa,
   PendenteConfirmacao,
   ResumoEstatistico,
+  acessoLogout,
   atualizarConversa,
   baixarExportacaoConversa,
   confirmarCroqui,
@@ -24,6 +25,7 @@ import {
   UsoDiario,
 } from "@/lib/api";
 import { obterPerfilAtivo, definirPerfilAtivo, limparPerfilAtivo, obterUsuarioId } from "@/lib/usuario";
+import { notificarPerdaDeAcesso, obterTenantIdAtivo } from "@/lib/acesso";
 import { APP_NOME, MENSAGEM_BOAS_VINDAS } from "@/lib/branding";
 import ConversasHistorico from "@/components/ConversasHistorico";
 import ContatoSenai from "@/components/ContatoSenai";
@@ -41,7 +43,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bot, Download, FileStack, FileText, Globe, Images, Loader2, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
+import { Bot, Download, FileStack, FileText, Globe, Images, Loader2, LogOut, Paperclip, Palette, Ruler, Send, Settings, X } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -49,7 +51,12 @@ import remarkBreaks from "remark-breaks";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "motion/react";
 
-const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+// Fase 16, Bloco L: o tenant deixou de ser fixo em tempo de build -- o login por
+// pessoa/consultoria devolve qual tenant o token pertence (`obterTenantIdAtivo()`), e
+// NEXT_PUBLIC_TENANT_ID vira só o fallback (modo legado de senha única, sem tenant no token).
+function tenantIdAtivo(): string {
+  return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
+}
 const SUGESTOES_POR_MODO: Record<string, string[]> = {
   "Base de Conhecimento": [
     "Qual a diferença entre viscose e algodão?",
@@ -187,10 +194,10 @@ export default function ChatPage() {
     setModo(modoInicial);
     setSugestoesAtuais(embaralhar(sugestoesBase(modoInicial, perfilSalvo)));
 
-    listarConversas(TENANT_ID, uid)
+    listarConversas(tenantIdAtivo(), uid)
       .then(async (lista) => {
         if (lista.length === 0) {
-          const nova = await criarConversa(TENANT_ID, uid);
+          const nova = await criarConversa(tenantIdAtivo(), uid);
           setConversas([nova]);
           setConversaAtualId(nova.id);
           setMensagens([]);
@@ -205,7 +212,7 @@ export default function ChatPage() {
       })
       .catch(() => toast.error("Não foi possível carregar as conversas."));
 
-    obterUso(TENANT_ID).then(setUsoHoje).catch(() => setUsoHoje(null));
+    obterUso(tenantIdAtivo()).then(setUsoHoje).catch(() => setUsoHoje(null));
   }, []);
 
   useEffect(() => {
@@ -215,7 +222,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (modo !== "Base de Conhecimento") return;
     let cancelado = false;
-    listarDocumentos(TENANT_ID)
+    listarDocumentos(tenantIdAtivo())
       .then((lista) => { if (!cancelado) setDocumentosBaseConhecimento(lista); })
       .catch(() => { if (!cancelado) setDocumentosBaseConhecimento(null); });
     return () => { cancelado = true; };
@@ -251,10 +258,23 @@ export default function ChatPage() {
     setSugestoesAtuais(embaralhar(sugestoesBase(modo, null)));
   }
 
+  // Fase 16, Bloco L: primeiro lugar que de fato chama POST /acesso/logout (existia no backend
+  // desde a Fase 15, V6, sem nenhum botão que o acionasse). Limpa a sessão local mesmo se a
+  // chamada ao backend falhar (token já expirado, por exemplo) -- sair é sempre possível.
+  async function sair() {
+    try {
+      await acessoLogout();
+    } catch {
+      // ignora -- limpa a sessão local de qualquer forma
+    } finally {
+      notificarPerdaDeAcesso();
+    }
+  }
+
   async function novaConversa() {
     if (!usuarioId) return;
     try {
-      const nova = await criarConversa(TENANT_ID, usuarioId);
+      const nova = await criarConversa(tenantIdAtivo(), usuarioId);
       setConversas((atual) => [...atual, nova]);
       setConversaAtualId(nova.id);
       setMensagens([]);
@@ -267,7 +287,7 @@ export default function ChatPage() {
   async function renomearConversaAtual(id: string, novoTitulo: string) {
     if (!usuarioId) return;
     try {
-      const atualizada = await atualizarConversa(TENANT_ID, usuarioId, id, { novoTitulo });
+      const atualizada = await atualizarConversa(tenantIdAtivo(), usuarioId, id, { novoTitulo });
       setConversas((atual) => atual.map((c) => (c.id === id ? atualizada : c)));
     } catch (e) {
       toast.error(mensagemDeErro(e, "renomear conversa"));
@@ -277,7 +297,7 @@ export default function ChatPage() {
   async function excluirConversa(id: string) {
     if (!usuarioId) return;
     try {
-      await deletarConversa(TENANT_ID, usuarioId, id);
+      await deletarConversa(tenantIdAtivo(), usuarioId, id);
       const restantes = conversas.filter((c) => c.id !== id);
       setConversas(restantes);
 
@@ -296,7 +316,7 @@ export default function ChatPage() {
   async function exportarConversaAtual(formato: "txt" | "pdf") {
     if (!usuarioId || !conversaAtualId) return;
     try {
-      await baixarExportacaoConversa(TENANT_ID, usuarioId, conversaAtualId, formato);
+      await baixarExportacaoConversa(tenantIdAtivo(), usuarioId, conversaAtualId, formato);
     } catch (e) {
       toast.error(mensagemDeErro(e, `exportar conversa em ${formato.toUpperCase()}`));
     }
@@ -306,7 +326,7 @@ export default function ChatPage() {
     if (!conversaAtualId) return;
     setEnviandoPlanilha(true);
     try {
-      const resultado = await uploadPlanilha(TENANT_ID, conversaAtualId, arquivo);
+      const resultado = await uploadPlanilha(tenantIdAtivo(), conversaAtualId, arquivo);
       setArquivoAnexado({
         nome: resultado.nome_arquivo,
         linhas: resultado.linhas,
@@ -325,7 +345,7 @@ export default function ChatPage() {
 
   async function persistirMensagens(lista: MensagemConversa[]) {
     if (!usuarioId || !conversaAtualId) return;
-    const conversaAtualizada = await atualizarConversa(TENANT_ID, usuarioId, conversaAtualId, { mensagens: lista });
+    const conversaAtualizada = await atualizarConversa(tenantIdAtivo(), usuarioId, conversaAtualId, { mensagens: lista });
     setConversas((atual) => atual.map((c) => (c.id === conversaAtualId ? conversaAtualizada : c)));
   }
 
@@ -335,7 +355,7 @@ export default function ChatPage() {
 
     const mensagensComUsuario: MensagemConversa[] = [
       ...mensagens,
-      { role: "user", content: texto, tenant_id: TENANT_ID, arquivo_anexado: arquivoAnexado },
+      { role: "user", content: texto, tenant_id: tenantIdAtivo(), arquivo_anexado: arquivoAnexado },
     ];
     setMensagens(mensagensComUsuario);
     setEntrada("");
@@ -344,7 +364,7 @@ export default function ChatPage() {
 
     try {
       const resposta = await enviarMensagemChat({
-        tenantId: TENANT_ID,
+        tenantId: tenantIdAtivo(),
         mensagem: texto,
         modo,
         conversationId: conversaAtualId,
@@ -371,7 +391,7 @@ export default function ChatPage() {
           role: "assistant",
           content: resposta.resposta ?? "",
           mode: modo,
-          tenant_id: TENANT_ID,
+          tenant_id: tenantIdAtivo(),
           fontes_consultadas: resposta.fontes_consultadas,
           trechos_consultados: resposta.trechos_consultados,
           imagem_url: resposta.imagem_url ?? null,
@@ -380,7 +400,7 @@ export default function ChatPage() {
       ];
       setMensagens(mensagensFinais);
       await persistirMensagens(mensagensFinais);
-      obterUso(TENANT_ID).then(setUsoHoje).catch(() => {});
+      obterUso(tenantIdAtivo()).then(setUsoHoje).catch(() => {});
     } catch (e) {
       toast.error(mensagemDeErro(e, "enviar mensagem"));
     } finally {
@@ -392,14 +412,14 @@ export default function ChatPage() {
     if (!pendenteConfirmacao) return;
     setCarregando(true);
     try {
-      const resultado = await confirmarCroqui(TENANT_ID, confirmado, pendenteConfirmacao);
+      const resultado = await confirmarCroqui(tenantIdAtivo(), confirmado, pendenteConfirmacao);
       const mensagensFinais: MensagemConversa[] = [
         ...mensagens,
         {
           role: "assistant",
           content: resultado.resposta,
           mode: "Gerador de Croqui",
-          tenant_id: TENANT_ID,
+          tenant_id: tenantIdAtivo(),
           imagem_url: resultado.imagem_url,
           croqui_id: resultado.croqui_id ?? null,
           ficha_link: resultado.redirecionar_para ?? null,
@@ -514,6 +534,15 @@ export default function ChatPage() {
               <Settings className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Configurações</span>
             </Link>
+            <button
+              onClick={sair}
+              className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+              aria-label="Sair"
+              title="Sair"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
           </div>
         </header>
 
@@ -617,7 +646,7 @@ export default function ChatPage() {
                 {(m.croqui_id || m.imagem_url) && (
                   <div className="mt-2 w-48">
                     <ImagemGerada
-                      src={m.croqui_id ? urlCroqui(TENANT_ID, m.croqui_id) : m.imagem_url!}
+                      src={m.croqui_id ? urlCroqui(tenantIdAtivo(), m.croqui_id) : m.imagem_url!}
                       alt="Croqui gerado pela IA"
                     />
                   </div>

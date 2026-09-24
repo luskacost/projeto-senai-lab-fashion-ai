@@ -7,7 +7,12 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { acessoLogin } from "@/lib/api";
-import { definirTokenAcesso, obterTokenAcesso, registrarAoPerderAcesso } from "@/lib/acesso";
+import {
+  definirTenantIdAtivo,
+  definirTokenAcesso,
+  obterTokenAcesso,
+  registrarAoPerderAcesso,
+} from "@/lib/acesso";
 import { mensagemAmigavel } from "@/lib/erros";
 import { APP_NOME } from "@/lib/branding";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,6 +24,9 @@ export default function PortaoDeAcesso({ children }: { children: React.ReactNode
   // null = ainda verificando localStorage (evita piscar a tela de senha antes de checar);
   // depois disso, true/false conforme haja token salvo.
   const [autenticado, setAutenticado] = useState<boolean | null>(null);
+  // Usuário = tenant_id da consultoria (Fase 16, Bloco L) -- em desenvolvimento local (nenhum
+  // tenant com LOGIN_SENHA configurada no backend) pode ficar em branco, o backend ignora.
+  const [usuario, setUsuario] = useState("");
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [validando, setValidando] = useState(false);
@@ -36,12 +44,13 @@ export default function PortaoDeAcesso({ children }: { children: React.ReactNode
     setValidando(true);
     setErro(null);
     try {
-      const token = await acessoLogin(senha);
-      if (token) {
-        definirTokenAcesso(token);
+      const resultado = await acessoLogin(senha, usuario || undefined);
+      if (resultado.autorizado && resultado.token) {
+        definirTokenAcesso(resultado.token);
+        if (resultado.tenantId) definirTenantIdAtivo(resultado.tenantId);
         setAutenticado(true);
       } else {
-        setErro("Senha incorreta.");
+        setErro("Usuário ou senha incorretos.");
       }
     } catch (e) {
       setErro(mensagemAmigavel(e, "Não foi possível entrar. Tente novamente."));
@@ -61,15 +70,21 @@ export default function PortaoDeAcesso({ children }: { children: React.ReactNode
           <Card>
             <CardHeader>
               <CardTitle>Acesso ao {APP_NOME}</CardTitle>
-              <CardDescription>Informe a senha de acesso para entrar no assistente.</CardDescription>
+              <CardDescription>Informe seu usuário e senha para entrar no assistente.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <Input
+                type="text"
+                value={usuario}
+                onChange={(e) => setUsuario(e.target.value)}
+                placeholder="Usuário"
+                autoFocus
+              />
               <Input
                 type="password"
                 value={senha}
                 onChange={(e) => setSenha(e.target.value)}
                 placeholder="Senha"
-                autoFocus
               />
               {erro && <p className="text-sm text-destructive">{erro}</p>}
               <Button type="submit" disabled={validando || !senha} className="w-full">
