@@ -1,14 +1,32 @@
 # SENAI LabFashion IA
 
-Assistente de IA para a indústria da moda, multi-tenant, com 8 modos especializados (consultoria
-de estilo, ensino técnico, engenharia têxtil, geração de croquis/fichas técnicas, tendências,
-análise de dados, base de conhecimento documental via RAG, e um assistente generalista sem
-restrição de escopo) construído sobre uma arquitetura agentiva: o modelo decide sozinho quando
-responder de conhecimento próprio, pesquisar na web, ou consultar dados/ferramentas do sistema.
+Assistente de IA para a indústria da moda: um chat com 8 modos especializados -- consultoria de
+estilo, ensino técnico, engenharia têxtil, geração de croquis e fichas técnicas completas
+(desenho + medidas + materiais + preço), análise de dados de planilha, tendências com busca real
+na web, base de conhecimento documental (RAG) sobre os documentos internos de cada empresa, e um
+modo generalista sem restrição de assunto.
 
-Arquitetura: **backend FastAPI** (Python) + **frontend Next.js** (React/TypeScript), separados --
-não é mais a aplicação Streamlit original (código preservado na tag git `pre-remocao-streamlit`,
-caso precise consultar).
+Não é um wrapper fino sobre uma API de LLM: o modelo decide sozinho, a cada mensagem, se responde
+de conhecimento próprio, busca na web ou aciona uma ferramenta do sistema (RAG, resumo de
+planilha, geração de imagem) -- arquitetura agentiva de ponta a ponta, com moderação de conteúdo,
+limites de uso diário por tenant, e defesa contra prompt injection em todo conteúdo de terceiro
+(documento, planilha, resultado de busca web) -- ver "Segurança" na seção "Arquitetura do agente"
+mais abaixo.
+
+<!-- Screenshot do chat em uso aqui. -->
+
+**Stack:** backend FastAPI (Python) + frontend Next.js (React/TypeScript), separados -- não é mais
+a aplicação Streamlit original (código preservado na tag git `pre-remocao-streamlit`).
+
+## Como rodar
+
+```bash
+cp .env.example .env   # preencha com suas chaves, ver "Variáveis de ambiente" abaixo
+docker compose up --build
+```
+
+Acesse [http://localhost:3000](http://localhost:3000). Sem Docker, ou para detalhes de deploy em
+produção, ver "Como rodar localmente" e "Deploy em produção" mais abaixo.
 
 ---
 
@@ -280,18 +298,11 @@ npm run dev                     # http://localhost:3000
 
 Acesse `http://localhost:3000` no navegador.
 
-## Como rodar com Docker
-
-```bash
-cp .env.example .env            # preencha com suas chaves reais
-docker compose up --build
-```
-
-- Frontend: [http://localhost:3000](http://localhost:3000)
-- Backend (API): [http://localhost:8000](http://localhost:8000) -- healthcheck em `/health`
-
-Para deploy numa VPS com domínio próprio, ver `nginx.conf.example` (reverse proxy) e a seção
-"Deploy em produção" abaixo.
+Com Docker (backend + frontend juntos, ver o quick-start no topo deste README):
+[http://localhost:3000](http://localhost:3000) (frontend) e
+[http://localhost:8000](http://localhost:8000) (API, healthcheck em `/health`). Para deploy numa
+VPS com domínio próprio, ver `nginx.conf.example` (reverse proxy) e a seção "Deploy em produção"
+abaixo.
 
 ## Variáveis de ambiente (`.env`)
 
