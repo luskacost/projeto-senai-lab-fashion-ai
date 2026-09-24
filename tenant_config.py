@@ -26,35 +26,17 @@ PERFIS_USUARIO = {
     },
 }
 
-TENANT_CONFIG = {
-    "senai_labfashion": {
-        "nome": "SENAI LabFashion IA",
-        "cor_primaria": "#0047AB",
-        "cor_secundaria": "#F47B20",
-        # limite_mensagens_dia existia desde sempre mas nunca era de fato verificado em nenhuma
-        # rota -- ativado em POST /chat na Fase 10, Task 8. limite_buscas_web_dia é novo na mesma
-        # task: teto separado (mais baixo que limite_mensagens_dia) porque cada busca via
-        # web_search custa bem mais tokens de input que uma mensagem comum (~17.6k tokens medidos
-        # numa busca real contra a API, ver auditoria da Fase 10) -- sem ele, um único modo
-        # (Tendências) poderia consumir a maior parte do orçamento diário do tenant sozinho.
-        "limite_mensagens_dia": 200,
-        "limite_imagens_dia": 30,
-        "limite_buscas_web_dia": 50,
-        # Fase 11, Task 6: extrair dados de ficha técnica a partir de texto livre é uma chamada de
-        # API própria (fichas_extracao.extrair_dados), fora do fluxo de /chat -- sem um limite
-        # dedicado, POST /fichas com texto_origem ficaria com gasto ilimitado, ao contrário de
-        # toda outra ação com custo de API neste tenant.
-        "limite_fichas_dia": 30,
-        # Preço sugerido (Fase 14, Bloco P, Task 19): parâmetros padrão aplicados a toda ficha
-        # nova (fichas_repo.criar_ficha), editáveis por ficha depois em ficha["precificacao"] --
-        # este bloco é só a semente. Zerados por padrão: sem configurar nada, o preço sugerido sai
-        # igual ao custo (fichas_precificacao.parametros_padrao()), nunca um percentual inventado.
-        "precificacao_padrao": {
-            "imposto_percentual": 0.0,
-            "comissao_percentual": 0.0,
-            "margem_lucro_percentual": 0.0,
-        },
-        # Regras de segurança: sempre aplicadas, em TODOS os modos (inclusive o "Assistente Geral",
+# Fase 16, Bloco L, L7: com mais de um tenant (senai_labfashion + os consultores abaixo), os
+# modos/prompts -- que nunca variaram por tenant, sempre foram genéricos ao produto -- passaram a
+# ser compartilhados por referência em vez de duplicados por tenant. Antes de existir um segundo
+# tenant de verdade, duplicar não doía; com três (e mais vindo por aí), uma correção de prompt
+# precisaria ser replicada em cada bloco manualmente -- risco real de esquecer um. Nada aqui
+# depende de tenant_id: `carregar_config_tenant` só faz merge de campos de branding
+# (nome/cores/logo/etc, por tenant, vindos de `tenant_data/{tenant_id}.json`), nunca escreve de
+# volta em `modos`/`prompt_seguranca`/etc -- compartilhar esses dicts por referência entre tenants
+# é seguro (não há mutação em memória em lugar nenhum, só leitura).
+_CONFIG_MODOS_PADRAO = {
+    # Regras de segurança: sempre aplicadas, em TODOS os modos (inclusive o "Assistente Geral",
         # que não tem restrição de escopo a moda). Separado de prompt_escopo_moda abaixo para que o
         # modo generalista possa herdar só a parte de segurança (Fase 7, Bloco E).
         #
@@ -381,38 +363,93 @@ Recuse perguntas fora do escopo educadamente.""",
             }
         }
     }
+
+TENANT_CONFIG = {
+    "senai_labfashion": {
+        "nome": "SENAI LabFashion IA",
+        "cor_primaria": "#0047AB",
+        "cor_secundaria": "#F47B20",
+        # limite_mensagens_dia existia desde sempre mas nunca era de fato verificado em nenhuma
+        # rota -- ativado em POST /chat na Fase 10, Task 8. limite_buscas_web_dia é novo na mesma
+        # task: teto separado (mais baixo que limite_mensagens_dia) porque cada busca via
+        # web_search custa bem mais tokens de input que uma mensagem comum (~17.6k tokens medidos
+        # numa busca real contra a API, ver auditoria da Fase 10) -- sem ele, um único modo
+        # (Tendências) poderia consumir a maior parte do orçamento diário do tenant sozinho.
+        "limite_mensagens_dia": 200,
+        "limite_imagens_dia": 30,
+        "limite_buscas_web_dia": 50,
+        # Fase 11, Task 6: extrair dados de ficha técnica a partir de texto livre é uma chamada de
+        # API própria (fichas_extracao.extrair_dados), fora do fluxo de /chat -- sem um limite
+        # dedicado, POST /fichas com texto_origem ficaria com gasto ilimitado, ao contrário de
+        # toda outra ação com custo de API neste tenant.
+        "limite_fichas_dia": 30,
+        # Preço sugerido (Fase 14, Bloco P, Task 19): parâmetros padrão aplicados a toda ficha
+        # nova (fichas_repo.criar_ficha), editáveis por ficha depois em ficha["precificacao"] --
+        # este bloco é só a semente. Zerados por padrão: sem configurar nada, o preço sugerido sai
+        # igual ao custo (fichas_precificacao.parametros_padrao()), nunca um percentual inventado.
+        "precificacao_padrao": {
+            "imposto_percentual": 0.0,
+            "comissao_percentual": 0.0,
+            "margem_lucro_percentual": 0.0,
+        },
+        **_CONFIG_MODOS_PADRAO,
+    },
+    # Consultores externos (Fase 16, Bloco L, L7) -- cada um é o seu próprio tenant (RAG,
+    # conversas e limites diários isolados), login com o próprio tenant_id + LOGIN_SENHA (ver
+    # .env). "Onde cada um está fazendo consultoria" é irrelevante por decisão do usuário nesta
+    # fase -- por isso usam os mesmos modos/limites/branding padrão do produto, sem
+    # personalização por cliente. Senhas iniciais são provisórias (definidas pelo usuário) --
+    # ainda não há tela de troca de senha; ver TODO no README quando essa task entrar em pauta.
+    "consultor_morgana": {
+        "nome": "Morgana",
+        "cor_primaria": "#0047AB",
+        "cor_secundaria": "#F47B20",
+        "limite_mensagens_dia": 200,
+        "limite_imagens_dia": 30,
+        "limite_buscas_web_dia": 50,
+        "limite_fichas_dia": 30,
+        "precificacao_padrao": {
+            "imposto_percentual": 0.0,
+            "comissao_percentual": 0.0,
+            "margem_lucro_percentual": 0.0,
+        },
+        **_CONFIG_MODOS_PADRAO,
+    },
+    "consultor_isabella": {
+        "nome": "Isabella",
+        "cor_primaria": "#0047AB",
+        "cor_secundaria": "#F47B20",
+        "limite_mensagens_dia": 200,
+        "limite_imagens_dia": 30,
+        "limite_buscas_web_dia": 50,
+        "limite_fichas_dia": 30,
+        "precificacao_padrao": {
+            "imposto_percentual": 0.0,
+            "comissao_percentual": 0.0,
+            "margem_lucro_percentual": 0.0,
+        },
+        **_CONFIG_MODOS_PADRAO,
+    },
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # COMO ADICIONAR UM NOVO TENANT (Fase 16, Bloco L, L7)
 #
-# Cada colega/consultoria que vai testar o app é o seu próprio tenant -- login por pessoa (ver
-# api/main.py:acesso_login) É login por tenant, e cada tenant tem RAG, conversas e limites diários
-# isolados dos de outro. Cada entrada aqui é standalone: `carregar_config_tenant` não mescla nada
-# de outro tenant (só faz merge com um arquivo de customização opcional em
-# `tenant_data/{tenant_id}.json`) -- então um tenant novo precisa da própria cópia completa de
-# `modos`/`prompt_seguranca`/etc, não herda nada de `senai_labfashion` automaticamente.
+# Cada colega/consultoria é o seu próprio tenant -- login por pessoa (ver api/main.py:acesso_login)
+# É login por tenant, e cada tenant tem RAG, conversas e limites diários isolados dos de outro.
+# `modos`/`prompt_seguranca`/etc são compartilhados por referência via `_CONFIG_MODOS_PADRAO`
+# (acima) -- não precisam ser duplicados por tenant, só os campos de branding/limite.
 #
 # Passo a passo:
-#   1. Escolher um `tenant_id` (slug, minúsculo, `_`/`-` apenas -- ex.: "consultoria_empresa_x").
-#   2. Copiar o bloco `"senai_labfashion": {...}` acima inteiro, colar como uma nova chave deste
-#      dict com o `tenant_id` escolhido, e ajustar `nome`/`cor_primaria`/`cor_secundaria` (os
-#      prompts de segurança/escopo geralmente podem ficar iguais, salvo necessidade específica).
+#   1. Escolher um `tenant_id` (slug, minúsculo, `_`/`-` apenas -- ex.: "consultor_nome").
+#   2. Adicionar uma nova entrada em TENANT_CONFIG acima, no formato de "consultor_morgana"/
+#      "consultor_isabella": `nome`, `cor_primaria`, `cor_secundaria`, os 4 limites diários,
+#      `precificacao_padrao`, e `**_CONFIG_MODOS_PADRAO` no final.
 #   3. Definir a secret de login no `.env` do backend: `{TENANT_ID_MAIUSCULO}_LOGIN_SENHA=...`
 #      (ver `.env.example`) -- assim que QUALQUER tenant tiver essa variável, o modo legado de
 #      senha única deixa de valer para todo mundo (ver `_tenants_com_login_configurado` em
 #      `api/main.py`).
 #   4. Reiniciar o backend para carregar o novo tenant e a secret.
-#
-# Placeholder abaixo NUNCA fica ativo (não é uma chave real do dict) -- é só o lembrete do
-# formato. Preencher com os dados reais das consultorias quando estiverem definidos.
-#
-# TENANT_CONFIG["consultoria_exemplo"] = {
-#     "nome": "Nome da Consultoria/Empresa",
-#     "cor_primaria": "#0047AB",
-#     "cor_secundaria": "#F47B20",
-#     ... (resto igual ao bloco "senai_labfashion" acima)
-# }
 
 
 def obter_secret_tenant(tenant_id: str, chave: str, default: str = "") -> str:

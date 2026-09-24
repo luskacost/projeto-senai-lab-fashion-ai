@@ -18,7 +18,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from api.main import _ACCESS_LOGIN_TENTATIVAS, _ACCESS_TOKENS, app
+from api.main import _ACCESS_LOGIN_TENTATIVAS, _ACCESS_TOKENS, _tenants_com_login_configurado, app
 from tenant_config import TENANT_CONFIG
 
 TENANT_TESTE = "consultoria_teste_fase16"
@@ -142,6 +142,21 @@ class TestLoginPorTenant(unittest.TestCase):
             "/acesso/login", json={"tenant_id": TENANT_TESTE, "senha": "senha-consultoria-123"}
         )
         self.assertEqual(resposta.status_code, 429)
+
+
+class TestIsolamentoDaSuiteContraLoginSenhaReal(unittest.TestCase):
+    """Guarda contra a suíte inteira "vazar" para o modo por tenant/pessoa por causa de um
+    `.env` real com `{TENANT}_LOGIN_SENHA` configurada (ex.: consultores de verdade cadastrados
+    em produção/na máquina de quem roda os testes) -- sem isolamento, TODO teste que espera o
+    modo legado (gate desligado ou senha única) quebra, porque `_tenants_com_login_configurado()`
+    deixaria de devolver lista vazia. `tests/app/__init__.py` varre e remove essas variáveis do
+    ambiente uma vez, antes de qualquer teste rodar -- este teste confirma que a varredura
+    funcionou (não que ela existe: se `tests/app/__init__.py` for descuidadamente movido de volta
+    para `tests/__init__.py`, por exemplo, ele nunca roda de verdade sob `python -m unittest
+    discover -s tests`, e este teste pega isso)."""
+
+    def test_nenhum_tenant_com_login_configurado_por_padrao(self):
+        self.assertEqual(_tenants_com_login_configurado(), [])
 
 
 if __name__ == "__main__":
