@@ -11,3 +11,7 @@ __pycache__/
 .venv/
 SenaiLabFashionAssitant/
 scratch/
+
+# Fase 15, Bloco H (H1): dados reais de contato (endereços, telefones, e-mails nominais) -- o
+# repositório é público, o app usa contatos_senai.py (fictício) sem este arquivo.
+contatos_senai_local.py

@@ -103,21 +103,21 @@ class TestFerramentaInternaSemConfirmacao(unittest.TestCase):
     def test_executa_ferramenta_e_continua_ate_resposta_final(self, mock_executar):
         from agente_ferramentas import ResultadoFerramenta
 
-        mock_executar.return_value = ResultadoFerramenta(conteudo="Escola SENAI Catalão: (64) 3445-1700")
+        mock_executar.return_value = ResultadoFerramenta(conteudo="Escola Teste Conceição: (11) 4000-0003")
 
         client = MagicMock()
-        call = _function_call_item("call_1", "consultar_unidades_senai", '{"termo": "catalao"}')
+        call = _function_call_item("call_1", "consultar_unidades_senai", '{"termo": "conceicao"}')
         client.responses.create.side_effect = [
             _resposta([call], ""),
-            _resposta([], "O telefone da unidade de Catalão é (64) 3445-1700."),
+            _resposta([], "O telefone da unidade de Conceição é (11) 4000-0003."),
         ]
 
         resultado = chamar_agente(
-            client, "instrucoes", ["consultar_unidades_senai"], [{"role": "user", "content": "telefone catalao?"}],
+            client, "instrucoes", ["consultar_unidades_senai"], [{"role": "user", "content": "telefone conceicao?"}],
             ContextoExecucao(tenant_id="senai_labfashion"),
         )
 
-        self.assertEqual(resultado.texto, "O telefone da unidade de Catalão é (64) 3445-1700.")
+        self.assertEqual(resultado.texto, "O telefone da unidade de Conceição é (11) 4000-0003.")
         self.assertEqual(client.responses.create.call_count, 2)
         segunda_chamada = client.responses.create.call_args_list[1].kwargs
         # A rodada seguinte precisa carregar o function_call original + o output executado.
