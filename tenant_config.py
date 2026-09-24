@@ -383,6 +383,37 @@ Recuse perguntas fora do escopo educadamente.""",
     }
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# COMO ADICIONAR UM NOVO TENANT (Fase 16, Bloco L, L7)
+#
+# Cada colega/consultoria que vai testar o app é o seu próprio tenant -- login por pessoa (ver
+# api/main.py:acesso_login) É login por tenant, e cada tenant tem RAG, conversas e limites diários
+# isolados dos de outro. Cada entrada aqui é standalone: `carregar_config_tenant` não mescla nada
+# de outro tenant (só faz merge com um arquivo de customização opcional em
+# `tenant_data/{tenant_id}.json`) -- então um tenant novo precisa da própria cópia completa de
+# `modos`/`prompt_seguranca`/etc, não herda nada de `senai_labfashion` automaticamente.
+#
+# Passo a passo:
+#   1. Escolher um `tenant_id` (slug, minúsculo, `_`/`-` apenas -- ex.: "consultoria_empresa_x").
+#   2. Copiar o bloco `"senai_labfashion": {...}` acima inteiro, colar como uma nova chave deste
+#      dict com o `tenant_id` escolhido, e ajustar `nome`/`cor_primaria`/`cor_secundaria` (os
+#      prompts de segurança/escopo geralmente podem ficar iguais, salvo necessidade específica).
+#   3. Definir a secret de login no `.env` do backend: `{TENANT_ID_MAIUSCULO}_LOGIN_SENHA=...`
+#      (ver `.env.example`) -- assim que QUALQUER tenant tiver essa variável, o modo legado de
+#      senha única deixa de valer para todo mundo (ver `_tenants_com_login_configurado` em
+#      `api/main.py`).
+#   4. Reiniciar o backend para carregar o novo tenant e a secret.
+#
+# Placeholder abaixo NUNCA fica ativo (não é uma chave real do dict) -- é só o lembrete do
+# formato. Preencher com os dados reais das consultorias quando estiverem definidos.
+#
+# TENANT_CONFIG["consultoria_exemplo"] = {
+#     "nome": "Nome da Consultoria/Empresa",
+#     "cor_primaria": "#0047AB",
+#     "cor_secundaria": "#F47B20",
+#     ... (resto igual ao bloco "senai_labfashion" acima)
+# }
+
 
 def obter_secret_tenant(tenant_id: str, chave: str, default: str = "") -> str:
     """Obtém uma credencial/secret por tenant com fallback seguro para variáveis de ambiente.
