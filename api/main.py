@@ -1836,7 +1836,15 @@ def debug_rag(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-To
 # não precisa de lógica própria para impedir escrever "em nome" de outro tenant: o gate global
 # (`verificar_acesso`, Fase 16, L2) já garante isso pra qualquer rota com `tenant_id` no corpo,
 # comparando contra o tenant do token de acesso.
+#
+# `GET /sugestoes/resumo-geral` (abaixo) é a única exceção deliberada ao isolamento por tenant:
+# o dono do produto (`TENANT_DONO`) precisa ficar sabendo de sugestões/reportes vindos de
+# QUALQUER consultoria sem logar em cada tenant separado -- os consultores continuam sem ver o
+# resumo uns dos outros (só quem loga como `TENANT_DONO` recebe o agregado).
 # ─────────────────────────────────────────────────────────────────────────────
+TENANT_DONO = "senai_labfashion"
+
+
 class NovaSugestaoRequest(BaseModel):
     tenant_id: str
     tipo: str
@@ -1857,3 +1865,22 @@ def criar_sugestao(payload: NovaSugestaoRequest) -> Dict[str, Any]:
 def listar_sugestoes(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> List[Dict[str, Any]]:
     verificar_token_admin(tenant_id, x_admin_token)
     return carregar_sugestoes(tenant_id)
+
+
+@app.get("/sugestoes/resumo-geral")
+def resumo_geral_sugestoes(x_access_token: Optional[str] = Header(None, alias="X-Access-Token")) -> Dict[str, Any]:
+    """Contagem agregada de sugestões/reportes de TODOS os tenants -- só para `TENANT_DONO`.
+
+    Autenticação própria (não reaproveita `verificar_token_admin`, que exige um `tenant_id` de
+    entrada): o gate global (`verificar_acesso`) já garante que só um token de acesso válido
+    chega aqui, então só falta checar que esse token pertence ao tenant dono, não a um
+    consultor. Token do modo legado (sem tenant, `tenant_id: None`) é sempre permitido -- é o
+    modo de um app com um dono só, mesma lógica de antes da Fase 16.
+    """
+    dados_token = _ACCESS_TOKENS.get(x_access_token or "")
+    tenant_do_token = dados_token.get("tenant_id") if dados_token else None
+    if tenant_do_token is not None and tenant_do_token != TENANT_DONO:
+        raise HTTPException(status_code=403, detail="Resumo agregado disponível só para o tenant principal.")
+
+    por_tenant = {tid: len(carregar_sugestoes(tid)) for tid in TENANT_CONFIG}
+    return {"total": sum(por_tenant.values()), "por_tenant": por_tenant}

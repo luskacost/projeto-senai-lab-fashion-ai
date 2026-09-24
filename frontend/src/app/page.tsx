@@ -19,7 +19,9 @@ import {
   enviarMensagemChat,
   listarConversas,
   listarDocumentos,
+  obterResumoGeralSugestoes,
   obterUso,
+  ResumoGeralSugestoes,
   uploadPlanilha,
   urlCroqui,
   UsoDiario,
@@ -171,6 +173,11 @@ export default function ChatPage() {
   // envio (o backend só incrementa o contador depois de responder), pra mostrar "restam N
   // mensagens hoje" antes do limite chegar como uma mensagem de erro na hora de enviar.
   const [usoHoje, setUsoHoje] = useState<UsoDiario | null>(null);
+  // Resumo agregado de sugestões/reportes de todos os tenants (Fase 16, a pedido do usuário) --
+  // fica `null` tanto enquanto carrega quanto quando o backend recusa (403, tenant não é o dono),
+  // então o badge simplesmente não aparece nesses dois casos, sem distinguir "carregando" de
+  // "não é pra mim ver".
+  const [resumoSugestoes, setResumoSugestoes] = useState<ResumoGeralSugestoes | null>(null);
   // Sem embaralhar aqui: o estado inicial precisa ser identico entre o HTML renderizado no
   // servidor e a primeira renderizacao no cliente (Math.random() geraria ordens diferentes e
   // quebraria a hidratacao). O useEffect de montagem abaixo reembaralha assim que roda no
@@ -213,6 +220,7 @@ export default function ChatPage() {
       .catch(() => toast.error("Não foi possível carregar as conversas."));
 
     obterUso(tenantIdAtivo()).then(setUsoHoje).catch(() => setUsoHoje(null));
+    obterResumoGeralSugestoes().then(setResumoSugestoes).catch(() => setResumoSugestoes(null));
   }, []);
 
   useEffect(() => {
@@ -527,12 +535,21 @@ export default function ChatPage() {
             </Link>
             <Link
               href="/sugestoes"
-              className="inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
+              className="relative inline-flex min-h-11 items-center gap-1 rounded-md px-2 text-sm font-normal text-muted-foreground hover:bg-muted hover:text-foreground sm:min-h-0 sm:px-0 sm:hover:bg-transparent"
               aria-label="Sugestões e reporte de erro"
-              title="Sugestões e reporte de erro"
+              title={
+                resumoSugestoes && resumoSugestoes.total > 0
+                  ? `Sugestões e reporte de erro (${resumoSugestoes.total} no total, de todos os consultores)`
+                  : "Sugestões e reporte de erro"
+              }
             >
               <MessageSquareWarning className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Sugestões</span>
+              {resumoSugestoes && resumoSugestoes.total > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground sm:static sm:ml-0.5">
+                  {resumoSugestoes.total}
+                </span>
+              )}
             </Link>
             <Link
               href="/admin"

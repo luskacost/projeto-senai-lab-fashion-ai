@@ -473,3 +473,16 @@ Sem e-mail/Slack/integração nenhuma de propósito (decisão do usuário) — f
   criadas (o frontend inverte para mostrar a mais recente primeiro). Consumida pela seção
   "Sugestões e reportes de erro" dentro do `/admin` já existente (não é uma tela de revisão à
   parte, Fase 16, S4).
+
+### `GET /sugestoes/resumo-geral` — headers `X-Access-Token`
+- Única exceção deliberada ao isolamento por tenant do Bloco S: o dono do produto
+  (`TENANT_DONO` em `api/main.py`, hoje `senai_labfashion`) precisa saber que chegou
+  sugestão/reporte de QUALQUER consultoria sem logar em cada tenant separado. Autenticação
+  própria (não usa `X-Admin-Token`) -- olha o `tenant_id` já embutido no token de acesso comum
+  (Fase 16, L1) e recusa com `403` se não for o do dono. Token do modo legado (sem tenant) é
+  sempre permitido -- é o caso de um app com um dono só, mesma lógica de antes da Fase 16.
+- **Resposta:** `{ total: int, por_tenant: { [tenant_id]: int } }` -- soma de
+  `len(carregar_sugestoes(tenant_id))` de todo `TENANT_CONFIG`.
+- Consumida pela home (`frontend/src/app/page.tsx`) para mostrar um badge de contagem no link
+  "Sugestões" -- `403` é tratado como "sem badge" (não é um erro pro usuário, só significa que
+  esse tenant não é o dono).

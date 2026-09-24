@@ -969,3 +969,21 @@ export async function listarSugestoes(tenantId: string, tokenAdmin: string): Pro
     headers: { "X-Admin-Token": tokenAdmin },
   });
 }
+
+// Resumo agregado (Fase 16, a pedido do usuário depois do Bloco S) -- só o tenant dono do produto
+// (TENANT_DONO no backend) recebe isto; qualquer outro tenant recebe 403, que esta função trata
+// como "sem resumo" (null) em vez de propagar o erro -- consultores não devem ver um badge de
+// erro só porque a rota não é pra eles.
+export interface ResumoGeralSugestoes {
+  total: number;
+  por_tenant: Record<string, number>;
+}
+
+export async function obterResumoGeralSugestoes(): Promise<ResumoGeralSugestoes | null> {
+  try {
+    return await request<ResumoGeralSugestoes>("/sugestoes/resumo-geral");
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 403) return null;
+    throw e;
+  }
+}
