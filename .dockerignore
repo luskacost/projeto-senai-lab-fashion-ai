@@ -24,6 +24,14 @@ frontend/.next/
 # IDE Configuration Files
 .vscode/
 .idea/
+.claude/
+
+# CI e outros arquivos que não fazem sentido dentro da imagem
+.github/
+
+# Lembrete pessoal de comandos (git-ignorado, nunca deveria ir pra imagem mesmo se existir
+# localmente -- ver nota em .gitignore)
+executavel.txt
 
 # Ferramentas de análise/benchmark locais (nunca versionadas, ver .gitignore)
 scratch/
