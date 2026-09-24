@@ -327,14 +327,25 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 
 ## Deploy em produção (VPS)
 
-1. `docker compose build` com os build args corretos do frontend (domínio público real):
+1. **Antes de tudo, configurar quem vai entrar** (Fase 16, Bloco L) -- para cada colega/consultoria
+   que vai usar o servidor, adicionar uma entrada em `TENANT_CONFIG` (`tenant_config.py`) e definir
+   `{TENANT_ID}_LOGIN_SENHA` no `.env` do backend (ver `.env.example`). Pular este passo mantém o
+   app no modo legado de senha única -- aceitável só se for mesmo um único grupo de usuários, sem
+   necessidade de isolar dado entre consultorias diferentes.
+2. `docker compose build` com os build args corretos do frontend (domínio público real):
    ```bash
    NEXT_PUBLIC_API_URL=https://seu-dominio.com/api docker compose build frontend
    ```
-2. Definir `CORS_ALLOWED_ORIGINS=https://seu-dominio.com` no `.env` do backend.
-3. `docker compose up -d`.
-4. Configurar um reverse proxy (Nginx) na frente dos dois serviços -- ver `nginx.conf.example`
+3. Definir `CORS_ALLOWED_ORIGINS=https://seu-dominio.com` no `.env` do backend.
+4. `docker compose up -d`.
+5. Configurar um reverse proxy (Nginx) na frente dos dois serviços -- ver `nginx.conf.example`
    (roteia `/` pro frontend, `/api/` pro backend) e configurar TLS (ex: Certbot/Let's Encrypt).
+
+Limite de taxa por IP (Fase 16, Bloco D): `/chat` (20 req/min), `/documentos/upload` e
+`/planilha/upload` (5 req/min cada) já têm um teto simples embutido (`api/main.py:_limitar_taxa`),
+sem depender de configuração externa nenhuma -- não substitui um rate-limit de borda (Nginx/CDN)
+para um servidor exposto à internet em geral, mas cobre as rotas que de fato custam dinheiro
+(chamada à API da OpenAI) ou CPU (parsing/indexação) por requisição.
 
 ## Acesso ao app / login por pessoa (Fase 14, Bloco S; Fase 16, Bloco L)
 

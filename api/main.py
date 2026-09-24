@@ -715,7 +715,42 @@ def _chat_via_agente(payload: "ChatRequest", config: Dict[str, Any]) -> Dict[str
     }
 
 
-@app.post("/chat")
+# ─────────────────────────────────────────────────────────────────────────────
+# LIMITE DE TAXA POR IP (Fase 16, Bloco D, D1)
+#
+# Antes disto, só o login (`_ACCESS_LOGIN_TENTATIVAS`/`_ADMIN_LOGIN_TENTATIVAS`) tinha algum teto
+# de tentativas -- as rotas mais caras de verdade (chat, upload de documento/planilha, cada uma
+# disparando uma chamada real à API da OpenAI ou parsing pesado) não tinham limite de taxa nenhum.
+# Aceitável enquanto o app só rodava na máquina do dono; deixa de ser assim que sai para um
+# servidor compartilhado alcançável por qualquer IP (Fase 16).
+#
+# Implementado como um limitador de janela fixa em memória, por IP -- mesmo padrão dos contadores
+# de login acima, sem precisar de lib externa (`slowapi` ou equivalente) para um caso simples.
+_LIMITE_TAXA_CONTADORES: Dict[Any, Dict[str, Any]] = {}  # (rotulo, ip) -> {"contagem": int, "inicio_janela": timestamp}
+
+
+def _limitar_taxa(rotulo: str, max_chamadas: int, janela_segundos: int):
+    """Fábrica de dependência FastAPI: limita `max_chamadas` a cada `janela_segundos`, por IP,
+    para a rota identificada por `rotulo` (rótulos diferentes têm contadores independentes, então
+    o limite de uma rota não consome o de outra)."""
+    def dependencia(request: Request) -> None:
+        ip_cliente = request.client.host if request.client else "desconhecido"
+        chave = (rotulo, ip_cliente)
+        agora = time.time()
+        estado = _LIMITE_TAXA_CONTADORES.get(chave, {"contagem": 0, "inicio_janela": agora})
+        if agora - estado["inicio_janela"] > janela_segundos:
+            estado = {"contagem": 0, "inicio_janela": agora}
+        estado["contagem"] += 1
+        _LIMITE_TAXA_CONTADORES[chave] = estado
+        if estado["contagem"] > max_chamadas:
+            raise HTTPException(
+                status_code=429,
+                detail="Muitas requisições em pouco tempo. Aguarde um instante e tente novamente."
+            )
+    return dependencia
+
+
+@app.post("/chat", dependencies=[Depends(_limitar_taxa("chat", max_chamadas=20, janela_segundos=60))])
 def chat(payload: ChatRequest) -> Dict[str, Any]:
     if payload.tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
@@ -1066,7 +1101,7 @@ def listar_documentos(tenant_id: str) -> List[str]:
     return listar_documentos_indexados(tenant_id)
 
 
-@app.post("/documentos/upload")
+@app.post("/documentos/upload", dependencies=[Depends(_limitar_taxa("documentos_upload", max_chamadas=5, janela_segundos=60))])
 async def upload_documento(
     tenant_id: str,
     arquivo: UploadFile = File(...),
@@ -1109,7 +1144,7 @@ def deletar_documento(nome_arquivo: str, tenant_id: str, x_admin_token: str = He
 # ─────────────────────────────────────────────────────────────────────────────
 # ANÁLISE DE DADOS (upload de planilha)
 # ─────────────────────────────────────────────────────────────────────────────
-@app.post("/planilha/upload")
+@app.post("/planilha/upload", dependencies=[Depends(_limitar_taxa("planilha_upload", max_chamadas=5, janela_segundos=60))])
 async def upload_planilha(tenant_id: str, conversation_id: str, arquivo: UploadFile = File(...)) -> Dict[str, Any]:
     if tenant_id not in TENANT_CONFIG:
         raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' não encontrado.")

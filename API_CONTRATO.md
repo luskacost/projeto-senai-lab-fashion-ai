@@ -124,6 +124,9 @@ longa duração.
 ## Chat
 
 ### `POST /chat`
+- **Limite de taxa (Fase 16, D1):** 20 requisições/minuto por IP (`_limitar_taxa`, `429` se
+  excedido) — independente do limite diário por tenant abaixo, que é por custo de API, não por
+  taxa de requisição.
 - **Body:** `{ tenant_id, conversation_id?, modo, perfil_usuario?, mensagem, historico?, estilo_croqui? }`
   — `historico` é a lista `{role, content}[]` da conversa (só enviada por modos baseados em
   agente, ver `frontend/src/lib/modos.ts:ehModoDeAgente`).
@@ -232,6 +235,7 @@ específico tentar abrir o arquivo -- usado tanto por `document_extractors.py` (
 
 ### `GET /documentos?tenant_id=`
 ### `POST /documentos/upload` — multipart, headers `X-Admin-Token`, limite 20MB
+- **Limite de taxa (Fase 16, D1):** 5 requisições/minuto por IP (`429` se excedido).
 - Extração e indexação (embeddings) rodam em thread separada (`asyncio.to_thread`, Fase 13, Task
   15) -- um upload grande não trava outras requisições da API enquanto indexa.
 - `400` em caso de falha de parsing: `detail` é uma mensagem genérica (nome do arquivo + "verifique
@@ -243,6 +247,7 @@ específico tentar abrir o arquivo -- usado tanto por `document_extractors.py` (
 ## Análise de Dados
 
 ### `POST /planilha/upload?tenant_id=&conversation_id=` — multipart, limite 20MB
+- **Limite de taxa (Fase 16, D1):** 5 requisições/minuto por IP (`429` se excedido).
 - Gera e persiste o resumo estatístico por `conversation_id`, reaproveitado pelas próximas
   mensagens de chat no modo "Análise de Dados" na mesma conversa.
 - `conversation_id` precisa ser um UUID (400 caso contrário) — validado antes do parsing da
