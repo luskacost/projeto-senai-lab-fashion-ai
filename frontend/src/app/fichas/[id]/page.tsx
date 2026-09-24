@@ -56,7 +56,7 @@ import { AlertTriangle, ArrowLeft, BadgeCheck, FileDown, ImagePlus, Images, Load
 import { toast } from "sonner";
 
 // Fase 16, Bloco L: tenant deixou de ser fixo em tempo de build -- ver page.tsx (home) para a
-// explicação completa. NEXT_PUBLIC_tenantIdAtivo() vira só o fallback de modo legado.
+// explicação completa. NEXT_PUBLIC_TENANT_ID vira só o fallback de modo legado.
 function tenantIdAtivo(): string {
   return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 }

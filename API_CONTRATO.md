@@ -451,3 +451,25 @@ nenhum modo declarando-as em `"tools"` — registradas no registry, com schema/h
 próprios, mas mortas em runtime pelo mesmo motivo que motivou a Task 17 para as ferramentas de
 RAG. Não fazia parte do escopo original desta task (que citava só `buscar_documentos_internos`)
 religá-las também; decisão de produto pendente sobre em quais modos fariam sentido.
+
+## Sugestões / reporte de erro (Fase 16, Bloco S)
+
+Sem e-mail/Slack/integração nenhuma de propósito (decisão do usuário) — fica salvo em
+`tenant_data/sugestoes/{tenant_id}.json` (`sugestoes_repo.py`, mesmo padrão de persistência de
+`conversas_manager.py`), revisado manualmente pelo dono do tenant.
+
+### `POST /sugestoes`
+- **Body:** `{ tenant_id, tipo, texto }` — `tipo` é `"sugestao"` ou `"bug"`.
+- **Lógica:** `tenant_id` precisa existir em `TENANT_CONFIG` (404 caso contrário); `tipo` fora dos
+  dois valores válidos ou `texto` vazio devolvem `400`. Sem lógica própria para impedir escrever
+  "em nome" de outro tenant -- o gate global (`verificar_acesso`, Fase 16, L2) já garante isso pra
+  qualquer rota com `tenant_id` no corpo, comparando contra o tenant do token de acesso.
+- **Resposta:** `{ id, tipo, texto, criado_em }`.
+- Sem limite de taxa dedicado (ao contrário de `/chat`/uploads, Fase 16, D1) -- volume esperado
+  baixo (poucos usuários nomeados, uso esporádico), diferente das rotas que custam API/CPU.
+
+### `GET /sugestoes?tenant_id=` — headers `X-Admin-Token`
+- **Resposta:** lista de `{ id, tipo, texto, criado_em }` do tenant, na ordem em que foram
+  criadas (o frontend inverte para mostrar a mais recente primeiro). Consumida pela seção
+  "Sugestões e reportes de erro" dentro do `/admin` já existente (não é uma tela de revisão à
+  parte, Fase 16, S4).

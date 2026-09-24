@@ -6,10 +6,12 @@ import Image from "next/image";
 import {
   ApiError,
   InfoLogo,
+  Sugestao,
   adminLogin,
   deletarDocumento,
   deletarLogo,
   listarDocumentos,
+  listarSugestoes,
   obterInfoLogo,
   uploadDocumento,
   uploadLogo,
@@ -21,14 +23,15 @@ import { obterTenantIdAtivo } from "@/lib/acesso";
 import { mensagemAmigavel } from "@/lib/erros";
 import ConfirmarAcaoDialog from "@/components/ConfirmarAcaoDialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, FileText, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, FileText, ImageIcon, Loader2, MessageSquareWarning, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 // Fase 16, Bloco L: tenant deixou de ser fixo em tempo de build -- ver page.tsx (home) para a
-// explicação completa. NEXT_PUBLIC_tenantIdAtivo() vira só o fallback de modo legado.
+// explicação completa. NEXT_PUBLIC_TENANT_ID vira só o fallback de modo legado.
 function tenantIdAtivo(): string {
   return obterTenantIdAtivo() ?? process.env.NEXT_PUBLIC_TENANT_ID ?? "senai_labfashion";
 }
@@ -55,6 +58,9 @@ export default function AdminPage() {
   const [versaoLogo, setVersaoLogo] = useState(() => Date.now());
   const inputLogoRef = useRef<HTMLInputElement>(null);
 
+  const [sugestoes, setSugestoes] = useState<Sugestao[]>([]);
+  const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
+
   useEffect(() => {
     const tokenSalvo = obterTokenAdmin();
     if (tokenSalvo) setTokenAdmin(tokenSalvo);
@@ -64,6 +70,7 @@ export default function AdminPage() {
     if (tokenAdmin) {
       recarregarDocumentos();
       recarregarLogo();
+      recarregarSugestoes();
     }
   }, [tokenAdmin]);
 
@@ -88,6 +95,21 @@ export default function AdminPage() {
       toast.error("Não foi possível carregar a lista de documentos.");
     } finally {
       setCarregandoDocs(false);
+    }
+  }
+
+  // Fase 16, Bloco S: listagem read-only das sugestões/reportes enviados pelos usuários -- não é
+  // uma tela de revisão à parte, só uma seção a mais dentro do painel administrativo já existente.
+  async function recarregarSugestoes() {
+    if (!tokenAdmin) return;
+    setCarregandoSugestoes(true);
+    try {
+      const lista = await listarSugestoes(tenantIdAtivo(), tokenAdmin);
+      setSugestoes(lista.slice().reverse()); // mais recente primeiro
+    } catch (e) {
+      tratarErroAdmin(e, "Não foi possível carregar as sugestões.");
+    } finally {
+      setCarregandoSugestoes(false);
     }
   }
 
@@ -331,6 +353,44 @@ export default function AdminPage() {
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sugestões e reportes de erro ({sugestoes.length})</CardTitle>
+          <CardDescription>Enviados pelos usuários através da tela "Sugestões".</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {carregandoSugestoes ? (
+            <ul className="divide-y divide-border">
+              {[0, 1].map((i) => (
+                <li key={i} className="flex items-center gap-2 py-2">
+                  <Skeleton className="h-4 w-4 shrink-0 rounded" />
+                  <Skeleton className="h-4 w-64 max-w-[70%]" />
+                </li>
+              ))}
+            </ul>
+          ) : sugestoes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma sugestão ou reporte ainda.</p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {sugestoes.map((s) => (
+                <li key={s.id} className="space-y-1 py-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={s.tipo === "bug" ? "destructive" : "secondary"} className="gap-1">
+                      <MessageSquareWarning className="h-3 w-3" />
+                      {s.tipo === "bug" ? "Erro" : "Sugestão"}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(s.criado_em).toLocaleString("pt-BR")}
+                    </span>
+                  </div>
+                  <p className="text-foreground whitespace-pre-wrap">{s.texto}</p>
                 </li>
               ))}
             </ul>

@@ -99,6 +99,7 @@ from croquis_repo import (
     listar_croquis,
     salvar_croqui,
 )
+from sugestoes_repo import carregar_sugestoes, registrar_sugestao
 
 try:
     # pyrefly: ignore [missing-import]
@@ -1824,3 +1825,35 @@ def debug_rag(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-To
     """
     verificar_token_admin(tenant_id, x_admin_token)
     return obter_ultimo_rag_debug(tenant_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUGESTÕES / REPORTE DE ERRO (Fase 16, Bloco S)
+#
+# Sem e-mail/Slack/integração nenhuma de propósito (decisão do usuário) -- fica salvo em
+# `tenant_data/sugestoes/{tenant_id}.json` (`sugestoes_repo.py`), revisado manualmente pelo dono
+# do tenant via GET abaixo (admin-only). `tenant_id` vem do corpo como em qualquer outra rota --
+# não precisa de lógica própria para impedir escrever "em nome" de outro tenant: o gate global
+# (`verificar_acesso`, Fase 16, L2) já garante isso pra qualquer rota com `tenant_id` no corpo,
+# comparando contra o tenant do token de acesso.
+# ─────────────────────────────────────────────────────────────────────────────
+class NovaSugestaoRequest(BaseModel):
+    tenant_id: str
+    tipo: str
+    texto: str
+
+
+@app.post("/sugestoes")
+def criar_sugestao(payload: NovaSugestaoRequest) -> Dict[str, Any]:
+    if payload.tenant_id not in TENANT_CONFIG:
+        raise HTTPException(status_code=404, detail=f"Tenant '{payload.tenant_id}' não encontrado.")
+    try:
+        return registrar_sugestao(payload.tenant_id, payload.tipo, payload.texto)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@app.get("/sugestoes")
+def listar_sugestoes(tenant_id: str, x_admin_token: str = Header(..., alias="X-Admin-Token")) -> List[Dict[str, Any]]:
+    verificar_token_admin(tenant_id, x_admin_token)
+    return carregar_sugestoes(tenant_id)

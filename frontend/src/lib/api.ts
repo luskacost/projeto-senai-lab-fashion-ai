@@ -947,3 +947,25 @@ export async function baixarExportacaoConversa(
   link.remove();
   window.URL.revokeObjectURL(objectUrl);
 }
+
+// Sugestões / reporte de erro (Fase 16, Bloco S) -- sem e-mail/Slack, fica salvo no servidor e
+// revisado manualmente (ver GET abaixo, admin-only).
+export interface Sugestao {
+  id: string;
+  tipo: "sugestao" | "bug";
+  texto: string;
+  criado_em: string;
+}
+
+export async function criarSugestao(tenantId: string, tipo: "sugestao" | "bug", texto: string): Promise<Sugestao> {
+  return request<Sugestao>("/sugestoes", {
+    method: "POST",
+    body: JSON.stringify({ tenant_id: tenantId, tipo, texto }),
+  });
+}
+
+export async function listarSugestoes(tenantId: string, tokenAdmin: string): Promise<Sugestao[]> {
+  return request<Sugestao[]>(`/sugestoes?tenant_id=${encodeURIComponent(tenantId)}`, {
+    headers: { "X-Admin-Token": tokenAdmin },
+  });
+}
