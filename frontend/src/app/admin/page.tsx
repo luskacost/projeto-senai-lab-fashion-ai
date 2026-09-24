@@ -12,6 +12,7 @@ import {
   deletarLogo,
   listarDocumentos,
   listarSugestoes,
+  listarTodasSugestoes,
   obterInfoLogo,
   uploadDocumento,
   uploadLogo,
@@ -60,6 +61,11 @@ export default function AdminPage() {
 
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([]);
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
+  // `null` = ou ainda carregando, ou este tenant não é o TENANT_DONO (backend recusou com 401,
+  // tratado como "sem visão agregada" em vez de erro -- ver listarTodasSugestoes em lib/api.ts).
+  // Quando vier preenchido, a seção mostra o conteúdo de TODOS os tenants agrupado, em vez de só
+  // o do próprio tenant logado.
+  const [sugestoesTodas, setSugestoesTodas] = useState<Record<string, Sugestao[]> | null>(null);
 
   useEffect(() => {
     const tokenSalvo = obterTokenAdmin();
@@ -104,8 +110,12 @@ export default function AdminPage() {
     if (!tokenAdmin) return;
     setCarregandoSugestoes(true);
     try {
-      const lista = await listarSugestoes(tenantIdAtivo(), tokenAdmin);
+      const [lista, todas] = await Promise.all([
+        listarSugestoes(tenantIdAtivo(), tokenAdmin),
+        listarTodasSugestoes(tokenAdmin),
+      ]);
       setSugestoes(lista.slice().reverse()); // mais recente primeiro
+      setSugestoesTodas(todas);
     } catch (e) {
       tratarErroAdmin(e, "Não foi possível carregar as sugestões.");
     } finally {
@@ -232,6 +242,15 @@ export default function AdminPage() {
       </div>
     );
   }
+
+  // Agregado (todos os tenants, com tenantId anexado) quando disponível -- só o TENANT_DONO
+  // recebe `sugestoesTodas` preenchido (ver listarTodasSugestoes em lib/api.ts). Caso contrário,
+  // cai no comportamento de sempre: só as sugestões do próprio tenant logado.
+  const itensSugestoesExibidos: (Sugestao & { tenantId?: string })[] = sugestoesTodas
+    ? Object.entries(sugestoesTodas)
+        .flatMap(([tid, lista]) => lista.map((s) => ({ ...s, tenantId: tid })))
+        .sort((a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime())
+    : sugestoes;
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
@@ -362,8 +381,14 @@ export default function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Sugestões e reportes de erro ({sugestoes.length})</CardTitle>
-          <CardDescription>Enviados pelos usuários através da tela "Sugestões".</CardDescription>
+          <CardTitle>
+            Sugestões e reportes de erro ({itensSugestoesExibidos.length})
+          </CardTitle>
+          <CardDescription>
+            {sugestoesTodas
+              ? "Enviados pelos usuários através da tela \"Sugestões\" -- de todos os consultores."
+              : "Enviados pelos usuários através da tela \"Sugestões\"."}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {carregandoSugestoes ? (
@@ -375,17 +400,18 @@ export default function AdminPage() {
                 </li>
               ))}
             </ul>
-          ) : sugestoes.length === 0 ? (
+          ) : itensSugestoesExibidos.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhuma sugestão ou reporte ainda.</p>
           ) : (
             <ul className="divide-y divide-border">
-              {sugestoes.map((s) => (
-                <li key={s.id} className="space-y-1 py-3 text-sm">
+              {itensSugestoesExibidos.map((s) => (
+                <li key={`${s.tenantId ?? ""}-${s.id}`} className="space-y-1 py-3 text-sm">
                   <div className="flex items-center gap-2">
                     <Badge variant={s.tipo === "bug" ? "destructive" : "secondary"} className="gap-1">
                       <MessageSquareWarning className="h-3 w-3" />
                       {s.tipo === "bug" ? "Erro" : "Sugestão"}
                     </Badge>
+                    {s.tenantId && <Badge variant="outline">{s.tenantId}</Badge>}
                     <span className="text-xs text-muted-foreground">
                       {new Date(s.criado_em).toLocaleString("pt-BR")}
                     </span>

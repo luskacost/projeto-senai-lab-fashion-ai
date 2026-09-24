@@ -486,3 +486,15 @@ Sem e-mail/Slack/integração nenhuma de propósito (decisão do usuário) — f
 - Consumida pela home (`frontend/src/app/page.tsx`) para mostrar um badge de contagem no link
   "Sugestões" -- `403` é tratado como "sem badge" (não é um erro pro usuário, só significa que
   esse tenant não é o dono).
+
+### `GET /sugestoes/todas` — headers `X-Admin-Token`
+- Conteúdo COMPLETO (texto de cada sugestão/reporte, não só contagem) de todos os tenants -- só
+  para admin do `TENANT_DONO`. Ver conteúdo é mais sensível que só saber "quantas", então a barra
+  de entrada é mais alta que `/resumo-geral` acima: exige `X-Admin-Token` (`verificar_token_admin`
+  contra `TENANT_DONO` especificamente), não o token de acesso comum. Admin de outro tenant, ou
+  o dono ainda sem `ADMIN_PASSWORD` configurada, recebe `401` (mesma resposta de qualquer token
+  de admin errado/ausente).
+- **Resposta:** `{ [tenant_id]: [{ id, tipo, texto, criado_em }] }` -- uma lista por tenant.
+- Consumida pelo `/admin` (`frontend/src/app/admin/page.tsx`): quando disponível (não `401`), a
+  seção "Sugestões e reportes de erro" mostra o conteúdo de TODOS os tenants agrupado (com uma
+  etiqueta do `tenant_id` em cada item), em vez de só o do tenant logado.

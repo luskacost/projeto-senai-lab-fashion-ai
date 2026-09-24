@@ -186,5 +186,65 @@ class TestResumoGeralSugestoesModoLegado(unittest.TestCase):
         self.assertIn("total", resposta.json())
 
 
+OUTRO_TENANT_TESTE_CONTEUDO = "consultoria_teste_fase16_conteudo"
+VAR_SENHA_OUTRO_ADMIN = "CONSULTORIA_TESTE_FASE16_CONTEUDO_ADMIN_PASSWORD"
+VAR_SENHA_DONO_ADMIN = "SENAI_LABFASHION_ADMIN_PASSWORD"
+
+
+class TestListarTodasSugestoes(unittest.TestCase):
+    """GET /sugestoes/todas -- conteúdo completo (não só contagem), exige X-Admin-Token do
+    TENANT_DONO especificamente. Mais sensível que /sugestoes/resumo-geral (que só soma), por
+    isso a barra de entrada é mais alta: admin, não acesso comum."""
+
+    def setUp(self):
+        self.client = TestClient(app)
+        _limpar_tenant_teste(TENANT_TESTE)
+        _limpar_tenant_teste(OUTRO_TENANT_TESTE_CONTEUDO)
+        TENANT_CONFIG[OUTRO_TENANT_TESTE_CONTEUDO] = {"nome": "Consultoria Teste Conteúdo"}
+        self._senha_dono_original = os.environ.get(VAR_SENHA_DONO_ADMIN)
+        os.environ[VAR_SENHA_DONO_ADMIN] = "senha-admin-dono-teste"
+        os.environ[VAR_SENHA_OUTRO_ADMIN] = "senha-admin-outro-teste"
+
+    def tearDown(self):
+        _limpar_tenant_teste(TENANT_TESTE)
+        _limpar_tenant_teste(OUTRO_TENANT_TESTE_CONTEUDO)
+        TENANT_CONFIG.pop(OUTRO_TENANT_TESTE_CONTEUDO, None)
+        os.environ.pop(VAR_SENHA_OUTRO_ADMIN, None)
+        if self._senha_dono_original is None:
+            os.environ.pop(VAR_SENHA_DONO_ADMIN, None)
+        else:
+            os.environ[VAR_SENHA_DONO_ADMIN] = self._senha_dono_original
+
+    def _token_admin(self, tenant_id: str, senha: str) -> str:
+        login = self.client.post("/admin/login", json={"tenant_id": tenant_id, "senha": senha})
+        return login.json()["token"]
+
+    def test_admin_do_dono_ve_conteudo_de_todos_os_tenants(self):
+        self.client.post(
+            "/sugestoes", json={"tenant_id": OUTRO_TENANT_TESTE_CONTEUDO, "tipo": "bug", "texto": "Texto sensível do consultor."}
+        )
+
+        token_admin_dono = self._token_admin(TENANT_TESTE, "senha-admin-dono-teste")
+        resposta = self.client.get("/sugestoes/todas", headers={"X-Admin-Token": token_admin_dono})
+
+        self.assertEqual(resposta.status_code, 200)
+        corpo = resposta.json()
+        self.assertIn(OUTRO_TENANT_TESTE_CONTEUDO, corpo)
+        self.assertTrue(any(s["texto"] == "Texto sensível do consultor." for s in corpo[OUTRO_TENANT_TESTE_CONTEUDO]))
+
+    def test_admin_de_outro_tenant_nao_ve_conteudo_de_todos(self):
+        token_admin_outro = self._token_admin(OUTRO_TENANT_TESTE_CONTEUDO, "senha-admin-outro-teste")
+        resposta = self.client.get("/sugestoes/todas", headers={"X-Admin-Token": token_admin_outro})
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_token_de_acesso_comum_do_dono_nao_basta_para_ver_conteudo(self):
+        # Token de acesso comum (não-admin) do próprio dono não deve servir aqui -- ver conteúdo
+        # exige a barra mais alta (admin), não só "ser o tenant certo" (isso já basta pro resumo).
+        login = self.client.post("/acesso/login", json={"tenant_id": TENANT_TESTE, "senha": "qualquer"})
+        token_acesso = login.json().get("token") or "token-de-acesso-comum-nao-eh-admin"
+        resposta = self.client.get("/sugestoes/todas", headers={"X-Admin-Token": token_acesso})
+        self.assertEqual(resposta.status_code, 401)
+
+
 if __name__ == "__main__":
     unittest.main()

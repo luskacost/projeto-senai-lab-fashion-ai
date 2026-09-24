@@ -1884,3 +1884,14 @@ def resumo_geral_sugestoes(x_access_token: Optional[str] = Header(None, alias="X
 
     por_tenant = {tid: len(carregar_sugestoes(tid)) for tid in TENANT_CONFIG}
     return {"total": sum(por_tenant.values()), "por_tenant": por_tenant}
+
+
+@app.get("/sugestoes/todas")
+def listar_todas_sugestoes(x_admin_token: str = Header(..., alias="X-Admin-Token")) -> Dict[str, List[Dict[str, Any]]]:
+    """Conteúdo completo de sugestões/reportes de TODOS os tenants -- só para admin do
+    `TENANT_DONO`. Ao contrário de `/sugestoes/resumo-geral` (só contagem, autenticado pelo token
+    de acesso comum), aqui é o CONTEÚDO de texto que os consultores escreveram -- mais sensível
+    que só saber "quantas", então exige o mesmo `X-Admin-Token` que `/sugestoes?tenant_id=` já
+    exige para ver o de um tenant só (nunca o token de acesso comum, mais fraco)."""
+    verificar_token_admin(TENANT_DONO, x_admin_token)
+    return {tid: carregar_sugestoes(tid) for tid in TENANT_CONFIG}

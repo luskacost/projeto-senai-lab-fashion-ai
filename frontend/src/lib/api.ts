@@ -987,3 +987,18 @@ export async function obterResumoGeralSugestoes(): Promise<ResumoGeralSugestoes 
     throw e;
   }
 }
+
+// Conteúdo completo (não só contagem) de todos os tenants -- exige admin do TENANT_DONO,
+// barra mais alta que o resumo acima (só contagem). 401 (admin de outro tenant, ou o dono ainda
+// não configurou LOGIN_SENHA nele mesmo) vira `null`, tratado como "sem visão agregada
+// disponível" em vez de erro -- a seção de sugestões do próprio tenant continua funcionando.
+export async function listarTodasSugestoes(tokenAdmin: string): Promise<Record<string, Sugestao[]> | null> {
+  try {
+    return await request<Record<string, Sugestao[]>>("/sugestoes/todas", {
+      headers: { "X-Admin-Token": tokenAdmin },
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) return null;
+    throw e;
+  }
+}
