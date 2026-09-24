@@ -115,7 +115,7 @@ class Cenario05_MultiplasFerramentas(unittest.TestCase):
 
     @patch("contatos_senai.buscar_unidades")
     def test_duas_ferramentas_na_mesma_rodada(self, mock_buscar_unidades):
-        mock_buscar_unidades.return_value = [{"nome": "Escola Teste Conceição", "endereco": "...", "telefone": "(11) 4000-0003"}]
+        mock_buscar_unidades.return_value = [{"nome": "Escola SENAI Catalão", "endereco": "...", "telefone": "(64) 3445-1700"}]
 
         with patch("analise_dados.carregar_resumo_estatistico", return_value={"total_linhas": 10}):
             call_a = _function_call_item("call_a", "consultar_unidades_senai", '{"termo": "catalao"}')

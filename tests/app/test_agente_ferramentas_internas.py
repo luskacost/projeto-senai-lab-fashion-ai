@@ -118,38 +118,23 @@ class TestConsultarResumoPlanilha(unittest.TestCase):
 
 
 class TestConsultarUnidadesSenai(unittest.TestCase):
-    """Mocka `contatos_senai.buscar_unidades` em vez de usar o dado real do módulo (Fase 15,
-    Bloco H, Task H1) -- desde que `contatos_senai.py` passou a ter um mecanismo de substituição
-    por `contatos_senai_local.py` (dado real, git-ignorado), o dado de verdade varia por máquina.
-    Mockar torna o teste determinístico independente de qual arquivo estiver presente no disco."""
+    """Usa o dado real de contatos_senai.py -- é estático e não precisa de mock."""
 
     def setUp(self):
         self.ctx = ContextoExecucao(tenant_id="senai_labfashion")
-        self._unidades_teste = [
-            {"nome": "Unidade Teste Sede", "endereco": "Rua Teste, 1", "telefone": "(11) 1111-1111", "email": "sede@teste.com"},
-            *[
-                {"nome": f"Escola Teste {i}", "endereco": f"Rua {i}", "telefone": f"(11) 000{i}-0000", "email": f"teste{i}@teste.com"}
-                for i in range(11)
-            ],
-        ]
 
-    @patch("contatos_senai.buscar_unidades")
-    def test_sem_termo_lista_todas_as_unidades(self, mock_buscar):
-        mock_buscar.return_value = self._unidades_teste
+    def test_sem_termo_lista_todas_as_unidades(self):
         resultado = executar_ferramenta("consultar_unidades_senai", {}, self.ctx)
         self.assertFalse(resultado.erro)
-        self.assertIn("Unidade Teste Sede", resultado.conteudo)
+        self.assertIn("FATEC SENAI Ítalo Bologna", resultado.conteudo)
+        self.assertIn("Escola SENAI Catalão", resultado.conteudo)
         self.assertGreater(len(resultado.dados_extras["unidades"]), 10)
 
-    @patch("contatos_senai.buscar_unidades")
-    def test_filtra_por_cidade_tolerante_a_acento(self, mock_buscar):
-        mock_buscar.return_value = [
-            {"nome": "Escola Teste Conceição", "endereco": "Av. Central", "telefone": "(11) 4000-0003", "email": "conceicao@teste.com"},
-        ]
-        resultado = executar_ferramenta("consultar_unidades_senai", {"termo": "conceicao"}, self.ctx)
-        self.assertIn("Conceição", resultado.conteudo)
+    def test_filtra_por_cidade_tolerante_a_acento(self):
+        resultado = executar_ferramenta("consultar_unidades_senai", {"termo": "catalao"}, self.ctx)
+        self.assertIn("Catalão", resultado.conteudo)
+        self.assertIn("(64) 3445-1700", resultado.conteudo)
         self.assertNotIn("Itumbiara", resultado.conteudo)
-        mock_buscar.assert_called_once_with("conceicao")
 
     def test_termo_sem_correspondencia_sugere_central(self):
         resultado = executar_ferramenta("consultar_unidades_senai", {"termo": "cidade inexistente xyz"}, self.ctx)
