@@ -11,3 +11,8 @@ __pycache__/
 .venv/
 SenaiLabFashionAssitant/
 scratch/
+
+# Lembrete pessoal de comandos pra rodar o projeto -- mesmo conteúdo já documentado em
+# README.md ("Como rodar localmente"), removido do repositório versionado na Fase 15 (H3) por
+# ser redundante, mas recriado localmente a pedido do usuário.
+executavel.txt
