@@ -327,27 +327,45 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 | `AMBIENTE` | Ambiente do backend | `producao` liga as travas de servidor público: o backend **se recusa a subir** sem pelo menos um `{TENANT_ID}_LOGIN_SENHA` configurado (falha fechado em vez de subir com a API aberta) e desliga `/docs`, `/redoc` e `/openapi.json` (rotas da FastAPI que o gate de acesso não alcança). Sem a variável, tudo segue como em desenvolvimento local. |
 | `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- a imagem Docker do backend já instala `libreoffice-writer` em `/usr/bin/soffice`, encontrado automaticamente sem precisar desta variável; útil em dev local com instalação fora do padrão. Sem LibreOffice disponível, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
 
-## Deploy em produção (VPS)
+## Deploy em produção (VPS + Coolify)
 
-1. **Antes de tudo, configurar quem vai entrar** (Fase 16, Bloco L) -- para cada colega/consultoria
-   que vai usar o servidor, adicionar uma entrada em `TENANT_CONFIG` (`tenant_config.py`) e definir
-   `{TENANT_ID}_LOGIN_SENHA` no `.env` do backend (ver `.env.example`). Pular este passo mantém o
-   app no modo legado de senha única -- aceitável só se for mesmo um único grupo de usuários, sem
-   necessidade de isolar dado entre consultorias diferentes.
-2. `docker compose build` com os build args corretos do frontend (domínio público real):
-   ```bash
-   NEXT_PUBLIC_API_URL=https://seu-dominio.com/api docker compose build frontend
-   ```
-3. Definir `CORS_ALLOWED_ORIGINS=https://seu-dominio.com` no `.env` do backend.
-4. `docker compose up -d`.
-5. Configurar um reverse proxy (Nginx) na frente dos dois serviços -- ver `nginx.conf.example`
-   (roteia `/` pro frontend, `/api/` pro backend) e configurar TLS (ex: Certbot/Let's Encrypt).
+Usa `docker-compose.prod.yml`, não o `docker-compose.yml` da raiz (esse é só para desenvolvimento
+local) -- o arquivo de produção não publica porta nenhuma no host (só o reverse proxy do Coolify
+alcança os serviços, pela rede interna do Compose), usa volumes nomeados para `tenant_data`/`logs`
+sobreviverem a cada deploy (o Coolify clona o repositório do zero a cada vez) e exige os segredos
+via variável de ambiente, sem depender de um `.env` no servidor.
+
+1. **Configurar quem vai entrar** (Fase 16, Bloco L) -- para cada colega/consultoria, adicionar
+   uma entrada em `TENANT_CONFIG` (`tenant_config.py`) e acrescentar as duas linhas dela
+   (`{TENANT_ID}_LOGIN_SENHA`/`{TENANT_ID}_ADMIN_PASSWORD`) na lista de `environment:` do serviço
+   `backend` em `docker-compose.prod.yml` -- sem a linha ali, o valor não chega ao contêiner mesmo
+   que esteja configurado no painel do Coolify.
+2. No painel do Coolify, criar um recurso do tipo **Docker Compose** apontando para este
+   repositório e o arquivo `docker-compose.prod.yml`.
+3. Definir no painel do Coolify (nunca no repositório): `SENAI_LABFASHION_OPENAI_API_KEY`,
+   `CORS_ALLOWED_ORIGINS` (a URL https do frontend) e `NEXT_PUBLIC_API_URL` (a URL https do
+   backend, usada em tempo de **build**, não de execução) -- `docker compose` se recusa a subir
+   com uma mensagem clara se qualquer uma dessas faltar. Mais as senhas de login/admin de cada
+   tenant do passo 1.
+4. Atribuir os domínios (com HTTPS automático do Coolify) a cada serviço e dar deploy.
+
+Validado localmente simulando exatamente esse cenário (variáveis obrigatórias, sem `.env`,
+contêiner recriado do zero): a porta do backend fica inalcançável fora da rede do Compose, o
+volume nomeado sobrevive à recriação do contêiner, e `--proxy-headers --forwarded-allow-ips='*'`
+(no `command:` do backend) faz o IP real do usuário chegar à aplicação em vez do IP do proxy --
+sem isso, o bloqueio de login (Fase 14) e o limite de requisições por IP (Fase 16, D1, próximo
+parágrafo) valeriam pra todo mundo ao mesmo tempo, não por pessoa.
 
 Limite de taxa por IP (Fase 16, Bloco D): `/chat` (20 req/min), `/documentos/upload` e
 `/planilha/upload` (5 req/min cada) já têm um teto simples embutido (`api/main.py:_limitar_taxa`),
-sem depender de configuração externa nenhuma -- não substitui um rate-limit de borda (Nginx/CDN)
+sem depender de configuração externa nenhuma -- não substitui um rate-limit de borda (CDN/WAF)
 para um servidor exposto à internet em geral, mas cobre as rotas que de fato custam dinheiro
 (chamada à API da OpenAI) ou CPU (parsing/indexação) por requisição.
+
+Alternativa sem VPS/Coolify (deploy manual numa VPS qualquer, só com Docker e Nginx): o
+`docker-compose.yml` da raiz ainda serve de referência, com `nginx.conf.example` como reverse
+proxy na frente dos dois serviços e TLS via Certbot/Let's Encrypt -- mais trabalho manual, sem
+deploy automático a cada push.
 
 ## Acesso ao app / login por pessoa (Fase 14, Bloco S; Fase 16, Bloco L)
 
