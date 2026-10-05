@@ -108,10 +108,27 @@ try:
 except ImportError:
     pass
 
+# Deploy (Fase A): `AMBIENTE=producao` liga as travas que só fazem sentido com o app exposto na
+# internet -- ver `_kwargs_documentacao` e `_verificar_configuracao_de_producao`. Sem a variável,
+# tudo continua como sempre foi em desenvolvimento local.
+EM_PRODUCAO = os.environ.get("AMBIENTE", "").strip().lower() == "producao"
+
+
+def _kwargs_documentacao(em_producao: bool) -> Dict[str, Any]:
+    """`/docs`, `/redoc` e `/openapi.json` são rotas da própria FastAPI, registradas por fora de
+    `app.router.dependencies` -- o gate de acesso (`verificar_acesso`) não as alcança, então
+    respondem sem token nenhum. Úteis em desenvolvimento; em produção entregam o mapa completo da
+    API (toda rota, todo parâmetro) para qualquer um na internet."""
+    if em_producao:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
 app = FastAPI(
     title="SenaiLabFashionAssistant API",
     description="API do assistente de IA com RAG do SENAI LabFashion.",
-    version="0.1.0"
+    version="0.1.0",
+    **_kwargs_documentacao(EM_PRODUCAO),
 )
 
 # Fase 15, V7: limite de tamanho de upload movido para cá (era definido só perto das rotas de
@@ -369,6 +386,32 @@ def acesso_logout(x_access_token: str = Header(..., alias="X-Access-Token")) -> 
 
 
 app.router.dependencies.append(Depends(verificar_acesso))
+
+
+def _verificar_configuracao_de_producao(em_producao: bool) -> None:
+    """Falha fechado em produção (pendência registrada desde a Fase 15).
+
+    Fora de produção, o gate tem um padrão aberto de propósito: sem nenhuma senha configurada,
+    `verificar_acesso` deixa tudo passar e `acesso_login` autoriza qualquer um -- é o que mantém o
+    desenvolvimento local sem atrito. Num servidor público, esse mesmo padrão vira o pior caso
+    possível: uma variável de ambiente esquecida no deploy deixaria a API inteira aberta, com a
+    chave da OpenAI por trás. Aqui o backend se recusa a subir em vez de subir aberto.
+
+    Exige login por tenant especificamente, não só a senha única do modo legado: com a senha
+    única, todo token sai sem tenant, o que desliga o isolamento entre consultorias (Fase 16, L2)
+    e libera o resumo agregado de sugestões para qualquer um que entre.
+    """
+    if not em_producao:
+        return
+    if not _tenants_com_login_configurado():
+        raise RuntimeError(
+            "AMBIENTE=producao exige login por tenant configurado: defina {TENANT_ID}_LOGIN_SENHA "
+            "para pelo menos um tenant de TENANT_CONFIG. O backend não sobe sem autenticação em "
+            "produção."
+        )
+
+
+_verificar_configuracao_de_producao(EM_PRODUCAO)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

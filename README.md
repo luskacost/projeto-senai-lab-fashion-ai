@@ -323,6 +323,7 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 | `NEXT_PUBLIC_API_URL` | Build arg do frontend (`frontend/Dockerfile`) | URL pública da API, alcançável pelo navegador do usuário final. Embutida em tempo de build, não de execução. |
 | `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend **só no modo legado** (Fase 14/15) -- assim que o login por tenant/pessoa está ativo (Fase 16), o tenant de verdade vem do login (`obterTenantIdAtivo()`, `frontend/src/lib/acesso.ts`), e esta variável vira só o fallback pré-login. Default: `senai_labfashion`. |
 | `LOG_LEVEL` | Ambiente do backend | Nível de log (default `INFO`). |
+| `AMBIENTE` | Ambiente do backend | `producao` liga as travas de servidor público: o backend **se recusa a subir** sem pelo menos um `{TENANT_ID}_LOGIN_SENHA` configurado (falha fechado em vez de subir com a API aberta) e desliga `/docs`, `/redoc` e `/openapi.json` (rotas da FastAPI que o gate de acesso não alcança). Sem a variável, tudo segue como em desenvolvimento local. |
 | `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- sem ele, o backend procura no `PATH`/locais padrão; se não encontrar, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
 
 ## Deploy em produção (VPS)
