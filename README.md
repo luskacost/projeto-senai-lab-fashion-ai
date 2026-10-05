@@ -181,8 +181,9 @@ Texto livre → extração estruturada (Structured Outputs) → verificação de
   explícita do usuário -- só a versão aprovada entra no documento final. Como o modelo não tem
   seed/determinismo, regenerar produz uma peça nova, não uma correção pontual: instruções de ajuste
   são acumuladas entre versões (`fichas_desenho.acumular_instrucao`).
-- **PDF via LibreOffice headless** (`fichas_pdf.py`) -- único caminho de conversão docx→PDF, tanto
-  em dev quanto na imagem Docker; requer `LIBREOFFICE_PATH` ou o executável no `PATH` (ver seção de
+- **PDF via LibreOffice headless** (`fichas_pdf.py`) -- único caminho de conversão docx→PDF. A
+  imagem Docker do backend já instala `libreoffice-writer` (deploy em produção, Fase A); em
+  desenvolvimento local, requer `LIBREOFFICE_PATH` ou o executável no `PATH` (ver seção de
   variáveis de ambiente abaixo). Sem ele, as rotas de PDF devolvem `501` com instrução do que fazer.
 - **Logo da empresa** (`/branding/logo`) cadastrado uma vez por tenant e reaproveitado em toda
   ficha, redimensionado proporcionalmente (nunca deformado, nunca estoura a célula do cabeçalho).
@@ -324,7 +325,7 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 | `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend **só no modo legado** (Fase 14/15) -- assim que o login por tenant/pessoa está ativo (Fase 16), o tenant de verdade vem do login (`obterTenantIdAtivo()`, `frontend/src/lib/acesso.ts`), e esta variável vira só o fallback pré-login. Default: `senai_labfashion`. |
 | `LOG_LEVEL` | Ambiente do backend | Nível de log (default `INFO`). |
 | `AMBIENTE` | Ambiente do backend | `producao` liga as travas de servidor público: o backend **se recusa a subir** sem pelo menos um `{TENANT_ID}_LOGIN_SENHA` configurado (falha fechado em vez de subir com a API aberta) e desliga `/docs`, `/redoc` e `/openapi.json` (rotas da FastAPI que o gate de acesso não alcança). Sem a variável, tudo segue como em desenvolvimento local. |
-| `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- sem ele, o backend procura no `PATH`/locais padrão; se não encontrar, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
+| `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- a imagem Docker do backend já instala `libreoffice-writer` em `/usr/bin/soffice`, encontrado automaticamente sem precisar desta variável; útil em dev local com instalação fora do padrão. Sem LibreOffice disponível, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
 
 ## Deploy em produção (VPS)
 
