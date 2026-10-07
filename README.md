@@ -324,37 +324,66 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 | `NEXT_PUBLIC_API_URL` | Build arg do frontend (`frontend/Dockerfile`) | URL pública da API, alcançável pelo navegador do usuário final. Embutida em tempo de build, não de execução. |
 | `NEXT_PUBLIC_TENANT_ID` | Build arg do frontend | Tenant padrão do frontend **só no modo legado** (Fase 14/15) -- assim que o login por tenant/pessoa está ativo (Fase 16), o tenant de verdade vem do login (`obterTenantIdAtivo()`, `frontend/src/lib/acesso.ts`), e esta variável vira só o fallback pré-login. Default: `senai_labfashion`. |
 | `LOG_LEVEL` | Ambiente do backend | Nível de log (default `INFO`). |
+| `PORT` | Ambiente do backend | Porta em que o uvicorn escuta. Definida pela hospedagem (Railway); sem ela, 8000. |
+| `FORWARDED_ALLOW_IPS` | Já definida no `Dockerfile` do backend | Redes de onde o uvicorn aceita `X-Forwarded-For` (só redes privadas). Não sobrescrever com `*` -- ver "Deploy em produção". |
 | `AMBIENTE` | Ambiente do backend | `producao` liga as travas de servidor público: o backend **se recusa a subir** sem pelo menos um `{TENANT_ID}_LOGIN_SENHA` configurado (falha fechado em vez de subir com a API aberta) e desliga `/docs`, `/redoc` e `/openapi.json` (rotas da FastAPI que o gate de acesso não alcança). Sem a variável, tudo segue como em desenvolvimento local. |
 | `LIBREOFFICE_PATH` | Ambiente do backend | Caminho do executável do LibreOffice, para as rotas de PDF de fichas técnicas (`/fichas/{id}/pdf`, `/fichas/{id}/preview`). Opcional -- a imagem Docker do backend já instala `libreoffice-writer` em `/usr/bin/soffice`, encontrado automaticamente sem precisar desta variável; útil em dev local com instalação fora do padrão. Sem LibreOffice disponível, as rotas de PDF devolvem `501` (rotas de `.docx` continuam funcionando normalmente). |
 
-## Deploy em produção (VPS + Coolify)
+## Deploy em produção (Railway)
 
-Usa `docker-compose.prod.yml`, não o `docker-compose.yml` da raiz (esse é só para desenvolvimento
-local) -- o arquivo de produção não publica porta nenhuma no host (só o reverse proxy do Coolify
-alcança os serviços, pela rede interna do Compose), usa volumes nomeados para `tenant_data`/`logs`
-sobreviverem a cada deploy (o Coolify clona o repositório do zero a cada vez) e exige os segredos
-via variável de ambiente, sem depender de um `.env` no servidor.
+Dois serviços no mesmo projeto do Railway, ambos apontando para este repositório no GitHub (deploy
+automático a cada push). Cada um traz um `railway.json` com o builder (Dockerfile) e o healthcheck
+-- se o Railway não detectar sozinho, apontar o "Config file path" de cada serviço para o arquivo
+dele.
 
-1. **Configurar quem vai entrar** (Fase 16, Bloco L) -- para cada colega/consultoria, adicionar
-   uma entrada em `TENANT_CONFIG` (`tenant_config.py`) e acrescentar as duas linhas dela
-   (`{TENANT_ID}_LOGIN_SENHA`/`{TENANT_ID}_ADMIN_PASSWORD`) na lista de `environment:` do serviço
-   `backend` em `docker-compose.prod.yml` -- sem a linha ali, o valor não chega ao contêiner mesmo
-   que esteja configurado no painel do Coolify.
-2. No painel do Coolify, criar um recurso do tipo **Docker Compose** apontando para este
-   repositório e o arquivo `docker-compose.prod.yml`.
-3. Definir no painel do Coolify (nunca no repositório): `SENAI_LABFASHION_OPENAI_API_KEY`,
-   `CORS_ALLOWED_ORIGINS` (a URL https do frontend) e `NEXT_PUBLIC_API_URL` (a URL https do
-   backend, usada em tempo de **build**, não de execução) -- `docker compose` se recusa a subir
-   com uma mensagem clara se qualquer uma dessas faltar. Mais as senhas de login/admin de cada
-   tenant do passo 1.
-4. Atribuir os domínios (com HTTPS automático do Coolify) a cada serviço e dar deploy.
+| Serviço | Root directory | Config | Healthcheck |
+|---|---|---|---|
+| backend | `/` (raiz) | `railway.json` | `/health` |
+| frontend | `/frontend` | `frontend/railway.json` | `/` |
 
-Validado localmente simulando exatamente esse cenário (variáveis obrigatórias, sem `.env`,
-contêiner recriado do zero): a porta do backend fica inalcançável fora da rede do Compose, o
-volume nomeado sobrevive à recriação do contêiner, e `--proxy-headers --forwarded-allow-ips='*'`
-(no `command:` do backend) faz o IP real do usuário chegar à aplicação em vez do IP do proxy --
-sem isso, o bloqueio de login (Fase 14) e o limite de requisições por IP (Fase 16, D1, próximo
-parágrafo) valeriam pra todo mundo ao mesmo tempo, não por pessoa.
+1. **Volume** no serviço `backend`, montado em `/app/tenant_data` -- é onde ficam conversas,
+   fichas, croquis, o índice do RAG, sugestões e contadores de uso. Sem ele, todo deploy apaga
+   tudo. Com volume, o serviço roda em uma única instância (a arquitetura atual não suporta
+   réplicas: sessões em memória e dados em disco local). Os logs não precisam de volume: também
+   saem no console, que o Railway guarda.
+2. **Domínio público** em cada serviço (o Railway dá um `*.up.railway.app` com HTTPS, ou um
+   domínio próprio).
+3. **Variáveis do backend** (aba Variables, nunca no repositório):
+   - `AMBIENTE=producao` -- sem login por tenant configurado, o backend se recusa a subir.
+   - `CORS_ALLOWED_ORIGINS` = a URL https do frontend.
+   - `SENAI_LABFASHION_OPENAI_API_KEY`.
+   - `{TENANT_ID}_LOGIN_SENHA` e `{TENANT_ID}_ADMIN_PASSWORD` de cada tenant, com senhas fortes.
+4. **Variável do frontend**: `NEXT_PUBLIC_API_URL` = a URL https do backend. É usada no **build**
+   (o `frontend/Dockerfile` a recebe como `ARG`), então mudar o valor exige um novo deploy do
+   frontend, não só um restart.
+5. Deploy dos dois serviços.
+
+A porta e o IP real vêm resolvidos na própria imagem do backend, sem configuração no painel:
+- **Porta**: o `CMD` usa `${PORT:-8000}` -- o Railway define `PORT`; localmente continua 8000.
+- **IP real atrás do proxy**: `ENV FORWARDED_ALLOW_IPS` lista só redes privadas (onde o proxy da
+  hospedagem vive). O uvicorn então lê o `X-Forwarded-For` de trás pra frente e pega o primeiro
+  IP fora dessas redes -- o do usuário real, que o cliente não consegue forjar. Nunca trocar por
+  `*`: com curinga, o uvicorn pega o primeiro IP do cabeçalho, que é o que o próprio cliente
+  mandou, e o bloqueio de login (Fase 14) e o limite de requisições (Fase 16, D1) viram
+  contornáveis. Coberto por `tests/app/test_config_deploy.py`. **Depois do primeiro deploy,
+  conferir no log do backend** que os acessos aparecem com IPs públicos variados, não com um
+  único IP interno -- se aparecer só um IP privado fixo, o proxy do Railway está numa faixa fora
+  da lista e ela precisa ser ajustada.
+- **Modelo de embeddings**: baixado no build e usado offline (`HF_HUB_OFFLINE=1`), em vez de
+  baixar ~470MB do HuggingFace a cada deploy.
+
+Adicionar um tenant novo (Fase 16, L7): entrada em `TENANT_CONFIG` (`tenant_config.py`) + as duas
+variáveis dele no painel do backend + novo deploy.
+
+### Alternativa: VPS com Docker Compose
+
+`docker-compose.prod.yml` sobe os dois serviços numa VPS com um painel tipo Coolify/EasyPanel:
+nenhuma porta publicada no host (só o reverse proxy do painel alcança os serviços), volumes
+nomeados para `tenant_data`/`logs` e segredos exigidos via variável de ambiente
+(`${VAR:?mensagem}`), sem `.env` no servidor. Ao adicionar um tenant, acrescentar as duas
+variáveis dele na lista de `environment:` do backend nesse arquivo -- sem a linha ali, o valor não
+chega ao contêiner. Validado localmente: porta inalcançável fora da rede do Compose e volume
+sobrevivendo à recriação do contêiner.
 
 Limite de taxa por IP (Fase 16, Bloco D): `/chat` (20 req/min), `/documentos/upload` e
 `/planilha/upload` (5 req/min cada) já têm um teto simples embutido (`api/main.py:_limitar_taxa`),

@@ -17,9 +17,10 @@ venv/
 tenant_data/
 logs/
 
-# Frontend (imagem separada, ver frontend/Dockerfile)
-frontend/node_modules/
-frontend/.next/
+# Frontend (imagem separada, ver frontend/Dockerfile) -- o backend não usa nada daqui, então a
+# pasta inteira fica de fora: imagem menor e uma mudança só no frontend não invalida o cache do
+# `COPY . .` do backend.
+frontend/
 
 # IDE Configuration Files
 .vscode/

@@ -11,13 +11,11 @@
 #   local): o Coolify clona o repositório do zero a cada deploy -- um bind mount apontaria pra um
 #   diretório que não existe (ou que é recriado vazio) no clone novo. Um volume nomeado sobrevive
 #   a qualquer número de deploys, porque não depende do checkout do git.
-# - `--proxy-headers --forwarded-allow-ips='*'` no uvicorn: sem isso, toda requisição que passa
-#   pelo proxy chega ao backend com o MESMO IP (o do proxy, não o do usuário real) -- o bloqueio de
-#   login após 5 tentativas erradas (Fase 14) e o limite de requisições por IP (Fase 16, D1)
-#   passariam a valer pra todo mundo ao mesmo tempo, não por pessoa: uma consultora errando a
-#   senha 5 vezes bloquearia a outra também. `'*'` confia no cabeçalho X-Forwarded-For de
-#   qualquer origem -- seguro aqui especificamente porque não existe OUTRO caminho até o backend
-#   além do proxy (sem porta publicada, nada mais alcança o contêiner pra forjar esse cabeçalho).
+# - IP real do usuário atrás do proxy: resolvido na própria imagem (`ENV FORWARDED_ALLOW_IPS` no
+#   Dockerfile, confiando só nas redes privadas onde o proxy vive). Uma versão anterior deste
+#   arquivo usava `--forwarded-allow-ips='*'`, o que estava ERRADO: com curinga, o uvicorn pega o
+#   primeiro IP do X-Forwarded-For, que é o que o cliente mandou -- o proxy só acrescenta o IP real
+#   no fim, então qualquer um forjava o próprio IP e escapava do bloqueio de login.
 # - Segredos vêm das variáveis de ambiente de quem invoca `docker compose` (o próprio Coolify,
 #   preenchidas no painel dele) -- não existe `.env` no servidor. `${VAR:?mensagem}` faz o deploy
 #   falhar com uma mensagem clara em vez de subir silenciosamente com uma string vazia; o nome
@@ -47,7 +45,6 @@ services:
       - CONSULTOR_ISABELLA_LOGIN_SENHA
       - CONSULTOR_ISABELLA_ADMIN_PASSWORD
       - LOG_LEVEL
-    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
     restart: unless-stopped
 
   frontend:
