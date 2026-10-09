@@ -25,6 +25,10 @@ RUN npm run build
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# O servidor standalone escuta no endereço de HOSTNAME, que dentro do Docker é o ID do contêiner --
+# o proxy da hospedagem (Railway) não o alcança e responde 502. 0.0.0.0 escuta em todas as
+# interfaces. A porta vem de PORT (a hospedagem define; sem ela, 3000).
+ENV HOSTNAME="0.0.0.0"
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static

@@ -69,5 +69,16 @@ class TestModeloDeEmbeddingsEmbutido(unittest.TestCase):
         self.assertIn("HF_HUB_OFFLINE=1", dockerfile)
 
 
+class TestFrontendEscutaEmTodasAsInterfaces(unittest.TestCase):
+
+    def test_frontend_dockerfile_fixa_hostname_0_0_0_0_no_estagio_final(self):
+        # O servidor standalone do Next escuta no endereço de HOSTNAME. Dentro do Docker, HOSTNAME
+        # é o ID do contêiner, então o proxy da hospedagem não alcança o processo (502 "Application
+        # failed to respond" no Railway). Fixar no estágio final deixa a config no repositório.
+        dockerfile = _ler("frontend/Dockerfile")
+        estagio_final = dockerfile.split("AS runner", 1)[1]
+        self.assertRegex(estagio_final, r'(?m)^ENV HOSTNAME="?0\.0\.0\.0"?\s*$')
+
+
 if __name__ == "__main__":
     unittest.main()

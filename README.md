@@ -332,31 +332,52 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 ## Deploy em produção (Railway)
 
 Dois serviços no mesmo projeto do Railway, ambos apontando para este repositório no GitHub (deploy
-automático a cada push). Cada um traz um `railway.json` com o builder (Dockerfile) e o healthcheck
--- se o Railway não detectar sozinho, apontar o "Config file path" de cada serviço para o arquivo
-dele.
+automático a cada push).
 
-| Serviço | Root directory | Config | Healthcheck |
+| Serviço | Root Directory | Config File (Settings → Config-as-code) | Healthcheck |
 |---|---|---|---|
-| backend | `/` (raiz) | `railway.json` | `/health` |
-| frontend | `/frontend` | `frontend/railway.json` | `/` |
+| backend | vazio (raiz do repositório) | `/railway.json` (é o padrão) | `/health` |
+| frontend | `/frontend` | `/frontend/railway.json` | `/` |
+
+**Armadilha do monorepo:** o `railway.json` da raiz vale automaticamente para **todo** serviço do
+repositório e passa por cima do painel. Um serviço criado sem Root Directory constrói o `Dockerfile`
+do **backend**, sem erro nenhum: o domínio "do frontend" passa a servir uma cópia do backend, sem as
+variáveis de produção e portanto **aberta**. Por isso, na criação do serviço frontend: (a) não gerar
+domínio antes de conferir o build; (b) definir o Root Directory `/frontend` e o Config File
+`/frontend/railway.json`; (c) deixar o Dockerfile Path vazio; (d) abrir o **Build Logs** e ver
+`node:22-slim` / `npm ci` / `next build` (se aparecer `python:3.12-slim`, está errado -- parar). Use o
+botão **Deploy** do banner de mudanças pendentes, não o "Redeploy" de um deploy antigo.
 
 1. **Volume** no serviço `backend`, montado em `/app/tenant_data` -- é onde ficam conversas,
    fichas, croquis, o índice do RAG, sugestões e contadores de uso. Sem ele, todo deploy apaga
    tudo. Com volume, o serviço roda em uma única instância (a arquitetura atual não suporta
    réplicas: sessões em memória e dados em disco local). Os logs não precisam de volume: também
-   saem no console, que o Railway guarda.
-2. **Domínio público** em cada serviço (o Railway dá um `*.up.railway.app` com HTTPS, ou um
-   domínio próprio).
-3. **Variáveis do backend** (aba Variables, nunca no repositório):
+   saem no console, que o Railway guarda. O backend precisa de mais de 1 GB de memória (embeddings
+   + LibreOffice): plano pago.
+2. **Variáveis do backend** (aba Variables, nunca no repositório) -- **antes** de gerar o domínio,
+   porque um serviço novo faz um primeiro deploy imediato, sem variável nenhuma:
    - `AMBIENTE=producao` -- sem login por tenant configurado, o backend se recusa a subir.
-   - `CORS_ALLOWED_ORIGINS` = a URL https do frontend.
    - `SENAI_LABFASHION_OPENAI_API_KEY`.
    - `{TENANT_ID}_LOGIN_SENHA` e `{TENANT_ID}_ADMIN_PASSWORD` de cada tenant, com senhas fortes.
-4. **Variável do frontend**: `NEXT_PUBLIC_API_URL` = a URL https do backend. É usada no **build**
-   (o `frontend/Dockerfile` a recebe como `ARG`), então mudar o valor exige um novo deploy do
-   frontend, não só um restart.
-5. Deploy dos dois serviços.
+   - `CORS_ALLOWED_ORIGINS` = a URL https do frontend, sem barra no final (só dá para preencher
+     depois que o frontend tem domínio; até lá o login pelo navegador é recusado, o que é seguro).
+3. **Variáveis do frontend**:
+   - `NEXT_PUBLIC_API_URL` = a URL https do backend, sem barra no final. É usada no **build** (o
+     `frontend/Dockerfile` a recebe como `ARG`), então mudar o valor exige um novo deploy do
+     frontend, não só um restart.
+   - `HOSTNAME=0.0.0.0` -- já fixado no `frontend/Dockerfile`; no painel é redundante, mas não faz
+     mal. Sem isso o Next.js escuta no ID do contêiner e o domínio responde `502 Application
+     failed to respond`.
+4. **Domínio público** em cada serviço (Settings → Networking → Generate Domain; o Railway dá um
+   `*.up.railway.app` com HTTPS, ou um domínio próprio). A porta do domínio é a que aparece no log
+   de runtime (`PORT`, p. ex. 8080).
+5. **Conferir de fora, antes de passar o link a alguém**:
+   - frontend: `/` devolve o HTML do Next.js, `/docs` dá 404, e o bundle (`/_next/static/...js`)
+     contém a URL do backend e **não** contém `localhost:8000`;
+   - backend: `/docs` e `/openapi.json` dão 404, `/uso?tenant_id=...` sem token dá 401, login com
+     senha errada devolve `autorizado: false`;
+   - CORS: o preflight `OPTIONS /acesso/login` com `Origin` = frontend volta 200 com
+     `access-control-allow-origin` igual ao frontend, e com uma origem qualquer volta 400.
 
 A porta e o IP real vêm resolvidos na própria imagem do backend, sem configuração no painel:
 - **Porta**: o `CMD` usa `${PORT:-8000}` -- o Railway define `PORT`; localmente continua 8000.
