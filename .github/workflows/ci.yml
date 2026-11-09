@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+# Repositório público: o token do CI só precisa ler o código.
+permissions:
+  contents: read
+
 jobs:
   backend-tests:
     name: Testes Python (backend + RAG)

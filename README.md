@@ -331,6 +331,9 @@ Variáveis adicionais (não vão no `.env`, são configuração de deploy):
 
 ## Deploy em produção (Railway)
 
+> No momento não há uma versão hospedada do projeto. As instruções abaixo continuam valendo para
+> quem quiser subir a própria instância.
+
 Dois serviços no mesmo projeto do Railway, ambos apontando para este repositório no GitHub (deploy
 automático a cada push).
 
